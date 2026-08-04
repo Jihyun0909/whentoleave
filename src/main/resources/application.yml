@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: transit
+  datasource:
+    url: jdbc:postgresql://localhost:5433/transit
+    username: transit
+    password: transit
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
