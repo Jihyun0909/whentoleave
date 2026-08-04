@@ -44,3 +44,6 @@ application-local.yml
 ### OS ###
 .DS_Store
 Thumbs.db
+
+### 로컬 전용 헬퍼 (절대경로 하드코딩, 이 PC 전용) ###
+run-dev.bat

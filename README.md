@@ -166,8 +166,8 @@ CREATE TABLE subway_last_train (
 3. ~~개발 환경 세팅~~
 4. ~~DB 스키마 확정 + 시간표 캐싱 서비스 구현~~ (`SubwayLastTrain`, `SubwayScheduleCacheService`, ODsay 클라이언트)
 5. ~~핵심 서비스 로직(역산 알고리즘) 구현 + 단위 테스트~~ (`LastDepartureCalculator`, [이슈 #1](https://github.com/Jihyun0909/whentoleave/issues/1) — 환승 연결 실패 시 Infeasible을 명시적으로 반환하도록 README 의사코드 대비 설계 보완)
-6. API/화면 구현 (진행 예정)
-7. 본인 실제 출퇴근 경로로 수동 검증
+6. ~~API/화면 구현~~ ([이슈 #2](https://github.com/Jihyun0909/whentoleave/issues/2) — `GET /api/v1/last-departure`, `GET /`. 좌표 직접 입력 방식으로 우선 동작하게 만듦; 역 이름 검색/자동완성은 후속 작업으로 미룸)
+7. 본인 실제 출퇴근 경로로 수동 검증 (역 이름 검색이 없어 좌표를 직접 찾아 테스트해야 함 — 다음으로 미룰지 검토)
 8. 배포 (Oracle Cloud + GitHub Actions)
 9. (v1.1) 목표 도착시간 역산 기능
 10. (향후) 버스 포함 경로, PWA
