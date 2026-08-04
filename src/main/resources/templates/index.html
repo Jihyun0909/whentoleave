@@ -6,23 +6,44 @@
 </head>
 <body>
 <h1>When To Leave</h1>
-<p>출발지/도착지 좌표를 입력하면, 막차로 도착하려면 몇 시까지 출발해야 하는지 알려줍니다.</p>
+<p>출발지/도착지 역 이름을 입력하면, 막차로 도착하려면 몇 시까지 출발해야 하는지 알려줍니다.</p>
 
 <form method="get" action="/">
-    <fieldset>
-        <legend>출발지</legend>
-        <label>경도(SX) <input type="number" step="any" name="sx" th:value="${sx}" required></label>
-        <label>위도(SY) <input type="number" step="any" name="sy" th:value="${sy}" required></label>
-    </fieldset>
-    <fieldset>
-        <legend>도착지</legend>
-        <label>경도(EX) <input type="number" step="any" name="ex" th:value="${ex}" required></label>
-        <label>위도(EY) <input type="number" step="any" name="ey" th:value="${ey}" required></label>
-    </fieldset>
-    <button type="submit">계산하기</button>
+    <label>출발역 <input type="text" name="originName" th:value="${originName}" required></label>
+    <label>도착역 <input type="text" name="destName" th:value="${destName}" required></label>
+    <button type="submit">검색</button>
 </form>
 
+<div th:if="${originStatus == 'NOT_FOUND'}">
+    <p>출발역 "<span th:text="${originName}"></span>"을(를) 찾을 수 없습니다. 정확한 역 이름으로 다시 입력해주세요.</p>
+</div>
+<div th:if="${originStatus == 'AMBIGUOUS'}">
+    <p>출발역 후보가 여러 개입니다. 하나를 선택하세요.</p>
+    <ul>
+        <li th:each="c : ${originCandidates}">
+            <a th:href="@{/(originName=${originName}, destName=${destName}, originX=${c.x()}, originY=${c.y()}, destX=${destStatus == 'RESOLVED'} ? ${destX} : null, destY=${destStatus == 'RESOLVED'} ? ${destY} : null)}"
+               th:text="${c.stationName()} + ' (' + ${c.laneName()} + ')'"></a>
+        </li>
+    </ul>
+</div>
+
+<div th:if="${destStatus == 'NOT_FOUND'}">
+    <p>도착역 "<span th:text="${destName}"></span>"을(를) 찾을 수 없습니다. 정확한 역 이름으로 다시 입력해주세요.</p>
+</div>
+<div th:if="${destStatus == 'AMBIGUOUS'}">
+    <p>도착역 후보가 여러 개입니다. 하나를 선택하세요.</p>
+    <ul>
+        <li th:each="c : ${destCandidates}">
+            <a th:href="@{/(originName=${originName}, destName=${destName}, destX=${c.x()}, destY=${c.y()}, originX=${originStatus == 'RESOLVED'} ? ${originX} : null, originY=${originStatus == 'RESOLVED'} ? ${originY} : null)}"
+               th:text="${c.stationName()} + ' (' + ${c.laneName()} + ')'"></a>
+        </li>
+    </ul>
+</div>
+
 <div th:if="${searched}">
+    <p th:if="${originStatus == 'RESOLVED'}">출발: <strong th:text="${originDisplayName}"></strong></p>
+    <p th:if="${destStatus == 'RESOLVED'}">도착: <strong th:text="${destDisplayName}"></strong></p>
+
     <div th:if="${feasible}">
         <p>막차로 도착하려면
             <strong th:text="${#temporals.format(departureTime, 'HH:mm')}"></strong>까지 출발하세요

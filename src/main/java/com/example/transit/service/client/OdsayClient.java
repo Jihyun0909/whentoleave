@@ -2,6 +2,7 @@ package com.example.transit.service.client;
 
 import com.example.transit.service.client.dto.OdsayPathResponse;
 import com.example.transit.service.client.dto.OdsayScheduleResponse;
+import com.example.transit.service.client.dto.OdsayStationSearchResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -46,5 +47,21 @@ public class OdsayClient {
                         .build())
                 .retrieve()
                 .body(OdsayPathResponse.class);
+    }
+
+    /**
+     * stationClass=2(지하철역)로 고정해서 요청한다. 이름은 부분 검색이라 여러 건이
+     * 나올 수 있고, 정확한 이름 필터링은 호출하는 쪽(StationCandidateResolver)에서 한다.
+     */
+    public OdsayStationSearchResponse searchStation(String stationName) {
+        return restClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/searchStation")
+                        .queryParam("stationName", stationName)
+                        .queryParam("stationClass", 2)
+                        .queryParam("apiKey", apiKey)
+                        .build())
+                .retrieve()
+                .body(OdsayStationSearchResponse.class);
     }
 }
