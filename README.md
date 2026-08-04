@@ -138,6 +138,7 @@ CREATE TABLE subway_last_train (
 - 큰 기능 단위로 **GitHub 이슈 생성 → `feature/*` 브랜치 생성 → 구현 → `main`에 머지(이슈 종료) → 브랜치 삭제**
   - 이슈를 먼저 만들어두면 왜 이 브랜치를 팠는지, 어떤 논의가 있었는지가 기록에 남아서 나중에 포트폴리오 설명할 때도 근거가 됨
   - 예: `feature/route-cache`, `feature/idempotent-notification`, `feature/circuit-breaker`
+  - **적용 기준**: 로드맵 4~6단계(DB 스키마, 알고리즘, API/화면)처럼 이미 이 README에 설계가 끝나 있는 MVP 순차 구현은 이슈 없이 바로 브랜치만 파도 됨. v1.1 이후의 독립적인 기능 단위(버스 지원, 동시성/안정성 확장 기능 3종 등)부터 이슈를 먼저 만듦
 - 커밋 메시지는 [Conventional Commits](https://www.conventionalcommits.org/) 스타일 유지 (`feat:`, `fix:`, `chore:`, `docs:`, `test:`)
 
 ## 로드맵
