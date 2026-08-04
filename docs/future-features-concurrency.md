@@ -1,4 +1,4 @@
-# 몇시에 나가 — 추가 기능 기획 (동시성/안정성 강화)
+# When To Leave — 추가 기능 기획 (동시성/안정성 강화)
 
 MVP(핵심 막차 안내 기능) 완료 후 착수할 확장 기능 3종의 설계 문서입니다. 기존 아키텍처(`web / api / service / domain / repository` 패키지 분리, `service`는 HTTP 타입을 모름, API는 DTO로 응답)를 그대로 따릅니다.
 
