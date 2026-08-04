@@ -69,28 +69,35 @@ com.example.transit
 1. **24시 초과 표기**: `departureTime`이 `"24:35"`처럼 24시를 넘는 값으로 옵니다. 파싱 시 hour가 24 이상이면 `hour - 24`로 바꾸고 날짜를 +1일 처리해야 합니다.
 2. **분기 노선의 막차 다중 존재**: 4호선처럼 노선이 갈라지는 경우, 목적지(종착역)별로 `firstLastFlag:2`가 여러 개 나옵니다 (예: 오이도행/안산행/금정행/사당행/서울역행 막차가 전부 따로 존재). "내가 타야 할 방향으로 가는 마지막 열차"를 목적지 기준으로 골라야 하며, 단순히 배열의 마지막 값을 쓰면 틀릴 수 있습니다. v1에서는 후보 중 가장 늦은 시각을 채택하되, **배포 전 서울교통공사 공식 막차시간표와 주요 노선 몇 개를 수동 대조 검증**하는 것을 인수 테스트에 포함합니다.
 
-## 핵심 알고리즘 — 역산 로직 (의사코드)
+## 핵심 알고리즘 — 역산 로직
 
-여러 번 환승하는 경로에서, 가장 마지막 지하철 구간부터 거꾸로 계산해 최종 출발 마감 시각을 구합니다.
+여러 번 환승하는 경로에서, 가장 마지막 지하철 구간부터 거꾸로 계산해 최종 출발 마감 시각을 구합니다. `LastDepartureCalculator`로 구현되어 있습니다 ([이슈 #1](https://github.com/Jihyun0909/whentoleave/issues/1)).
 
 ```
 legs = 길찾기 API에서 추출한 지하철 구간 리스트 (정순)
 requiredArrival = null  // 마지막 구간은 다음 제약이 없음
 
 for leg in reversed(legs):
-    candidates = DB에서 (leg.stationId, leg.wayCode, todayDayType)로 조회
-    lastTrain = candidates 중 조건에 맞는 가장 늦은 departure_time
+    candidates = (leg.stationId, leg.wayCode)의 오늘 요일유형 막차 후보 조회
+    lastTrain = candidates 중 가장 늦은 departure_time
 
     if requiredArrival != null:
-        deadline = requiredArrival - leg.sectionTime
-        사용할 시각 = min(lastTrain.departureTime, deadline)
+        deadline = requiredArrival - leg.rideMinutes
+        if lastTrain > deadline:
+            return Infeasible("이 막차로는 다음 환승을 놓침")  // 가짜 deadline을 답인 척 반환하지 않는다
+        사용할 시각 = lastTrain
     else:
-        사용할 시각 = lastTrain.departureTime
+        사용할 시각 = lastTrain
 
-    requiredArrival = 사용할 시각 - 환승/도보 버퍼
-
-최종 답 = requiredArrival  // 첫 승차역에서 몇 시까지 타야 하는지
+    if leg가 첫 구간이면:
+        최종 답 = 사용할 시각  // 첫 승차역에서 몇 시까지 타야 하는지
+    else:
+        requiredArrival = 사용할 시각 - 환승/도보 버퍼
 ```
+
+**자정 넘는 시각 비교**: `LocalTime` 값끼리 직접 빼고 비교하면 자정을 넘나들 때 wrap-around 버그가 생기므로, 내부 계산은 전부 "서비스일 기준 분"(0시=0, 24시 이후는 1440 이상)의 정수로 변환해서 처리합니다.
+
+**테스트 전략**: `SubwayScheduleCacheService`에서 `LastTrainLookup` 인터페이스를 분리해서, Mockito 없이 람다 페이크로 `LastDepartureCalculator`를 단위 테스트합니다.
 
 ## DB 스키마
 
@@ -147,8 +154,8 @@ CREATE TABLE subway_last_train (
 2. ~~API 리서치 — ODsay 길찾기/시간표 API 스파이크 완료~~
 3. ~~개발 환경 세팅~~
 4. ~~DB 스키마 확정 + 시간표 캐싱 서비스 구현~~ (`SubwayLastTrain`, `SubwayScheduleCacheService`, ODsay 클라이언트)
-5. 핵심 서비스 로직(역산 알고리즘) 구현 + 단위 테스트 (진행 예정)
-6. API/화면 구현
+5. ~~핵심 서비스 로직(역산 알고리즘) 구현 + 단위 테스트~~ (`LastDepartureCalculator`, [이슈 #1](https://github.com/Jihyun0909/whentoleave/issues/1) — 환승 연결 실패 시 Infeasible을 명시적으로 반환하도록 README 의사코드 대비 설계 보완)
+6. API/화면 구현 (진행 예정)
 7. 본인 실제 출퇴근 경로로 수동 검증
 8. 배포 (Oracle Cloud + GitHub Actions)
 9. (v1.1) 목표 도착시간 역산 기능

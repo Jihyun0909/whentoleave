@@ -22,7 +22,7 @@ import java.util.List;
  * 락으로 해결할 예정이며, 지금 단계에서는 의도적으로 단순하게 둔다.
  */
 @Service
-public class SubwayScheduleCacheService {
+public class SubwayScheduleCacheService implements LastTrainLookup {
 
     private final SubwayLastTrainRepository repository;
     private final OdsayClient odsayClient;
@@ -32,6 +32,7 @@ public class SubwayScheduleCacheService {
         this.odsayClient = odsayClient;
     }
 
+    @Override
     @Transactional
     public List<SubwayLastTrain> getLastTrains(int stationId, int wayCode) {
         DayType dayType = DayType.from(LocalDate.now());
