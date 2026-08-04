@@ -92,9 +92,9 @@ for leg in reversed(legs):
 최종 답 = requiredArrival  // 첫 승차역에서 몇 시까지 타야 하는지
 ```
 
-## DB 스키마 (초안)
+## DB 스키마
 
-외부 API 호출 횟수를 아끼고 응답 속도를 높이기 위해, 막차 시간표는 매번 호출하지 않고 하루 1번 배치로 캐싱합니다.
+외부 API 호출 횟수를 아끼고 응답 속도를 높이기 위해 막차 시간표를 캐싱합니다. 다만 **매일 전체 역을 배치로 미리 긁는 방식은 쓰지 않습니다** — 수도권 역이 700개가 넘어서 그것만으로 무료 호출 한도(일 1,000회)를 소진합니다. 대신 **실제 요청이 들어온 역만, 그날 처음 조회될 때 캐싱**하는 lazy cache-aside 방식을 씁니다 (`SubwayScheduleCacheService`). 지하철 시간표는 사실상 고정값이라, 같은 요일유형에 대해 한 번 캐싱하면 그 값을 계속 재사용합니다 (자정 넘어 다음 날짜가 돼도 같은 요일유형이면 재조회하지 않음 — TTL/무효화 정책은 이후 확장 기능에서 다룸).
 
 ```sql
 CREATE TABLE subway_last_train (
@@ -103,11 +103,14 @@ CREATE TABLE subway_last_train (
     way_code SMALLINT NOT NULL,            -- 1:상행, 2:하행
     day_type VARCHAR(10) NOT NULL,         -- WEEKDAY, SATURDAY, HOLIDAY
     end_station_name VARCHAR(50) NOT NULL, -- 목적지 (분기 노선 대응)
-    departure_time TIME NOT NULL,          -- 24시 초과분은 +1일 보정 후 저장
+    departure_time TIME NOT NULL,          -- 24시 초과분은 24를 빼고 저장 (next_day로 구분)
+    next_day BOOLEAN NOT NULL DEFAULT false, -- departure_time이 "다음날 이 시각"인지 여부 (예: 24:35 -> 00:35 + next_day=true)
     updated_at TIMESTAMP NOT NULL DEFAULT now(),
     UNIQUE (station_id, way_code, day_type, end_station_name)
 );
 ```
+
+`next_day`가 필요한 이유: `TIME` 컬럼 하나만으로는 "0시 35분"이 오늘인지 다음날인지 구분이 안 되는데, 자정을 넘나드는 막차 역산 계산에서는 이 구분이 정확도에 직결됩니다.
 
 ## 배포 전략 (무료 우선)
 
@@ -123,15 +126,17 @@ CREATE TABLE subway_last_train (
 
 - **JDK**: Eclipse Temurin 21 (LTS)
 - **IDE**: IntelliJ IDEA Community
-- **DB (로컬)**: Docker 컨테이너로 PostgreSQL 실행
+- **DB (로컬)**: Docker 컨테이너로 PostgreSQL 실행 (`5433` 포트 — 다른 프로젝트가 기본 `5432`를 이미 쓰고 있어서 변경)
 - **OS**: Windows 11 Home
+- ⚠️ **프로젝트 경로는 한글/공백 없이 유지** (`C:\Users\quswl\projects\whentoleave`) — Windows 로케일이 UTF-8이 아니면(MS949 등) Gradle 테스트 워커가 한글/공백 포함 경로에서 `ClassNotFoundException`을 냅니다. JVM 옵션으로 못 고치는 문제라 경로 자체를 ASCII로 유지하는 게 유일한 실용적 해결책입니다.
 
 ## Git 전략
 
 혼자 진행하는 프로젝트라 Git Flow(`develop`/`release`/`hotfix` 다중 브랜치)는 쓰지 않습니다. Git Flow는 여러 명이 동시에 다른 기능을 작업하면서 정해진 릴리즈 일정에 맞춰 배포를 조율해야 할 때 가치가 있는데, 혼자 개발하고 계속 배포하는 상황에서는 그 조율 대상 자체가 없어서 관리 부담만 늘어납니다.
 
 - `main` 브랜치 — 항상 정상 동작하는 상태 유지
-- 기능 단위로 `feature/*` 브랜치 생성 → 작업 → `main`에 머지 → 브랜치 삭제
+- 큰 기능 단위로 **GitHub 이슈 생성 → `feature/*` 브랜치 생성 → 구현 → `main`에 머지(이슈 종료) → 브랜치 삭제**
+  - 이슈를 먼저 만들어두면 왜 이 브랜치를 팠는지, 어떤 논의가 있었는지가 기록에 남아서 나중에 포트폴리오 설명할 때도 근거가 됨
   - 예: `feature/route-cache`, `feature/idempotent-notification`, `feature/circuit-breaker`
 - 커밋 메시지는 [Conventional Commits](https://www.conventionalcommits.org/) 스타일 유지 (`feat:`, `fix:`, `chore:`, `docs:`, `test:`)
 
@@ -139,9 +144,9 @@ CREATE TABLE subway_last_train (
 
 1. ~~기획 (MVP 범위 확정)~~
 2. ~~API 리서치 — ODsay 길찾기/시간표 API 스파이크 완료~~
-3. 개발 환경 세팅 (진행 중)
-4. DB 스키마 확정 + 시간표 캐싱 배치 구현
-5. 핵심 서비스 로직(역산 알고리즘) 구현 + 단위 테스트
+3. ~~개발 환경 세팅~~
+4. ~~DB 스키마 확정 + 시간표 캐싱 서비스 구현~~ (`SubwayLastTrain`, `SubwayScheduleCacheService`, ODsay 클라이언트)
+5. 핵심 서비스 로직(역산 알고리즘) 구현 + 단위 테스트 (진행 예정)
 6. API/화면 구현
 7. 본인 실제 출퇴근 경로로 수동 검증
 8. 배포 (Oracle Cloud + GitHub Actions)

@@ -32,4 +32,11 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// 한글 경로(개인 프로젝트) + Windows MS949 로케일 조합에서 테스트 워커가
+	// 클래스패스를 잘못 해석해 ClassNotFoundException이 나는 문제 방지
+	jvmArgs '-Dfile.encoding=UTF-8', '-Dsun.jnu.encoding=UTF-8'
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
 }

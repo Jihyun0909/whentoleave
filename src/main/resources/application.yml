@@ -10,3 +10,8 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: true
+
+odsay:
+  base-url: https://api.odsay.com/v1/api
+  # 실제 키는 커밋하지 않는다. IntelliJ Run Configuration의 환경변수(ODSAY_API_KEY)로 주입.
+  api-key: ${ODSAY_API_KEY:}
