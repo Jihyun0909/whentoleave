@@ -126,6 +126,15 @@ CREATE TABLE subway_last_train (
 - **DB (로컬)**: Docker 컨테이너로 PostgreSQL 실행
 - **OS**: Windows 11 Home
 
+## Git 전략
+
+혼자 진행하는 프로젝트라 Git Flow(`develop`/`release`/`hotfix` 다중 브랜치)는 쓰지 않습니다. Git Flow는 여러 명이 동시에 다른 기능을 작업하면서 정해진 릴리즈 일정에 맞춰 배포를 조율해야 할 때 가치가 있는데, 혼자 개발하고 계속 배포하는 상황에서는 그 조율 대상 자체가 없어서 관리 부담만 늘어납니다.
+
+- `main` 브랜치 — 항상 정상 동작하는 상태 유지
+- 기능 단위로 `feature/*` 브랜치 생성 → 작업 → `main`에 머지 → 브랜치 삭제
+  - 예: `feature/route-cache`, `feature/idempotent-notification`, `feature/circuit-breaker`
+- 커밋 메시지는 [Conventional Commits](https://www.conventionalcommits.org/) 스타일 유지 (`feat:`, `fix:`, `chore:`, `docs:`, `test:`)
+
 ## 로드맵
 
 1. ~~기획 (MVP 범위 확정)~~
