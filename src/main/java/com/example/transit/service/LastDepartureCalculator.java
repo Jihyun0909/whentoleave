@@ -1,10 +1,13 @@
 package com.example.transit.service;
 
 import com.example.transit.domain.SubwayLastTrain;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 여러 지하철 구간(환승 포함)에 대해, 가장 마지막 구간부터 거꾸로 계산해서
@@ -16,6 +19,7 @@ import java.util.List;
 @Service
 public class LastDepartureCalculator {
 
+    private static final Logger log = LoggerFactory.getLogger(LastDepartureCalculator.class);
     private static final int MINUTES_PER_DAY = 24 * 60;
 
     private final LastTrainLookup lastTrainLookup;
@@ -40,19 +44,34 @@ public class LastDepartureCalculator {
                 return new LastDepartureResult.Infeasible(
                         "역 " + leg.stationId() + "의 막차 정보를 찾을 수 없습니다.");
             }
-            int lastTrainMinutes = maxDepartureMinutes(candidates);
+            List<Integer> reachableMinutes = reachableCandidates(candidates, leg).stream()
+                    .map(train -> toServiceMinutes(train.getDepartureTime(), train.isNextDay()))
+                    .toList();
+
+            log.info("leg[{}] stationId={} wayCode={} rideMinutes={} transferBufferMinutes={} "
+                            + "earlierStopNames={} candidates(all)={} candidates(reachable)={} requiredArrivalMinutes={}",
+                    i, leg.stationId(), leg.wayCode(), leg.rideMinutes(), leg.transferBufferMinutes(),
+                    leg.earlierStopNames(),
+                    candidates.stream().map(t -> t.getEndStationName() + "=" + toServiceMinutes(t.getDepartureTime(), t.isNextDay())).toList(),
+                    reachableMinutes, requiredArrivalMinutes);
 
             int usableMinutes;
             if (requiredArrivalMinutes == null) {
-                usableMinutes = lastTrainMinutes;
+                usableMinutes = reachableMinutes.stream().mapToInt(Integer::intValue).max().orElseThrow();
             } else {
                 int deadline = requiredArrivalMinutes - leg.rideMinutes();
-                if (lastTrainMinutes > deadline) {
+                // 가장 늦은 후보 하나만 보고 포기하지 않는다 - 그 후보가 마감을 못 맞춰도,
+                // 그보다 이른 다른 후보가 마감 안에 들어올 수 있으므로 그중 제일 늦은 걸 찾는다.
+                Optional<Integer> best = reachableMinutes.stream()
+                        .filter(minutes -> minutes <= deadline)
+                        .max(Integer::compareTo);
+                log.info("leg[{}] deadline={} chosen={}", i, deadline, best.orElse(null));
+                if (best.isEmpty()) {
                     return new LastDepartureResult.Infeasible(
                             "역 " + leg.stationId() + "의 막차로는 다음 환승을 놓칩니다. "
                                     + "더 이른 경로를 확인해주세요.");
                 }
-                usableMinutes = lastTrainMinutes;
+                usableMinutes = best.get();
             }
 
             if (i == 0) {
@@ -65,11 +84,19 @@ public class LastDepartureCalculator {
         return toFeasible(firstLegUsableMinutes);
     }
 
-    private int maxDepartureMinutes(List<SubwayLastTrain> candidates) {
-        return candidates.stream()
-                .mapToInt(train -> toServiceMinutes(train.getDepartureTime(), train.isNextDay()))
-                .max()
-                .orElseThrow();
+    /**
+     * 목적지가 이 구간의 도착역보다 앞에 있는(즉 단축운행으로 도착역까지 못 가는) 후보는 뺀다.
+     * 전부 걸러져서 하나도 안 남으면(정보 부족 등), 걸러내기 전 전체 목록으로 되돌아간다 —
+     * 잘못 걸러서 "갈 수 있는데 못 간다"고 하는 것보다는 낫다.
+     */
+    private List<SubwayLastTrain> reachableCandidates(List<SubwayLastTrain> candidates, SubwayLeg leg) {
+        if (leg.earlierStopNames().isEmpty()) {
+            return candidates;
+        }
+        List<SubwayLastTrain> filtered = candidates.stream()
+                .filter(train -> !leg.earlierStopNames().contains(train.getEndStationName()))
+                .toList();
+        return filtered.isEmpty() ? candidates : filtered;
     }
 
     private int toServiceMinutes(LocalTime time, boolean nextDay) {

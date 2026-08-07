@@ -25,7 +25,20 @@ public record OdsayPathResponse(Result result) {
             Integer trafficType,
             Integer sectionTime,
             Integer startID,
-            Integer wayCode
+            Integer wayCode,
+            PassStopList passStopList
     ) {
+    }
+
+    /**
+     * 이 구간이 실제로 정차하는 역들을 순서대로 담는다. 막차 후보 중 "이 구간의
+     * 도착역보다 앞에서 끊기는(단축운행) 열차"를 걸러내는 데 쓴다.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record PassStopList(List<Station> stations) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Station(String stationName) {
     }
 }
