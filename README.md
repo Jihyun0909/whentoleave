@@ -140,10 +140,30 @@ CREATE TABLE subway_schedule (
 | 항목 | 선택 | 비고 |
 |---|---|---|
 | 서버 | Oracle Cloud Always Free (ARM 4코어/24GB) | 영구 무료, Render/Railway 무료 티어보다 상시 운영에 안정적 |
-| DB | 서버와 같은 VM에 PostgreSQL 설치 | 별도 DB 호스팅 비용 없음 |
+| DB | 서버와 같은 VM에 PostgreSQL 컨테이너로 실행 | 별도 DB 호스팅 비용 없음 |
+| 리버스 프록시 / HTTPS | Caddy | Let's Encrypt 인증서 발급·갱신을 자동으로 처리해줘서 별도 certbot 설정이 필요 없음 |
 | 도메인 | DuckDNS 무료 서브도메인 | 필요시 로마자 표기 도메인 별도 구매 검토 |
-| CI/CD | GitHub Actions | public repo 무제한 무료 |
+| CI | GitHub Actions | public repo 무제한 무료. `main` 브랜치 push/PR마다 `./gradlew test` 실행 (`.github/workflows/ci.yml`) |
 | 비용이 발생할 수 있는 지점 | ODsay 무료 호출 한도(일 1,000회 이하) 초과 시 | 시간표 캐싱으로 호출량을 최소화해 방어 |
+
+### 배포 구성
+
+- `Dockerfile`: Gradle로 빌드한 뒤 JRE 이미지에 jar만 담는 멀티스테이지 빌드
+- `docker-compose.prod.yml`: `app` + `postgres` + `caddy` 3개 컨테이너. 로컬 개발용 `docker-compose.yml`(포스트그레스만 띄우는 용도)과는 별개 파일로 분리
+- `Caddyfile`: `{$DOMAIN}` 하나로 자동 HTTPS 리버스 프록시 설정
+- `.env.example`: 서버에서 채워야 할 값(`DB_PASSWORD`, `ODSAY_API_KEY`, `DOMAIN`) 목록. 실제 값을 채운 `.env`는 절대 커밋하지 않음(`.gitignore`)
+- `application.yml`의 datasource는 `${DB_URL}`/`${DB_USERNAME}`/`${DB_PASSWORD}` 환경변수로 오버라이드 가능하며, 값이 없으면 로컬 개발 기본값(`localhost:5433`)을 그대로 씀
+
+⚠️ **로컬에서 `docker-compose.prod.yml`을 테스트할 때 주의**: 두 compose 파일이 같은 디렉터리에 있으면 Docker Compose가 프로젝트명을 디렉터리 이름으로 같게 잡아서, `postgres` 서비스가 컨테이너 이름/포트 매핑이 다른데도 "같은 서비스"로 취급해 로컬 개발용 컨테이너를 지우고 재생성해버릴 수 있다(실제로 한 번 겪음 — 볼륨은 이름이 같아 데이터는 안 남았지만 포트 매핑이 사라짐). 로컬에서 프로덕션 compose를 검증할 땐 반드시 `docker compose -p <다른-프로젝트명> -f docker-compose.prod.yml ...`처럼 프로젝트명을 분리해야 한다.
+
+### VM에 배포하는 순서 (요약)
+
+1. Oracle Cloud 계정 생성 + Always Free VM 인스턴스 생성 (Ubuntu)
+2. VM에 Docker + Docker Compose 설치, 80/443 포트 방화벽(Security List) 오픈
+3. DuckDNS 가입 후 서브도메인을 VM의 공인 IP로 연결
+4. 이 저장소를 VM에 clone, `.env.example`을 참고해 `.env` 작성 (`DB_PASSWORD`, `ODSAY_API_KEY`, `DOMAIN`)
+5. `docker compose -f docker-compose.prod.yml up -d --build`
+6. `https://<DOMAIN>`으로 접속 확인
 
 ## 개발 환경
 
@@ -174,7 +194,7 @@ CREATE TABLE subway_schedule (
 6. ~~API/화면 구현~~ ([이슈 #2](https://github.com/Jihyun0909/whentoleave/issues/2) — `GET /api/v1/last-departure`, `GET /`)
 6-1. ~~역 이름 검색으로 출발지/도착지 선택~~ ([이슈 #3](https://github.com/Jihyun0909/whentoleave/issues/3) — `searchStation` 연동, 동명역 여러 개(환승역 등)일 때 노선명과 함께 후보를 보여주고 선택하게 함. 자동완성(타이핑 중 후보)은 제외, 검색 버튼 클릭 방식)
 7. 본인 실제 출퇴근 경로로 수동 검증 — 진행 중. 카카오맵/네이버지도와 대조하며 실제 버그 2건 발견 후 수정: 단축운행으로 목적지 전에 끊기는 막차 후보 오선택([이슈 #4](https://github.com/Jihyun0909/whentoleave/issues/4)), 공식 막차만 캐싱해서 마감을 만족하는 비공식 열차를 놓치는 문제([이슈 #5](https://github.com/Jihyun0909/whentoleave/issues/5)). 이 두 건 수정 이후로도 남는 사소한 시간 차이는 "알려진 한계"(계획된 시간표 vs 실시간 운행정보)로 문서화하고 더 파고들지 않기로 함.
-8. 배포 (Oracle Cloud + GitHub Actions)
+8. 배포 (Oracle Cloud + GitHub Actions) — 진행 중. 컨테이너화(`Dockerfile`, `docker-compose.prod.yml`, `Caddyfile`) + CI(`.github/workflows/ci.yml`)까지 완료하고 로컬에서 전체 스택(Caddy→app→Postgres, HTTPS) 검증 완료. 남은 건 Oracle Cloud VM 생성 + DuckDNS 도메인 연결 + 실제 배포
 9. (v1.1) 목표 도착시간 역산 기능
 10. (향후) 버스 포함 경로, PWA
 11. (향후) 동시성/안정성 강화 기능 3종 — 상세 설계는 [docs/future-features-concurrency.md](docs/future-features-concurrency.md) 참고
