@@ -57,4 +57,21 @@ class StationCandidateResolverTest {
 
         assertInstanceOf(StationResolution.NotFound.class, result);
     }
+
+    /**
+     * 실사용 중 실제로 발견된 버그: ODsay에는 "수유(강북구청)"으로 저장돼 있어서,
+     * 괄호 없이 "수유"로 검색하면 예전 로직(완전 일치)으로는 못 찾았다.
+     */
+    @Test
+    void 역명에_괄호가_붙어있어도_괄호_없는_검색어로_찾을_수_있다() {
+        List<OdsayStationSearchResponse.Station> suyu = List.of(
+                new OdsayStationSearchResponse.Station("수유(강북구청)", 414, 127.025473, 37.637828, "수도권 4호선")
+        );
+
+        StationResolution result = resolver.resolve("수유", suyu);
+
+        StationResolution.Resolved resolved = assertInstanceOf(StationResolution.Resolved.class, result);
+        assertEquals(127.025473, resolved.x());
+        assertEquals(37.637828, resolved.y());
+    }
 }
