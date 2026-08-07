@@ -67,9 +67,10 @@ com.example.transit
 **구현 시 주의할 점 (실제 API 테스트로 발견한 이슈)**
 
 1. **24시 초과 표기**: `departureTime`이 `"24:35"`처럼 24시를 넘는 값으로 옵니다. 파싱 시 hour가 24 이상이면 `hour - 24`로 바꾸고 날짜를 +1일 처리해야 합니다.
-2. **분기 노선의 막차 다중 존재**: 4호선처럼 노선이 갈라지는 경우, 목적지(종착역)별로 `firstLastFlag:2`가 여러 개 나옵니다 (예: 오이도행/안산행/금정행/사당행/서울역행 막차가 전부 따로 존재). "내가 타야 할 방향으로 가는 마지막 열차"를 목적지 기준으로 골라야 하며, 단순히 배열의 마지막 값을 쓰면 틀릴 수 있습니다. v1에서는 후보 중 가장 늦은 시각을 채택하되, **배포 전 서울교통공사 공식 막차시간표와 주요 노선 몇 개를 수동 대조 검증**하는 것을 인수 테스트에 포함합니다.
+2. **분기 노선의 막차 다중 존재**: 4호선처럼 노선이 갈라지는 경우, 목적지(종착역)별로 `firstLastFlag:2`가 여러 개 나옵니다 (예: 오이도행/안산행/금정행/사당행/서울역행 막차가 전부 따로 존재). "내가 타야 할 방향으로 가는 마지막 열차"를 목적지 기준으로 골라야 하며, 단순히 배열의 마지막 값을 쓰면 틀릴 수 있습니다.
 3. **API 키의 `/`를 인코딩 안 하면 인증 실패**: `UriComponentsBuilder.queryParam()`은 URI 스펙상 쿼리 문자열에서 허용되는 `/`를 인코딩하지 않고 그대로 보내는데, ODsay는 그 상태로는 키 인증에 실패합니다 (실사용 중 발견 — 브라우저로 직접 호출하면 되는데 앱에서는 계속 안 됐던 원인). `OdsayClient`는 `URLEncoder`로 직접 완전히 인코딩한 뒤 `URI.create()`로 조립해서 이 문제를 피합니다.
 4. **역 이름에 괄호가 붙는 경우**: `searchStation`은 "수유(강북구청)"처럼 부가 정보를 괄호로 붙인 이름을 반환하는 역이 있습니다. 사용자는 "수유"만 입력하지 괄호까지는 모르므로, 비교 전에 양쪽 다 trailing 괄호를 제거하고 정규화해서 매칭합니다 (`StationCandidateResolver`). 다만 "강남"으로 검색했을 때 "강남구청"/"강남대"까지 걸리면 안 되므로, 괄호가 없는 이름끼리는 여전히 완전 일치만 인정합니다.
+5. **`firstLastFlag`가 붙지 않은 열차도 특정 환승 마감엔 여전히 유효함** ([이슈 #5](https://github.com/Jihyun0909/whentoleave/issues/5) — 실사용 검증 중 발견): 처음엔 "공식 막차(`firstLastFlag:2/3`)"만 캐싱했는데, 공식 막차가 다음 환승 마감을 놓치더라도 그 앞의 비공식 열차(`firstLastFlag:0`)가 마감을 맞추는 경우가 실제로 있었습니다 (수유→압구정 케이스: 사당행 공식 막차 00:21은 마감을 7분 차로 놓치지만, 그 앞 사당행 23:59는 `firstLastFlag:0`인데도 맞음 — 실제로 카카오맵/네이버지도가 안내하는 값도 이쪽). 그래서 지금은 응답에 있는 항목을 전부 캐싱하고, "마감을 만족하는 가장 늦은 열차"를 계산 시점(`LastDepartureCalculator`)에서 `firstLastFlag`와 무관하게 찾습니다.
 
 ## 핵심 알고리즘 — 역산 로직
 
@@ -114,10 +115,10 @@ for leg in reversed(legs):
 
 ## DB 스키마
 
-외부 API 호출 횟수를 아끼고 응답 속도를 높이기 위해 막차 시간표를 캐싱합니다. 다만 **매일 전체 역을 배치로 미리 긁는 방식은 쓰지 않습니다** — 수도권 역이 700개가 넘어서 그것만으로 무료 호출 한도(일 1,000회)를 소진합니다. 대신 **실제 요청이 들어온 역만, 그날 처음 조회될 때 캐싱**하는 lazy cache-aside 방식을 씁니다 (`SubwayScheduleCacheService`). 지하철 시간표는 사실상 고정값이라, 같은 요일유형에 대해 한 번 캐싱하면 그 값을 계속 재사용합니다 (자정 넘어 다음 날짜가 돼도 같은 요일유형이면 재조회하지 않음 — TTL/무효화 정책은 이후 확장 기능에서 다룸).
+외부 API 호출 횟수를 아끼고 응답 속도를 높이기 위해 역×방향×요일유형의 시간표를 캐싱합니다. 다만 **매일 전체 역을 배치로 미리 긁는 방식은 쓰지 않습니다** — 수도권 역이 700개가 넘어서 그것만으로 무료 호출 한도(일 1,000회)를 소진합니다. 대신 **실제 요청이 들어온 역만, 그날 처음 조회될 때 캐싱**하는 lazy cache-aside 방식을 씁니다 (`SubwayScheduleCacheService`). 지하철 시간표는 사실상 고정값이라, 같은 요일유형에 대해 한 번 캐싱하면 그 값을 계속 재사용합니다 (자정 넘어 다음 날짜가 돼도 같은 요일유형이면 재조회하지 않음 — TTL/무효화 정책은 이후 확장 기능에서 다룸).
 
 ```sql
-CREATE TABLE subway_last_train (
+CREATE TABLE subway_schedule (
     id BIGSERIAL PRIMARY KEY,
     station_id INT NOT NULL,
     way_code SMALLINT NOT NULL,            -- 1:상행, 2:하행
@@ -125,12 +126,14 @@ CREATE TABLE subway_last_train (
     end_station_name VARCHAR(50) NOT NULL, -- 목적지 (분기 노선 대응)
     departure_time TIME NOT NULL,          -- 24시 초과분은 24를 빼고 저장 (next_day로 구분)
     next_day BOOLEAN NOT NULL DEFAULT false, -- departure_time이 "다음날 이 시각"인지 여부 (예: 24:35 -> 00:35 + next_day=true)
-    updated_at TIMESTAMP NOT NULL DEFAULT now(),
-    UNIQUE (station_id, way_code, day_type, end_station_name)
+    first_last_flag INT,                   -- ODsay 원본 값 (0:일반, 1:첫차, 2:막차, 3:첫차&막차) 참고용 — 필터링엔 안 씀
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
 );
 ```
 
 `next_day`가 필요한 이유: `TIME` 컬럼 하나만으로는 "0시 35분"이 오늘인지 다음날인지 구분이 안 되는데, 자정을 넘나드는 막차 역산 계산에서는 이 구분이 정확도에 직결됩니다.
+
+원래는 이름이 `subway_last_train`이었고 `firstLastFlag:2/3`인 항목만 저장했는데, 그러면 공식 막차로 태그되진 않았지만 특정 환승 마감엔 여전히 맞는 열차를 놓치는 문제가 있었습니다 ([이슈 #5](https://github.com/Jihyun0909/whentoleave/issues/5), 위 ODsay 연동 주의사항 5번 참고). 그래서 응답 전체를 저장하는 걸로 바뀌면서 `subway_schedule`로 이름도 바뀌었고, 목적지별로 여러 시각이 저장되므로 `(station_id, way_code, day_type, end_station_name)` 유니크 제약도 제거했습니다.
 
 ## 배포 전략 (무료 우선)
 
@@ -166,11 +169,11 @@ CREATE TABLE subway_last_train (
 1. ~~기획 (MVP 범위 확정)~~
 2. ~~API 리서치 — ODsay 길찾기/시간표 API 스파이크 완료~~
 3. ~~개발 환경 세팅~~
-4. ~~DB 스키마 확정 + 시간표 캐싱 서비스 구현~~ (`SubwayLastTrain`, `SubwayScheduleCacheService`, ODsay 클라이언트)
+4. ~~DB 스키마 확정 + 시간표 캐싱 서비스 구현~~ (`SubwaySchedule`, `SubwayScheduleCacheService`, ODsay 클라이언트)
 5. ~~핵심 서비스 로직(역산 알고리즘) 구현 + 단위 테스트~~ (`LastDepartureCalculator`, [이슈 #1](https://github.com/Jihyun0909/whentoleave/issues/1) — 환승 연결 실패 시 Infeasible을 명시적으로 반환하도록 README 의사코드 대비 설계 보완)
 6. ~~API/화면 구현~~ ([이슈 #2](https://github.com/Jihyun0909/whentoleave/issues/2) — `GET /api/v1/last-departure`, `GET /`)
 6-1. ~~역 이름 검색으로 출발지/도착지 선택~~ ([이슈 #3](https://github.com/Jihyun0909/whentoleave/issues/3) — `searchStation` 연동, 동명역 여러 개(환승역 등)일 때 노선명과 함께 후보를 보여주고 선택하게 함. 자동완성(타이핑 중 후보)은 제외, 검색 버튼 클릭 방식)
-7. 본인 실제 출퇴근 경로로 수동 검증
+7. 본인 실제 출퇴근 경로로 수동 검증 — 진행 중. 카카오맵/네이버지도와 대조하며 실제 버그 2건 발견 후 수정: 단축운행으로 목적지 전에 끊기는 막차 후보 오선택([이슈 #4](https://github.com/Jihyun0909/whentoleave/issues/4)), 공식 막차만 캐싱해서 마감을 만족하는 비공식 열차를 놓치는 문제([이슈 #5](https://github.com/Jihyun0909/whentoleave/issues/5)). 이 두 건 수정 이후로도 남는 사소한 시간 차이는 "알려진 한계"(계획된 시간표 vs 실시간 운행정보)로 문서화하고 더 파고들지 않기로 함.
 8. 배포 (Oracle Cloud + GitHub Actions)
 9. (v1.1) 목표 도착시간 역산 기능
 10. (향후) 버스 포함 경로, PWA
