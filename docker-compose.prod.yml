@@ -1,0 +1,46 @@
+services:
+  app:
+    build: .
+    container_name: whentoleave-app
+    restart: unless-stopped
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/transit
+      DB_USERNAME: transit
+      DB_PASSWORD: ${DB_PASSWORD}
+      ODSAY_API_KEY: ${ODSAY_API_KEY}
+    depends_on:
+      - postgres
+    expose:
+      - "8080"
+
+  postgres:
+    image: postgres:16
+    container_name: whentoleave-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: transit
+      POSTGRES_USER: transit
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: whentoleave-caddy
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:
