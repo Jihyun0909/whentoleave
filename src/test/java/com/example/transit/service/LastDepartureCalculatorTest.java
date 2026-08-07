@@ -1,7 +1,7 @@
 package com.example.transit.service;
 
 import com.example.transit.domain.DayType;
-import com.example.transit.domain.SubwayLastTrain;
+import com.example.transit.domain.SubwaySchedule;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalTime;
@@ -17,16 +17,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LastDepartureCalculatorTest {
 
-    private SubwayLastTrain lastTrain(LocalTime time, boolean nextDay) {
-        return lastTrain(time, nextDay, "종착역");
+    private SubwaySchedule lastTrain(LocalTime time, boolean nextDay) {
+        return lastTrain(time, nextDay, "종착역", 2);
     }
 
-    private SubwayLastTrain lastTrain(LocalTime time, boolean nextDay, String endStationName) {
-        return new SubwayLastTrain(1, 1, DayType.WEEKDAY, endStationName, time, nextDay);
+    private SubwaySchedule lastTrain(LocalTime time, boolean nextDay, String endStationName) {
+        return lastTrain(time, nextDay, endStationName, 2);
     }
 
-    /** stationId -> 그 역의 막차 후보 목록, 을 그대로 반환하는 람다 페이크. */
-    private LastTrainLookup fakeLookup(Map<Integer, List<SubwayLastTrain>> byStation) {
+    private SubwaySchedule lastTrain(LocalTime time, boolean nextDay, String endStationName, int firstLastFlag) {
+        return new SubwaySchedule(1, 1, DayType.WEEKDAY, endStationName, time, nextDay, firstLastFlag);
+    }
+
+    /** stationId -> 그 역의 시간표 후보 목록, 을 그대로 반환하는 람다 페이크. */
+    private LastTrainLookup fakeLookup(Map<Integer, List<SubwaySchedule>> byStation) {
         return (stationId, wayCode) -> byStation.getOrDefault(stationId, List.of());
     }
 
@@ -154,6 +158,37 @@ class LastDepartureCalculatorTest {
 
         LastDepartureResult.Feasible feasible = assertInstanceOf(LastDepartureResult.Feasible.class, result);
         assertEquals(LocalTime.of(23, 27), feasible.departureTime());
+        assertFalse(feasible.nextDay());
+    }
+
+    /**
+     * 이슈 #5의 회귀 테스트. 실제 수유(414)->압구정(충무로 환승) 케이스에서 확인한 실제 값 그대로:
+     * 공식 막차(firstLastFlag=2)인 사당행 24:21은 마감(00:14)을 7분 차로 못 맞추지만,
+     * 막차로 태그되진 않은(firstLastFlag=0) 23:59 사당행은 맞는다. "공식 막차만" 보면
+     * 이 열차를 후보에서 아예 놓치고 훨씬 이른 금정행(23:27)까지 건너뛰게 된다 —
+     * firstLastFlag와 무관하게 전체 시간표에서 마감을 만족하는 가장 늦은 열차를 찾아야 한다.
+     */
+    @Test
+    void 공식_막차가_아니어도_마감을_만족하면_후보로_쓴다() {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                414, List.of(
+                        lastTrain(LocalTime.of(22, 47), false, "오이도", 2),
+                        lastTrain(LocalTime.of(23, 3), false, "안산", 2),
+                        lastTrain(LocalTime.of(23, 27), false, "금정", 2),
+                        lastTrain(LocalTime.of(23, 59), false, "사당", 0), // 공식 막차 아님, 그러나 마감 안에 듦
+                        lastTrain(LocalTime.of(0, 21), true, "사당", 2),   // 공식 막차, 그러나 마감을 7분 차로 놓침
+                        lastTrain(LocalTime.of(0, 35), true, "서울역", 2)
+                ),
+                331, List.of(lastTrain(LocalTime.of(0, 34), true, "도곡", 2))
+        ));
+        LastDepartureCalculator calculator = new LastDepartureCalculator(lookup);
+
+        SubwayLeg first = new SubwayLeg(414, 2, 19, 0, Set.of());
+        SubwayLeg second = new SubwayLeg(331, 2, 5, 1, Set.of());
+        LastDepartureResult result = calculator.calculate(List.of(first, second));
+
+        LastDepartureResult.Feasible feasible = assertInstanceOf(LastDepartureResult.Feasible.class, result);
+        assertEquals(LocalTime.of(23, 59), feasible.departureTime()); // 23:27이 아니라 23:59
         assertFalse(feasible.nextDay());
     }
 }

@@ -10,24 +10,22 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
 
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 
 /**
- * 역 하나(stationId + wayCode)의 특정 요일유형(dayType)에 대해,
- * 목적지(endStationName)별 막차 시각을 저장한다.
- * 분기 노선(예: 4호선)은 같은 역/방향이라도 목적지별로 막차가 여러 개 존재할 수 있다.
+ * 역 하나(stationId + wayCode)의 특정 요일유형(dayType)에 대한 시간표 항목 하나.
+ * <p>
+ * 처음엔 "공식 막차(firstLastFlag=2/3)"만 저장했었는데, 그러면 "막차로 태그되진
+ * 않았지만 다음 환승 마감엔 여전히 맞는 열차"를 놓치는 문제가 있었다 (이슈 #5).
+ * 그래서 지금은 그 역/방향/요일유형의 전체 시간표를 저장하고, 계산 시점에
+ * "마감을 만족하는 가장 늦은 열차"를 그때그때 찾는다. API 호출 횟수는 그대로다
+ * (이미 받는 응답에서 더 많은 항목을 저장하는 것뿐).
  */
 @Entity
-@Table(
-        name = "subway_last_train",
-        uniqueConstraints = @UniqueConstraint(
-                columnNames = {"station_id", "way_code", "day_type", "end_station_name"}
-        )
-)
-public class SubwayLastTrain {
+@Table(name = "subway_schedule")
+public class SubwaySchedule {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -56,21 +54,27 @@ public class SubwayLastTrain {
     @Column(name = "next_day", nullable = false)
     private boolean nextDay;
 
+    /** ODsay 원본 값: 0=일반, 1=첫차, 2=막차, 3=첫차·막차 동시. 참고용, 계산 로직에서는 안 씀. */
+    @Column(name = "first_last_flag")
+    private Integer firstLastFlag;
+
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
-    protected SubwayLastTrain() {
+    protected SubwaySchedule() {
         // JPA
     }
 
-    public SubwayLastTrain(Integer stationId, Integer wayCode, DayType dayType,
-                            String endStationName, LocalTime departureTime, boolean nextDay) {
+    public SubwaySchedule(Integer stationId, Integer wayCode, DayType dayType,
+                           String endStationName, LocalTime departureTime, boolean nextDay,
+                           Integer firstLastFlag) {
         this.stationId = stationId;
         this.wayCode = wayCode;
         this.dayType = dayType;
         this.endStationName = endStationName;
         this.departureTime = departureTime;
         this.nextDay = nextDay;
+        this.firstLastFlag = firstLastFlag;
     }
 
     @PrePersist
@@ -105,6 +109,10 @@ public class SubwayLastTrain {
 
     public boolean isNextDay() {
         return nextDay;
+    }
+
+    public Integer getFirstLastFlag() {
+        return firstLastFlag;
     }
 
     public LocalDateTime getUpdatedAt() {
