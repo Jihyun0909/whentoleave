@@ -194,7 +194,8 @@ CREATE TABLE subway_schedule (
 6. ~~API/화면 구현~~ ([이슈 #2](https://github.com/Jihyun0909/whentoleave/issues/2) — `GET /api/v1/last-departure`, `GET /`)
 6-1. ~~역 이름 검색으로 출발지/도착지 선택~~ ([이슈 #3](https://github.com/Jihyun0909/whentoleave/issues/3) — `searchStation` 연동, 동명역 여러 개(환승역 등)일 때 노선명과 함께 후보를 보여주고 선택하게 함. 자동완성(타이핑 중 후보)은 제외, 검색 버튼 클릭 방식)
 7. 본인 실제 출퇴근 경로로 수동 검증 — 진행 중. 카카오맵/네이버지도와 대조하며 실제 버그 2건 발견 후 수정: 단축운행으로 목적지 전에 끊기는 막차 후보 오선택([이슈 #4](https://github.com/Jihyun0909/whentoleave/issues/4)), 공식 막차만 캐싱해서 마감을 만족하는 비공식 열차를 놓치는 문제([이슈 #5](https://github.com/Jihyun0909/whentoleave/issues/5)). 이 두 건 수정 이후로도 남는 사소한 시간 차이는 "알려진 한계"(계획된 시간표 vs 실시간 운행정보)로 문서화하고 더 파고들지 않기로 함.
-8. 배포 (Oracle Cloud + GitHub Actions) — 진행 중. 컨테이너화(`Dockerfile`, `docker-compose.prod.yml`, `Caddyfile`) + CI(`.github/workflows/ci.yml`)까지 완료하고 로컬에서 전체 스택(Caddy→app→Postgres, HTTPS) 검증 완료. 남은 건 Oracle Cloud VM 생성 + DuckDNS 도메인 연결 + 실제 배포
+8. ~~배포~~ — **https://whentoleave.jihyun-dev.shop 에서 실제로 서비스 중.** Oracle Cloud 가입이 계속 막혀서(계정 생성 오류) AWS EC2 학생 계정(서울 리전, t3.micro)으로 전환, 도메인은 기존에 갖고 있던 `jihyun-dev.shop`(AWS Route53으로 네임서버 위임된 상태)의 서브도메인 사용. 컨테이너화(`Dockerfile`, `docker-compose.prod.yml`, `Caddyfile`) + CI(`.github/workflows/ci.yml`) + 실배포 + HTTPS까지 전부 완료.
+   - 삽질 기록: ODsay API 키가 `[ApiKeyAuthFailed]`로 계속 실패해서 한참 헤맸는데, 알고 보니 원인은 앱이 아니라 **진단용으로 직접 날린 curl 테스트 명령어들**이었음 — 키에 `+`가 있는데 URL 인코딩 없이 그대로 넣어서 서버가 `+`를 공백으로 해석해 키 자체가 깨진 채로 전달됨. 실제 앱 코드(`OdsayClient.java`)는 애초부터 `URLEncoder.encode()`로 정상 인코딩해서 보내고 있었어서, 앱 자체는 처음부터 문제없었음. IP 화이트리스트 등록 등은 결과적으로 불필요했지만 유지해도 무방
 9. (v1.1) 목표 도착시간 역산 기능
 10. (향후) 버스 포함 경로, PWA
 11. (향후) 동시성/안정성 강화 기능 3종 — 상세 설계는 [docs/future-features-concurrency.md](docs/future-features-concurrency.md) 참고
