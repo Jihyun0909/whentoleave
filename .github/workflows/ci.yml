@@ -41,20 +41,3 @@ jobs:
 
       - name: Run tests
         run: ./gradlew test --no-daemon
-
-  deploy:
-    needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v1
-        with:
-          host: 13.125.237.235
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            cd ~/whentoleave
-            git pull
-            docker compose -f docker-compose.prod.yml up -d --build
