@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1400" width="900" height="1400">
+  <defs>
+    <pattern id="grid" width="70" height="70" patternUnits="userSpaceOnUse">
+      <path d="M0 0H70M0 0V70" stroke="#dbe1e7" stroke-width="2"/>
+    </pattern>
+    <pattern id="gridFine" width="35" height="35" patternUnits="userSpaceOnUse">
+      <path d="M0 0H35M0 0V35" stroke="#e4e9ed" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="900" height="1400" fill="#eef1f4"/>
+  <rect width="900" height="1400" fill="url(#gridFine)"/>
+  <rect width="900" height="1400" fill="url(#grid)"/>
+
+  <!-- 공원/녹지 -->
+  <ellipse cx="160" cy="980" rx="130" ry="95" fill="#d3ead9"/>
+  <ellipse cx="700" cy="230" rx="100" ry="80" fill="#d3ead9"/>
+  <rect x="560" y="1080" width="180" height="130" rx="24" fill="#d3ead9"/>
+  <ellipse cx="90" cy="260" rx="70" ry="55" fill="#d3ead9"/>
+
+  <!-- 건물 블록 -->
+  <g fill="#e2e7ec">
+    <rect x="120" y="130" width="80" height="55" rx="8"/>
+    <rect x="240" y="105" width="60" height="70" rx="8"/>
+    <rect x="330" y="150" width="90" height="50" rx="8"/>
+    <rect x="90" y="420" width="70" height="90" rx="8"/>
+    <rect x="200" y="450" width="100" height="60" rx="8"/>
+    <rect x="340" y="410" width="60" height="80" rx="8"/>
+    <rect x="480" y="480" width="90" height="55" rx="8"/>
+    <rect x="620" y="440" width="70" height="90" rx="8"/>
+    <rect x="740" y="500" width="100" height="60" rx="8"/>
+    <rect x="120" y="650" width="85" height="60" rx="8"/>
+    <rect x="260" y="690" width="60" height="85" rx="8"/>
+    <rect x="420" y="640" width="95" height="55" rx="8"/>
+    <rect x="560" y="700" width="70" height="70" rx="8"/>
+    <rect x="700" y="660" width="90" height="60" rx="8"/>
+    <rect x="150" y="1080" width="80" height="55" rx="8"/>
+    <rect x="330" y="1120" width="95" height="60" rx="8"/>
+    <rect x="470" y="1050" width="70" height="85" rx="8"/>
+    <rect x="700" y="1150" width="90" height="55" rx="8"/>
+    <rect x="60" y="1220" width="75" height="60" rx="8"/>
+    <rect x="380" y="1260" width="90" height="55" rx="8"/>
+  </g>
+
+  <!-- 주요 도로 -->
+  <path d="M-50 380 L950 620" stroke="#c7d0d8" stroke-width="14" fill="none"/>
+  <path d="M-50 380 L950 620" stroke="#ffffff" stroke-width="5" fill="none"/>
+  <path d="M180 -50 L560 1450" stroke="#c7d0d8" stroke-width="14" fill="none"/>
+  <path d="M180 -50 L560 1450" stroke="#ffffff" stroke-width="5" fill="none"/>
+  <path d="M-50 1050 L950 850" stroke="#c7d0d8" stroke-width="10" fill="none"/>
+  <path d="M-50 1050 L950 850" stroke="#ffffff" stroke-width="4" fill="none"/>
+
+  <!-- 지하철 노선 느낌의 색선 -->
+  <path d="M-50 760 L950 340" stroke="#3182f6" stroke-width="7" fill="none" opacity="0.55"/>
+  <path d="M-50 1180 L950 120" stroke="#22c55e" stroke-width="7" fill="none" opacity="0.4"/>
+  <path d="M260 -50 L760 1450" stroke="#f59e0b" stroke-width="7" fill="none" opacity="0.4"/>
+  <path d="M-50 520 L950 1120" stroke="#ec4899" stroke-width="7" fill="none" opacity="0.35"/>
+</svg>

@@ -9,56 +9,61 @@
 </head>
 <body>
 <div class="page">
-    <header class="app-header">
-        <div class="logo-row">
-            <span class="logo-badge">
-                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="5" y="3" width="14" height="15" rx="4" stroke="white" stroke-width="2"/>
-                    <path d="M5 9h14" stroke="white" stroke-width="2"/>
-                    <circle cx="8.5" cy="13.5" r="1.1" fill="white"/>
-                    <circle cx="15.5" cy="13.5" r="1.1" fill="white"/>
-                    <path d="M8 21l-1.6 2.2M16 21l1.6 2.2" stroke="white" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-            </span>
-            <h1>When To Leave</h1>
-        </div>
-        <p class="subtitle">출발지/도착지 역 이름을 입력하면, 막차로 도착하려면 몇 시까지 출발해야 하는지 알려줍니다.</p>
-    </header>
+    <div class="main-panel">
+        <header class="app-header">
+            <div class="logo-row">
+                <span class="logo-badge">
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="5" y="3" width="14" height="15" rx="4" stroke="white" stroke-width="2"/>
+                        <path d="M5 9h14" stroke="white" stroke-width="2"/>
+                        <circle cx="8.5" cy="13.5" r="1.1" fill="white"/>
+                        <circle cx="15.5" cy="13.5" r="1.1" fill="white"/>
+                        <path d="M8 21l-1.6 2.2M16 21l1.6 2.2" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </span>
+                <h1>When To Leave</h1>
+            </div>
+            <p class="subtitle">출발지/도착지 역 이름을 입력하면, 막차로 도착하려면 몇 시까지 출발해야 하는지 알려줍니다.</p>
+        </header>
 
-    <nav class="tabs">
-        <span th:if="${arrivalMode}" class="tab tab-active">출발 시간 계산</span>
-        <a th:unless="${arrivalMode}" class="tab"
-           th:href="@{/(originName=${originName}, destName=${destName}, mode='arrival')}">출발 시간 계산</a>
+        <nav class="tabs">
+            <span th:if="${arrivalMode}" class="tab tab-active">출발 시간 계산</span>
+            <a th:unless="${arrivalMode}" class="tab"
+               th:href="@{/(originName=${originName}, destName=${destName}, mode='arrival')}">출발 시간 계산</a>
 
-        <span th:unless="${arrivalMode}" class="tab tab-active">막차 시간 계산</span>
-        <a th:if="${arrivalMode}" class="tab"
-           th:href="@{/(originName=${originName}, destName=${destName})}">막차 시간 계산</a>
-    </nav>
+            <span th:unless="${arrivalMode}" class="tab tab-active">막차 시간 계산</span>
+            <a th:if="${arrivalMode}" class="tab"
+               th:href="@{/(originName=${originName}, destName=${destName})}">막차 시간 계산</a>
+        </nav>
 
-    <nav class="subtabs" th:unless="${arrivalMode}">
-        <span class="subtab subtab-active">오늘 막차 보기</span>
-        <button type="button" class="subtab subtab-disabled" disabled title="준비중">다른날 막차 보기</button>
-    </nav>
-    <p class="schedule-note">오늘 기준 시간표로 계산됩니다.</p>
+        <nav class="subtabs" th:unless="${arrivalMode}">
+            <span class="subtab subtab-active">오늘 막차 보기</span>
+            <button type="button" class="subtab subtab-disabled" disabled title="준비중">다른날 막차 보기</button>
+        </nav>
+        <p class="schedule-note">오늘 기준 시간표로 계산됩니다.</p>
 
-    <form method="get" action="/" class="search-form">
-        <input type="hidden" name="mode" th:if="${arrivalMode}" value="arrival">
-        <div class="field">
-            <label for="originName">출발역</label>
-            <input type="text" id="originName" name="originName" th:value="${originName}" required placeholder="예: 수유">
-        </div>
-        <div class="field">
-            <label for="destName">도착역</label>
-            <input type="text" id="destName" name="destName" th:value="${destName}" required placeholder="예: 압구정">
-        </div>
-        <div class="field" th:if="${arrivalMode}">
-            <label for="targetArrivalTime">목표 도착 시각</label>
-            <input type="time" id="targetArrivalTime" name="targetArrivalTime"
-                   th:value="${targetArrivalTime != null ? #temporals.format(targetArrivalTime, 'HH:mm') : null}"
-                   required>
-        </div>
-        <button type="submit" class="btn-search">검색</button>
-    </form>
+        <form method="get" action="/" class="search-form">
+            <input type="hidden" name="mode" th:if="${arrivalMode}" value="arrival">
+            <div class="field">
+                <label for="originName">출발역</label>
+                <input type="text" id="originName" name="originName" th:value="${originName}" required placeholder="예: 수유">
+            </div>
+            <div class="field">
+                <label for="destName">도착역</label>
+                <input type="text" id="destName" name="destName" th:value="${destName}" required placeholder="예: 압구정">
+            </div>
+            <div class="field" th:if="${arrivalMode}">
+                <label for="targetArrivalTime">목표 도착 시각</label>
+                <input type="time" id="targetArrivalTime" name="targetArrivalTime"
+                       th:value="${targetArrivalTime != null ? #temporals.format(targetArrivalTime, 'HH:mm') : null}"
+                       required>
+            </div>
+            <button type="submit" class="btn-search" id="searchBtn">
+                <span class="spinner" aria-hidden="true"></span>
+                <span class="btn-label">검색</span>
+            </button>
+        </form>
+    </div>
 
     <div th:if="${originStatus == 'NOT_FOUND'}" class="alert alert-error">
         <p>출발역 "<span th:text="${originName}"></span>"을(를) 찾을 수 없습니다. 정확한 역 이름으로 다시 입력해주세요.</p>
@@ -112,5 +117,13 @@
         <p class="disclaimer">이 시각은 계획된 시간표 기준입니다. 출발 전 실시간 도착정보로 한 번 더 확인하세요.</p>
     </div>
 </div>
+<script th:inline="none">
+    document.querySelector('.search-form').addEventListener('submit', function () {
+        var btn = document.getElementById('searchBtn');
+        btn.classList.add('is-loading');
+        btn.querySelector('.btn-label').textContent = '검색 중...';
+        btn.disabled = true;
+    });
+</script>
 </body>
 </html>
