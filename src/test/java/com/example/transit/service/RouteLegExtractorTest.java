@@ -87,4 +87,49 @@ class RouteLegExtractorTest {
 
         assertThrows(NoSubwayRouteFoundException.class, () -> extractor.extract(response));
     }
+
+    /**
+     * 이슈 #8 회귀 테스트. ODsay는 경로 후보를 여러 개 줄 수 있는데(1순위가 항상 최선은 아님 —
+     * 배차가 뜸한 구간을 타는 경로가 1순위로 나올 수 있다), extractAll은 지하철 전용인
+     * 후보를 전부 뽑아야 한다. 버스가 섞인 후보는 조용히 걸러내고 나머지는 유지한다.
+     */
+    @Test
+    void extractAll은_지하철_전용인_경로_후보를_전부_뽑고_버스_섞인_후보는_건너뛴다() {
+        OdsayPathResponse response = new OdsayPathResponse(
+                new OdsayPathResponse.Result(List.of(
+                        new OdsayPathResponse.Path(1, List.of(
+                                new OdsayPathResponse.SubPath(1, 17, 414, 2, null)
+                        )),
+                        new OdsayPathResponse.Path(1, List.of(
+                                new OdsayPathResponse.SubPath(2, 10, null, null, null) // 버스 - 이 후보는 스킵
+                        )),
+                        new OdsayPathResponse.Path(1, List.of(
+                                new OdsayPathResponse.SubPath(1, 59, 1824, 1, null),
+                                new OdsayPathResponse.SubPath(1, 20, 220, 2, null)
+                        ))
+                ))
+        );
+
+        List<List<SubwayLeg>> candidates = extractor.extractAll(response);
+
+        assertEquals(2, candidates.size());
+        assertEquals(1, candidates.get(0).size());
+        assertEquals(414, candidates.get(0).get(0).stationId());
+        assertEquals(2, candidates.get(1).size());
+        assertEquals(1824, candidates.get(1).get(0).stationId());
+        assertEquals(220, candidates.get(1).get(1).stationId());
+    }
+
+    @Test
+    void 모든_경로_후보에_버스가_섞여있으면_extractAll도_예외를_던진다() {
+        OdsayPathResponse response = new OdsayPathResponse(
+                new OdsayPathResponse.Result(List.of(
+                        new OdsayPathResponse.Path(3, List.of(
+                                new OdsayPathResponse.SubPath(2, 10, null, null, null)
+                        ))
+                ))
+        );
+
+        assertThrows(NoSubwayRouteFoundException.class, () -> extractor.extractAll(response));
+    }
 }

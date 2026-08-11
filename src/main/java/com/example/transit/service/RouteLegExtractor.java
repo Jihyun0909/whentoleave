@@ -19,13 +19,46 @@ public class RouteLegExtractor {
     private static final int TRAFFIC_TYPE_SUBWAY = 1;
     private static final int TRAFFIC_TYPE_WALK = 3;
 
+    /** 가장 첫 번째 추천 경로만 뽑는다 (하위 호환용). 여러 경로를 다 시도하려면 {@link #extractAll}을 쓴다. */
     public List<SubwayLeg> extract(OdsayPathResponse response) {
-        List<OdsayPathResponse.SubPath> subPaths = firstPathSubPaths(response);
+        return extractAll(response).get(0);
+    }
+
+    /**
+     * ODsay가 추천한 경로 후보들(pathType=1) 전부에서 지하철 구간 목록을 뽑는다.
+     * 막차 계산은 ODsay가 "가장 빠른" 기준으로 고른 1순위 경로 하나만 보면 부정확할 수 있다 —
+     * 그 경로 중간에 배차가 뜸한 구간이 끼어 있으면 막차가 훨씬 이른 시각에 끊겨버리는데,
+     * 실제로는 다른 경로로 더 늦게까지 갈 수 있는 경우가 있다 (이슈 #8). 그래서 호출하는 쪽
+     * (LastDepartureService)에서 후보 경로마다 계산해보고 가장 늦게 출발해도 되는 걸 고른다.
+     * <p>
+     * 버스가 섞이는 등 지하철 전용이 아닌 경로 후보는 조용히 걸러내고, 하나도 안 남으면 예외를 던진다.
+     */
+    public List<List<SubwayLeg>> extractAll(OdsayPathResponse response) {
+        List<OdsayPathResponse.Path> paths = allPaths(response);
+
+        List<List<SubwayLeg>> candidates = new ArrayList<>();
+        for (OdsayPathResponse.Path path : paths) {
+            try {
+                candidates.add(extractLegs(path));
+            } catch (NoSubwayRouteFoundException ignored) {
+                // 이 경로 후보는 지하철 전용이 아니거나 정보가 부족함 - 다른 경로 후보로 계속 시도
+            }
+        }
+        if (candidates.isEmpty()) {
+            throw new NoSubwayRouteFoundException("지하철로만 이동 가능한 경로를 찾지 못했습니다.");
+        }
+        return candidates;
+    }
+
+    private List<SubwayLeg> extractLegs(OdsayPathResponse.Path path) {
+        if (path.subPath() == null || path.subPath().isEmpty()) {
+            throw new NoSubwayRouteFoundException("경로에 구간 정보가 없습니다.");
+        }
 
         List<SubwayLeg> legs = new ArrayList<>();
         int pendingWalkMinutes = 0;
 
-        for (OdsayPathResponse.SubPath subPath : subPaths) {
+        for (OdsayPathResponse.SubPath subPath : path.subPath()) {
             int trafficType = subPath.trafficType() == null ? -1 : subPath.trafficType();
             int sectionTime = subPath.sectionTime() == null ? 0 : subPath.sectionTime();
 
@@ -74,15 +107,11 @@ public class RouteLegExtractor {
         return names;
     }
 
-    private List<OdsayPathResponse.SubPath> firstPathSubPaths(OdsayPathResponse response) {
+    private List<OdsayPathResponse.Path> allPaths(OdsayPathResponse response) {
         if (response == null || response.result() == null
                 || response.result().path() == null || response.result().path().isEmpty()) {
             throw new NoSubwayRouteFoundException("지하철로 이동 가능한 경로를 찾지 못했습니다.");
         }
-        OdsayPathResponse.Path path = response.result().path().get(0);
-        if (path.subPath() == null || path.subPath().isEmpty()) {
-            throw new NoSubwayRouteFoundException("경로에 구간 정보가 없습니다.");
-        }
-        return path.subPath();
+        return response.result().path();
     }
 }

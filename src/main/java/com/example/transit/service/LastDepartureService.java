@@ -50,13 +50,52 @@ public class LastDepartureService {
             targetArrivalMinutes = resolved.getAsInt();
         }
 
+        List<List<SubwayLeg>> pathCandidates;
         try {
             OdsayPathResponse response = odsayClient.searchSubwayPath(sx, sy, ex, ey);
-            List<SubwayLeg> legs = routeLegExtractor.extract(response);
-            return calculator.calculate(legs, targetArrivalMinutes);
+            pathCandidates = routeLegExtractor.extractAll(response);
         } catch (NoSubwayRouteFoundException e) {
             return new LastDepartureResult.Infeasible(e.getMessage());
         }
+
+        return bestOf(pathCandidates, targetArrivalMinutes);
+    }
+
+    /**
+     * ODsay가 추천한 경로 후보마다 역산해보고, 그중 가장 늦게 출발해도 되는 결과를 고른다.
+     * "1순위 추천 경로" 하나만 보면, 그 경로 중간에 배차가 뜸한 구간이 껴 있을 때 막차가
+     * 실제보다 훨씬 이르게 계산되는 문제가 있었다 (이슈 #8 — 가평->신림, 청량리 환승 수인분당선
+     * 연장구간처럼 하루 몇 대 안 다니는 구간을 타는 경로가 1순위로 나온 경우).
+     */
+    private LastDepartureResult bestOf(List<List<SubwayLeg>> pathCandidates, Integer targetArrivalMinutes) {
+        LastDepartureResult.Feasible best = null;
+        String fallbackReason = null;
+
+        for (List<SubwayLeg> legs : pathCandidates) {
+            LastDepartureResult result = calculator.calculate(legs, targetArrivalMinutes);
+            if (result instanceof LastDepartureResult.Feasible feasible) {
+                if (best == null || isLater(feasible, best)) {
+                    best = feasible;
+                }
+            } else if (fallbackReason == null) {
+                fallbackReason = ((LastDepartureResult.Infeasible) result).reason();
+            }
+        }
+
+        if (best != null) {
+            return best;
+        }
+        return new LastDepartureResult.Infeasible(
+                fallbackReason != null ? fallbackReason : "가능한 경로를 찾지 못했습니다.");
+    }
+
+    private boolean isLater(LastDepartureResult.Feasible candidate, LastDepartureResult.Feasible current) {
+        return toServiceMinutes(candidate) > toServiceMinutes(current);
+    }
+
+    private int toServiceMinutes(LastDepartureResult.Feasible feasible) {
+        int minutes = feasible.departureTime().getHour() * 60 + feasible.departureTime().getMinute();
+        return feasible.nextDay() ? minutes + MINUTES_PER_DAY : minutes;
     }
 
     private OptionalInt resolveTargetArrivalMinutes(LocalTime targetArrivalTime) {
