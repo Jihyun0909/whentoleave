@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -65,6 +66,14 @@ class LastDepartureViewControllerTest {
     void 초기_화면에는_검색_폼만_보인다() throws Exception {
         mockMvc.perform(get("/"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("검색")));
+                .andExpect(content().string(containsString("검색")))
+                .andExpect(content().string(not(containsString("id=\"targetArrivalTime\""))));
+    }
+
+    @Test
+    void arrival_모드면_목표_도착시간_입력_필드가_보인다() throws Exception {
+        mockMvc.perform(get("/").param("mode", "arrival"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("id=\"targetArrivalTime\"")));
     }
 }
