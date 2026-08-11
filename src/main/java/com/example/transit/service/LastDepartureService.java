@@ -40,20 +40,20 @@ public class LastDepartureService {
      *                           (예: 저녁 8시에 "새벽 1시까지"). 그 외에 이미 지난 시각이면 Infeasible.
      */
     public LastDepartureResult calculate(double sx, double sy, double ex, double ey, LocalTime targetArrivalTime) {
-        if (targetArrivalTime == null) {
-            return calculate(sx, sy, ex, ey);
-        }
-
-        OptionalInt targetArrivalMinutes = resolveTargetArrivalMinutes(targetArrivalTime);
-        if (targetArrivalMinutes.isEmpty()) {
-            return new LastDepartureResult.Infeasible(
-                    "목표 도착 시각(" + targetArrivalTime + ")이 이미 지난 시각입니다. 아직 오지 않은 시각을 입력해주세요.");
+        Integer targetArrivalMinutes = null;
+        if (targetArrivalTime != null) {
+            OptionalInt resolved = resolveTargetArrivalMinutes(targetArrivalTime);
+            if (resolved.isEmpty()) {
+                return new LastDepartureResult.Infeasible(
+                        "목표 도착 시각(" + targetArrivalTime + ")이 이미 지난 시각입니다. 아직 오지 않은 시각을 입력해주세요.");
+            }
+            targetArrivalMinutes = resolved.getAsInt();
         }
 
         try {
             OdsayPathResponse response = odsayClient.searchSubwayPath(sx, sy, ex, ey);
             List<SubwayLeg> legs = routeLegExtractor.extract(response);
-            return calculator.calculate(legs, targetArrivalMinutes.getAsInt());
+            return calculator.calculate(legs, targetArrivalMinutes);
         } catch (NoSubwayRouteFoundException e) {
             return new LastDepartureResult.Infeasible(e.getMessage());
         }
