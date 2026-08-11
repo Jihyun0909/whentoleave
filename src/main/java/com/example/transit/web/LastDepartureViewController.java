@@ -10,6 +10,8 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
+import java.time.LocalTime;
+
 @Controller
 public class LastDepartureViewController {
 
@@ -25,6 +27,7 @@ public class LastDepartureViewController {
     /**
      * 역 이름으로 출발지/도착지를 입력받는다. 이름이 여러 역과 매칭되면(환승역 등)
      * 후보 목록을 보여주고, 후보를 고르면 그 좌표(originX/Y, destX/Y)를 담아 다시 요청한다.
+     * mode=arrival이면 막차 기준이 아니라 targetArrivalTime까지 도착하는 것을 기준으로 역산한다(이슈 #6).
      */
     @GetMapping("/")
     public String index(
@@ -34,12 +37,18 @@ public class LastDepartureViewController {
             @RequestParam(required = false) Double originY,
             @RequestParam(required = false) Double destX,
             @RequestParam(required = false) Double destY,
+            @RequestParam(required = false) String mode,
+            @RequestParam(required = false) LocalTime targetArrivalTime,
             Model model) {
 
+        boolean arrivalMode = "arrival".equals(mode);
+        model.addAttribute("arrivalMode", arrivalMode);
         model.addAttribute("originName", originName);
         model.addAttribute("destName", destName);
+        model.addAttribute("targetArrivalTime", targetArrivalTime);
 
-        if (!StringUtils.hasText(originName) || !StringUtils.hasText(destName)) {
+        if (!StringUtils.hasText(originName) || !StringUtils.hasText(destName)
+                || (arrivalMode && targetArrivalTime == null)) {
             return "index";
         }
 
@@ -58,7 +67,9 @@ public class LastDepartureViewController {
             return "index";
         }
 
-        LastDepartureResult result = lastDepartureService.calculate(origin.x(), origin.y(), dest.x(), dest.y());
+        LastDepartureResult result = arrivalMode
+                ? lastDepartureService.calculate(origin.x(), origin.y(), dest.x(), dest.y(), targetArrivalTime)
+                : lastDepartureService.calculate(origin.x(), origin.y(), dest.x(), dest.y());
         model.addAttribute("searched", true);
 
         switch (result) {

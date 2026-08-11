@@ -191,4 +191,73 @@ class LastDepartureCalculatorTest {
         assertEquals(LocalTime.of(23, 59), feasible.departureTime()); // 23:27이 아니라 23:59
         assertFalse(feasible.nextDay());
     }
+
+    /**
+     * 이슈 #6 — 목표 도착시간 역산. 막차와 무관하게, 그 시각까지 도착 가능한
+     * 가장 늦은 후보를 찾아야 한다. 22:50 타면 20분 뒤 23:10 도착이라 23:00 마감을
+     * 넘기므로, 그보다 이른 22:30(23:00 도착 전에 여유 있게 도착)이 답이어야 한다.
+     */
+    @Test
+    void 목표_도착시간을_주면_그_시각_이내에_도착하는_가장_늦은_후보를_고른다() {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                300, List.of(
+                        lastTrain(LocalTime.of(22, 30), false),
+                        lastTrain(LocalTime.of(22, 50), false),
+                        lastTrain(LocalTime.of(23, 10), false)
+                )
+        ));
+        LastDepartureCalculator calculator = new LastDepartureCalculator(lookup);
+
+        SubwayLeg leg = new SubwayLeg(300, 1, 20, 0, Set.of()); // 20분 소요
+        int targetArrivalMinutes = 23 * 60; // 23:00까지 도착
+
+        LastDepartureResult result = calculator.calculate(List.of(leg), targetArrivalMinutes);
+
+        LastDepartureResult.Feasible feasible = assertInstanceOf(LastDepartureResult.Feasible.class, result);
+        assertEquals(LocalTime.of(22, 30), feasible.departureTime());
+        assertFalse(feasible.nextDay());
+    }
+
+    @Test
+    void 목표_도착시간까지_어떤_열차로도_도착할_수_없으면_Infeasible을_반환한다() {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                300, List.of(lastTrain(LocalTime.of(22, 30), false))
+        ));
+        LastDepartureCalculator calculator = new LastDepartureCalculator(lookup);
+
+        SubwayLeg leg = new SubwayLeg(300, 1, 20, 0, Set.of());
+        int targetArrivalMinutes = 6 * 60; // 06:00까지 도착 - 이 시간표엔 그렇게 이른 열차가 없음
+
+        LastDepartureResult result = calculator.calculate(List.of(leg), targetArrivalMinutes);
+
+        assertInstanceOf(LastDepartureResult.Infeasible.class, result);
+    }
+
+    @Test
+    void 목표_도착시간_역산도_환승_구간까지_제대로_전파된다() {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                100, List.of(
+                        lastTrain(LocalTime.of(20, 0), false),
+                        lastTrain(LocalTime.of(20, 20), false),
+                        lastTrain(LocalTime.of(20, 40), false)
+                ),
+                200, List.of(
+                        lastTrain(LocalTime.of(20, 50), false),
+                        lastTrain(LocalTime.of(21, 10), false)
+                )
+        ));
+        LastDepartureCalculator calculator = new LastDepartureCalculator(lookup);
+
+        SubwayLeg first = new SubwayLeg(100, 2, 15, 0, Set.of());  // 15분 소요
+        SubwayLeg second = new SubwayLeg(200, 2, 10, 5, Set.of()); // 10분 소요, 환승버퍼 5분
+        int targetArrivalMinutes = 21 * 60 + 30; // 21:30까지 도착
+
+        LastDepartureResult result = calculator.calculate(List.of(first, second), targetArrivalMinutes);
+
+        // second leg deadline = 21:30-10분 = 21:20 -> 21:10 선택
+        // first leg required = 21:10-5분(버퍼) = 21:05, deadline = 21:05-15분 = 20:50 -> 20:40 선택
+        LastDepartureResult.Feasible feasible = assertInstanceOf(LastDepartureResult.Feasible.class, result);
+        assertEquals(LocalTime.of(20, 40), feasible.departureTime());
+        assertFalse(feasible.nextDay());
+    }
 }

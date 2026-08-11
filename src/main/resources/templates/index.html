@@ -26,17 +26,23 @@
     </header>
 
     <nav class="tabs">
-        <button type="button" class="tab tab-disabled" disabled title="준비중">출발 시간 계산</button>
-        <span class="tab tab-active">막차 시간 계산</span>
+        <span th:if="${arrivalMode}" class="tab tab-active">출발 시간 계산</span>
+        <a th:unless="${arrivalMode}" class="tab"
+           th:href="@{/(originName=${originName}, destName=${destName}, mode='arrival')}">출발 시간 계산</a>
+
+        <span th:unless="${arrivalMode}" class="tab tab-active">막차 시간 계산</span>
+        <a th:if="${arrivalMode}" class="tab"
+           th:href="@{/(originName=${originName}, destName=${destName})}">막차 시간 계산</a>
     </nav>
 
-    <nav class="subtabs">
+    <nav class="subtabs" th:unless="${arrivalMode}">
         <span class="subtab subtab-active">오늘 막차 보기</span>
         <button type="button" class="subtab subtab-disabled" disabled title="준비중">다른날 막차 보기</button>
     </nav>
     <p class="schedule-note">오늘 기준 시간표로 계산됩니다.</p>
 
     <form method="get" action="/" class="search-form">
+        <input type="hidden" name="mode" th:if="${arrivalMode}" value="arrival">
         <div class="field">
             <label for="originName">출발역</label>
             <input type="text" id="originName" name="originName" th:value="${originName}" required placeholder="예: 수유">
@@ -44,6 +50,12 @@
         <div class="field">
             <label for="destName">도착역</label>
             <input type="text" id="destName" name="destName" th:value="${destName}" required placeholder="예: 압구정">
+        </div>
+        <div class="field" th:if="${arrivalMode}">
+            <label for="targetArrivalTime">목표 도착 시각</label>
+            <input type="time" id="targetArrivalTime" name="targetArrivalTime"
+                   th:value="${targetArrivalTime != null ? #temporals.format(targetArrivalTime, 'HH:mm') : null}"
+                   required>
         </div>
         <button type="submit" class="btn-search">검색</button>
     </form>
@@ -56,7 +68,7 @@
         <ul class="candidate-list">
             <li th:each="c : ${originCandidates}">
                 <a class="candidate-chip"
-                   th:href="@{/(originName=${originName}, destName=${destName}, originX=${c.x()}, originY=${c.y()}, destX=${destStatus == 'RESOLVED'} ? ${destX} : null, destY=${destStatus == 'RESOLVED'} ? ${destY} : null)}"
+                   th:href="@{/(originName=${originName}, destName=${destName}, originX=${c.x()}, originY=${c.y()}, destX=${destStatus == 'RESOLVED'} ? ${destX} : null, destY=${destStatus == 'RESOLVED'} ? ${destY} : null, mode=${arrivalMode} ? 'arrival' : null, targetArrivalTime=${targetArrivalTime})}"
                    th:text="${c.stationName()} + ' (' + ${c.laneName()} + ')'"></a>
             </li>
         </ul>
@@ -70,7 +82,7 @@
         <ul class="candidate-list">
             <li th:each="c : ${destCandidates}">
                 <a class="candidate-chip"
-                   th:href="@{/(originName=${originName}, destName=${destName}, destX=${c.x()}, destY=${c.y()}, originX=${originStatus == 'RESOLVED'} ? ${originX} : null, originY=${originStatus == 'RESOLVED'} ? ${originY} : null)}"
+                   th:href="@{/(originName=${originName}, destName=${destName}, destX=${c.x()}, destY=${c.y()}, originX=${originStatus == 'RESOLVED'} ? ${originX} : null, originY=${originStatus == 'RESOLVED'} ? ${originY} : null, mode=${arrivalMode} ? 'arrival' : null, targetArrivalTime=${targetArrivalTime})}"
                    th:text="${c.stationName()} + ' (' + ${c.laneName()} + ')'"></a>
             </li>
         </ul>
@@ -84,7 +96,10 @@
         </div>
 
         <div th:if="${feasible}" class="result-card result-feasible">
-            <p class="result-label">막차로 도착하려면 이 시각까지 출발하세요</p>
+            <p class="result-label">
+                <span th:if="${arrivalMode}" th:text="${#temporals.format(targetArrivalTime, 'HH:mm')} + '까지 도착하려면 이 시각까지 출발하세요'"></span>
+                <span th:unless="${arrivalMode}">막차로 도착하려면 이 시각까지 출발하세요</span>
+            </p>
             <p class="result-time">
                 <span th:text="${#temporals.format(departureTime, 'HH:mm')}"></span>
                 <span class="badge-nextday" th:if="${nextDay}">다음날 새벽</span>

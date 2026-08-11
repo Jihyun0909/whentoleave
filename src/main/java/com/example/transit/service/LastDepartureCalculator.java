@@ -11,7 +11,9 @@ import java.util.Optional;
 
 /**
  * 여러 지하철 구간(환승 포함)에 대해, 가장 마지막 구간부터 거꾸로 계산해서
- * 첫 구간 승차역에서 몇 시까지 타야 막차로 목적지까지 도착할 수 있는지 구한다.
+ * 첫 구간 승차역에서 몇 시까지 타야 목적지까지 도착할 수 있는지 구한다.
+ * 목표 도착시간을 안 주면 막차 기준(가장 늦은 후보)으로, 주면 그 시각까지 도착하는 것을
+ * 만족하는 가장 늦은 후보로 계산한다 (이슈 #6).
  * <p>
  * 자정을 넘나드는 시각 비교에서 wrap-around 버그가 나지 않도록,
  * 내부 계산은 전부 "서비스일 기준 분"(0시=0, 24시 이후는 1440 이상)의 정수로 한다.
@@ -29,11 +31,19 @@ public class LastDepartureCalculator {
     }
 
     public LastDepartureResult calculate(List<SubwayLeg> legs) {
+        return calculate(legs, null);
+    }
+
+    /**
+     * @param targetArrivalMinutes null이면 막차 기준(마지막 구간에 도착 제약 없음),
+     *                              값이 있으면 그 시각(서비스일 기준 분)까지 도착해야 하는 것으로 보고 역산한다.
+     */
+    public LastDepartureResult calculate(List<SubwayLeg> legs, Integer targetArrivalMinutes) {
         if (legs == null || legs.isEmpty()) {
             throw new IllegalArgumentException("legs must not be empty");
         }
 
-        Integer requiredArrivalMinutes = null; // 마지막 구간은 다음 제약이 없음
+        Integer requiredArrivalMinutes = targetArrivalMinutes;
         int firstLegUsableMinutes = -1;
 
         for (int i = legs.size() - 1; i >= 0; i--) {

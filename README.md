@@ -15,7 +15,7 @@
 | 지하철 전용 경로 | ✅ v1 | 버스는 고정 시간표가 아니라 실시간 도착정보 API를 별도로 타야 해서 데이터 소스 자체가 다름. 개발 범위를 지키기 위해 우선 제외 |
 | 버스 포함 환승 경로 | ⏭ v1.1 이후 | |
 | "늦어도 몇 시 출발" 계산 | ✅ v1 | 핵심 pain point |
-| "목표 도착시간 → 역산 출발시각" | ⏭ v1.1 | 같은 엔진 위에서 계산 방향만 다름, 나중에 추가 |
+| "목표 도착시간 → 역산 출발시각" | ✅ v1.1 | 같은 역산 엔진 재사용 — 마지막 구간의 "제약 없음(막차)"을 "목표 도착시간이 데드라인"으로 바꾸기만 하면 됨 ([이슈 #6](https://github.com/Jihyun0909/whentoleave/issues/6)) |
 | 웹(Thymeleaf) | ✅ v1 | 별도 프론트/앱 배포 없이 가장 빠르게 완성 가능 |
 | PWA | ⏭ 향후 | 앱스토어 등록비($99/yr Apple, $25 Google) 없이 "앱처럼" 쓸 수 있는 가장 저렴한 확장 경로 |
 | 네이티브 앱(Flutter 등) | ⏭ 필요해지면 | 백엔드를 API 우선 구조로 짜뒀기 때문에 클라이언트만 새로 붙이면 됨 |
@@ -101,6 +101,8 @@ for leg in reversed(legs):
 **자정 넘는 시각 비교**: `LocalTime` 값끼리 직접 빼고 비교하면 자정을 넘나들 때 wrap-around 버그가 생기므로, 내부 계산은 전부 "서비스일 기준 분"(0시=0, 24시 이후는 1440 이상)의 정수로 변환해서 처리합니다.
 
 **테스트 전략**: `SubwayScheduleCacheService`에서 `LastTrainLookup` 인터페이스를 분리해서, Mockito 없이 람다 페이크로 `LastDepartureCalculator`를 단위 테스트합니다.
+
+**목표 도착시간 역산(v1.1, 이슈 #6)**: 위 의사코드의 `requiredArrival = null`("마지막 구간은 다음 제약이 없음") 대신, 사용자가 입력한 목표 도착시간을 그 자리에 넣으면 그대로 동작합니다. 마지막 구간도 다른 구간과 똑같이 "데드라인을 만족하는 가장 늦은 후보"를 찾는 로직을 타게 되므로, 알고리즘 자체는 바꿀 게 없고 `LastDepartureCalculator.calculate(legs, targetArrivalMinutes)` 오버로드만 추가했습니다.
 
 ## 알려진 한계 — 계획된 시간표 vs 실시간 운행정보
 
@@ -196,9 +198,10 @@ CREATE TABLE subway_schedule (
 7. 본인 실제 출퇴근 경로로 수동 검증 — 진행 중. 카카오맵/네이버지도와 대조하며 실제 버그 2건 발견 후 수정: 단축운행으로 목적지 전에 끊기는 막차 후보 오선택([이슈 #4](https://github.com/Jihyun0909/whentoleave/issues/4)), 공식 막차만 캐싱해서 마감을 만족하는 비공식 열차를 놓치는 문제([이슈 #5](https://github.com/Jihyun0909/whentoleave/issues/5)). 이 두 건 수정 이후로도 남는 사소한 시간 차이는 "알려진 한계"(계획된 시간표 vs 실시간 운행정보)로 문서화하고 더 파고들지 않기로 함.
 8. ~~배포~~ — **https://whentoleave.jihyun-dev.shop 에서 실제로 서비스 중.** Oracle Cloud 가입이 계속 막혀서(계정 생성 오류) AWS EC2 학생 계정(서울 리전, t3.micro)으로 전환, 도메인은 기존에 갖고 있던 `jihyun-dev.shop`(AWS Route53으로 네임서버 위임된 상태)의 서브도메인 사용. 컨테이너화(`Dockerfile`, `docker-compose.prod.yml`, `Caddyfile`) + CI(`.github/workflows/ci.yml`) + 실배포 + HTTPS까지 전부 완료.
    - 삽질 기록: ODsay API 키가 `[ApiKeyAuthFailed]`로 계속 실패해서 한참 헤맸는데, 알고 보니 원인은 앱이 아니라 **진단용으로 직접 날린 curl 테스트 명령어들**이었음 — 키에 `+`가 있는데 URL 인코딩 없이 그대로 넣어서 서버가 `+`를 공백으로 해석해 키 자체가 깨진 채로 전달됨. 실제 앱 코드(`OdsayClient.java`)는 애초부터 `URLEncoder.encode()`로 정상 인코딩해서 보내고 있었어서, 앱 자체는 처음부터 문제없었음. IP 화이트리스트 등록 등은 결과적으로 불필요했지만 유지해도 무방
-9. (v1.1) 목표 도착시간 역산 기능
-10. (향후) 버스 포함 경로, PWA
-11. (향후) 동시성/안정성 강화 기능 3종 — 상세 설계는 [docs/future-features-concurrency.md](docs/future-features-concurrency.md) 참고
+9. ~~(v1.1) 목표 도착시간 역산 기능~~ ([이슈 #6](https://github.com/Jihyun0909/whentoleave/issues/6) — "출발 시간 계산" 탭. `LastDepartureCalculator`의 마지막 구간을 "제약 없음(막차 기준)" 대신 "목표 도착시간이 데드라인"으로 취급하도록 확장, 기존 역산 로직/캐시를 그대로 재사용)
+10. (v1.1) 주소 입력 → 최인접역 매핑 + 도보시간 반영 ([이슈 #7](https://github.com/Jihyun0909/whentoleave/issues/7))
+11. (향후) 버스 포함 경로, PWA
+12. (향후) 동시성/안정성 강화 기능 3종 — 상세 설계는 [docs/future-features-concurrency.md](docs/future-features-concurrency.md) 참고
     - 경로 탐색 캐시 + 캐시 스탬피드 방어
     - 경로 저장 + 막차 임박 알림 (멱등성 처리, 인증 도입)
     - 외부 API(ODsay) 장애 대응 — Resilience4j Circuit Breaker
