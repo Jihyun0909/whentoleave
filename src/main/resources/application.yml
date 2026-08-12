@@ -15,3 +15,8 @@ odsay:
   base-url: https://api.odsay.com/v1/api
   # 실제 키는 커밋하지 않는다. IntelliJ Run Configuration의 환경변수(ODSAY_API_KEY)로 주입.
   api-key: ${ODSAY_API_KEY:}
+
+kakao:
+  # 주소 -> 좌표 지오코딩(카카오 로컬 API)용. 실제 키는 커밋하지 않는다.
+  # 로컬 실행 환경변수(KAKAO_API_KEY)로 주입.
+  api-key: ${KAKAO_API_KEY:}

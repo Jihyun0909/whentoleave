@@ -37,7 +37,7 @@ class LastDepartureViewControllerTest {
         @Bean
         @Primary
         StationSearchService fakeStationSearchService() {
-            return new StationSearchService(null, null) {
+            return new StationSearchService(null, null, null) {
                 @Override
                 public StationResolution resolve(String stationName) {
                     if ("강남".equals(stationName)) {

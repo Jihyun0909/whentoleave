@@ -79,6 +79,7 @@ public class LastDepartureViewController {
                 model.addAttribute("nextDay", f.nextDay());
                 model.addAttribute("routeLegs", f.legs());
                 model.addAttribute("finalWalkMinutes", f.finalWalkMinutes());
+                model.addAttribute("totalMinutes", totalMinutes(f));
             }
             case LastDepartureResult.Infeasible i -> {
                 model.addAttribute("feasible", false);
@@ -87,6 +88,14 @@ public class LastDepartureViewController {
         }
 
         return "index";
+    }
+
+    /** 출발지 도보 + 승차 + 환승 도보 + 하차 후 도보까지 다 더한 문 앞에서 문 앞까지 총 소요시간(분). */
+    private int totalMinutes(LastDepartureResult.Feasible f) {
+        int legsMinutes = f.legs().stream()
+                .mapToInt(leg -> leg.rideMinutes() + leg.transferBufferMinutes())
+                .sum();
+        return legsMinutes + f.finalWalkMinutes();
     }
 
     /**

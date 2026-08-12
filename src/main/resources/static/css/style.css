@@ -500,6 +500,20 @@ body {
     color: var(--accent);
 }
 
+.route-total {
+    margin-bottom: 10px;
+}
+
+.route-total-badge {
+    display: inline-block;
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    font-size: 13px;
+    font-weight: 700;
+    padding: 5px 12px;
+    border-radius: 9999px;
+}
+
 .route-path {
     display: flex;
     flex-wrap: wrap;
@@ -509,25 +523,45 @@ body {
 }
 
 .route-leg-chip {
-    background: var(--accent-soft);
-    color: var(--accent-hover);
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    color: #ffffff;
+    padding: 7px 12px;
+    border-radius: 14px;
+    white-space: nowrap;
+}
+
+.route-leg-station {
     font-size: 13px;
     font-weight: 700;
-    padding: 5px 12px;
-    border-radius: 9999px;
-    white-space: nowrap;
+}
+
+.route-leg-meta {
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.85;
 }
 
 .route-leg-final {
     background: var(--card-bg);
     color: var(--text);
     border: 1px solid var(--border);
+    padding: 7px 12px;
+    border-radius: 14px;
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
 }
 
 .route-walk {
+    background: var(--border);
+    color: var(--text-muted);
     font-size: 12px;
     font-weight: 700;
-    color: var(--text-muted);
+    padding: 4px 10px;
+    border-radius: 9999px;
     white-space: nowrap;
 }
 

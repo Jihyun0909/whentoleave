@@ -18,7 +18,7 @@
                 <img class="logo-badge" src="/img/logo.png" alt="When To Leave 로고">
                 <h1>When To Leave</h1>
             </div>
-            <p class="subtitle">출발지/도착지 역 이름을 입력하면, 막차로 도착하려면 몇 시까지 출발해야 하는지 알려줍니다.</p>
+            <p class="subtitle">출발지/도착지 역 이름이나 주소를 입력하면, 막차로 도착하려면 몇 시까지 출발해야 하는지 알려줍니다.</p>
         </header>
 
         <nav class="tabs">
@@ -40,12 +40,12 @@
         <form method="get" action="/" class="search-form">
             <input type="hidden" name="mode" th:if="${arrivalMode}" value="arrival">
             <div class="field">
-                <label for="originName">출발역</label>
-                <input type="text" id="originName" name="originName" th:value="${originName}" required placeholder="예: 수유">
+                <label for="originName">출발지</label>
+                <input type="text" id="originName" name="originName" th:value="${originName}" required placeholder="역 이름 또는 주소, 예: 수유">
             </div>
             <div class="field">
-                <label for="destName">도착역</label>
-                <input type="text" id="destName" name="destName" th:value="${destName}" required placeholder="예: 압구정">
+                <label for="destName">도착지</label>
+                <input type="text" id="destName" name="destName" th:value="${destName}" required placeholder="역 이름 또는 주소, 예: 압구정">
             </div>
             <div class="field" th:if="${arrivalMode}">
                 <label>목표 도착 시각</label>
@@ -75,7 +75,7 @@
     </div>
 
     <div th:if="${originStatus == 'NOT_FOUND'}" class="alert alert-error">
-        <p>출발역 "<span th:text="${originName}"></span>"을(를) 찾을 수 없습니다. 정확한 역 이름으로 다시 입력해주세요.</p>
+        <p>출발지 "<span th:text="${originName}"></span>"을(를) 찾을 수 없습니다. 정확한 역 이름이나 주소로 다시 입력해주세요.</p>
     </div>
     <div th:if="${originStatus == 'AMBIGUOUS'}" class="candidates">
         <p class="candidates-title">출발역 후보가 여러 개입니다. 하나를 선택하세요.</p>
@@ -89,7 +89,7 @@
     </div>
 
     <div th:if="${destStatus == 'NOT_FOUND'}" class="alert alert-error">
-        <p>도착역 "<span th:text="${destName}"></span>"을(를) 찾을 수 없습니다. 정확한 역 이름으로 다시 입력해주세요.</p>
+        <p>도착지 "<span th:text="${destName}"></span>"을(를) 찾을 수 없습니다. 정확한 역 이름이나 주소로 다시 입력해주세요.</p>
     </div>
     <div th:if="${destStatus == 'AMBIGUOUS'}" class="candidates">
         <p class="candidates-title">도착역 후보가 여러 개입니다. 하나를 선택하세요.</p>
@@ -103,18 +103,23 @@
     </div>
 
     <div th:if="${searched}" class="result">
+        <div class="route-total" th:if="${feasible and routeLegs != null and !routeLegs.isEmpty()}">
+            <span class="route-total-badge" th:text="'총 ' + ${totalMinutes} + '분'"></span>
+        </div>
         <div class="route-path" th:if="${feasible and routeLegs != null and !routeLegs.isEmpty()}">
             <th:block th:each="leg, iter : ${routeLegs}">
-                <span th:unless="${iter.first}" class="route-arrow">→</span>
                 <span th:unless="${iter.first}" class="route-walk" th:text="'도보 ' + ${leg.transferBufferMinutes()} + '분'"></span>
                 <span th:unless="${iter.first}" class="route-arrow">→</span>
-                <span class="route-leg-chip" th:text="${leg.stationName()} + ' ' + ${leg.laneName()}"></span>
+                <span class="route-leg-chip" th:style="'background-color:' + ${@lineColorResolver.colorOf(leg.laneName())} + ';'">
+                    <span class="route-leg-station" th:text="${leg.stationName()}"></span>
+                    <span class="route-leg-meta" th:text="${leg.laneName()} + ' · 지하철 ' + ${leg.rideMinutes()} + '분'"></span>
+                </span>
+                <span class="route-arrow">→</span>
             </th:block>
             <th:block th:if="${finalWalkMinutes != null and finalWalkMinutes > 0}">
-                <span class="route-arrow">→</span>
                 <span class="route-walk" th:text="'도보 ' + ${finalWalkMinutes} + '분'"></span>
+                <span class="route-arrow">→</span>
             </th:block>
-            <span class="route-arrow">→</span>
             <span class="route-leg-chip route-leg-final" th:text="${destDisplayName}"></span>
         </div>
         <div class="route-summary" th:if="${!feasible and (originStatus == 'RESOLVED' or destStatus == 'RESOLVED')}">
