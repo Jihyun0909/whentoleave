@@ -260,15 +260,30 @@
             minute = v;
         });
 
+        // 열 때 지금 선택된 값이 목록 맨 위에 보이도록 스크롤한다 (안 하면 항상 00부터 보여서
+        // 23시/50분처럼 뒤쪽 값이 선택돼 있어도 한참 스크롤해야 현재 값을 찾을 수 있다).
+        function scrollToSelected(dropdown) {
+            var selected = dropdown.querySelector('.time-picker-option.is-selected');
+            if (selected) {
+                dropdown.scrollTop = selected.offsetTop - dropdown.clientHeight / 2 + selected.offsetHeight / 2;
+            }
+        }
+
+        function toggleDropdown(dropdown, other) {
+            other.classList.remove('is-open');
+            dropdown.classList.toggle('is-open');
+            if (dropdown.classList.contains('is-open')) {
+                scrollToSelected(dropdown);
+            }
+        }
+
         hourValueBtn.addEventListener('click', function (e) {
             e.stopPropagation();
-            minuteDropdown.classList.remove('is-open');
-            hourDropdown.classList.toggle('is-open');
+            toggleDropdown(hourDropdown, minuteDropdown);
         });
         minuteValueBtn.addEventListener('click', function (e) {
             e.stopPropagation();
-            hourDropdown.classList.remove('is-open');
-            minuteDropdown.classList.toggle('is-open');
+            toggleDropdown(minuteDropdown, hourDropdown);
         });
         document.addEventListener('click', closeDropdowns);
 

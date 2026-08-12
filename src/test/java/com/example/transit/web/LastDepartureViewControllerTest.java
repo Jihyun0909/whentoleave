@@ -57,8 +57,10 @@ class LastDepartureViewControllerTest {
         mockMvc.perform(get("/").param("originName", "강남").param("destName", "존재안함"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("originX=127.027619")))
-                .andExpect(content().string(containsString("수도권 2호선")))
-                .andExpect(content().string(containsString("수도권 신분당선")))
+                // "수도권" 접두어는 화면에 안 보여준다 (수도권 전용 서비스라 정보를 더하지 않음)
+                .andExpect(content().string(containsString("2호선")))
+                .andExpect(content().string(not(containsString("수도권 2호선"))))
+                .andExpect(content().string(containsString("신분당선")))
                 .andExpect(content().string(containsString("존재안함")));
     }
 
