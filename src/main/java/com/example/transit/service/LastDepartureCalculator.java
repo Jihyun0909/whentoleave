@@ -126,7 +126,9 @@ public class LastDepartureCalculator {
     private LastDepartureResult.Feasible toFeasible(int serviceMinutes, List<SubwayLeg> legs, int finalWalkMinutes) {
         boolean nextDay = serviceMinutes >= MINUTES_PER_DAY;
         int normalized = nextDay ? serviceMinutes - MINUTES_PER_DAY : serviceMinutes;
+        // isLastTrainDeparture는 서비스 레이어(LastDepartureService)가 목표시간 결과와 순수 막차
+        // 결과를 비교해서 판단할 몫이라 여기서는 항상 false로 둔다.
         return new LastDepartureResult.Feasible(
-                LocalTime.of(normalized / 60, normalized % 60), nextDay, legs, finalWalkMinutes);
+                LocalTime.of(normalized / 60, normalized % 60), nextDay, legs, finalWalkMinutes, false);
     }
 }

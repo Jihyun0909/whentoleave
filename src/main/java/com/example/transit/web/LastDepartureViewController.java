@@ -82,6 +82,7 @@ public class LastDepartureViewController {
                 model.addAttribute("nextDay", f.nextDay());
                 model.addAttribute("routeLegs", f.legs());
                 model.addAttribute("finalWalkMinutes", f.finalWalkMinutes());
+                model.addAttribute("isLastTrainDeparture", f.isLastTrainDeparture());
                 int totalMinutes = totalMinutes(f);
                 model.addAttribute("totalMinutes", totalMinutes);
 

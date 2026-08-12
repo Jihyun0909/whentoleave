@@ -58,7 +58,20 @@ public class LastDepartureService {
             return new LastDepartureResult.Infeasible(e.getMessage());
         }
 
-        return bestOf(pathCandidates, targetArrivalMinutes);
+        LastDepartureResult result = bestOf(pathCandidates, targetArrivalMinutes);
+        if (targetArrivalMinutes == null || !(result instanceof LastDepartureResult.Feasible targetFeasible)) {
+            return result;
+        }
+
+        // 목표 시각이 밤늦게라 사실상 아무 제약이 안 되면(예: 새벽 2시까지 도착), 역산 결과가
+        // 그냥 막차와 똑같이 나온다 - 이 경우 "그 시각까지 도착하려면"이라는 문구가 오해를 살 수
+        // 있어서(실제로는 훨씬 일찍 도착함) 화면에서 "이건 그냥 막차입니다"라고 밝혀준다.
+        if (bestOf(pathCandidates, null) instanceof LastDepartureResult.Feasible lastTrainFeasible
+                && toServiceMinutes(targetFeasible) == toServiceMinutes(lastTrainFeasible)) {
+            return new LastDepartureResult.Feasible(targetFeasible.departureTime(), targetFeasible.nextDay(),
+                    targetFeasible.legs(), targetFeasible.finalWalkMinutes(), true);
+        }
+        return targetFeasible;
     }
 
     /**

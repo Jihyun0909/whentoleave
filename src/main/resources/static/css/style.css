@@ -658,6 +658,13 @@ body {
     margin-left: 8px;
 }
 
+.result-note {
+    margin: 10px 0 0;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
 .result-infeasible {
     background: var(--error-bg);
     color: var(--error);

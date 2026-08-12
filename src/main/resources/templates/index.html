@@ -157,6 +157,7 @@
                 <span th:text="${#temporals.format(departureTime, 'HH:mm')}"></span>
                 <span class="badge-nextday" th:if="${nextDay}">다음날 새벽</span>
             </p>
+            <p class="result-note" th:if="${arrivalMode and isLastTrainDeparture}">오늘의 마지막 교통편을 이용하는 경로입니다.</p>
         </div>
         <div th:unless="${feasible}" class="result-card result-infeasible">
             <p th:text="${reason}"></p>
