@@ -665,6 +665,12 @@ body {
     color: var(--text-muted);
 }
 
+.result-note b {
+    color: var(--text);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
 .result-infeasible {
     background: var(--error-bg);
     color: var(--error);

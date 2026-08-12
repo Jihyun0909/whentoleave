@@ -90,6 +90,15 @@ public class LastDepartureViewController {
                 model.addAttribute("departureAlreadyPassed", departureAlreadyPassed);
                 if (departureAlreadyPassed) {
                     model.addAttribute("earliestArrivalTime", LocalTime.now().plusMinutes(totalMinutes));
+                } else {
+                    int departureMinutes = f.departureTime().getHour() * 60 + f.departureTime().getMinute()
+                            + (f.nextDay() ? MINUTES_PER_DAY : 0);
+                    int arrivalMinutes = departureMinutes + totalMinutes;
+                    boolean arrivalNextDay = arrivalMinutes >= MINUTES_PER_DAY;
+                    int normalizedArrival = arrivalNextDay ? arrivalMinutes - MINUTES_PER_DAY : arrivalMinutes;
+                    model.addAttribute("expectedArrivalTime",
+                            LocalTime.of(normalizedArrival / 60, normalizedArrival % 60));
+                    model.addAttribute("expectedArrivalNextDay", arrivalNextDay);
                 }
             }
             case LastDepartureResult.Infeasible i -> {
