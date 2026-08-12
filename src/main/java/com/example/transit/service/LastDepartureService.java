@@ -1,12 +1,17 @@
 package com.example.transit.service;
 
 import com.example.transit.service.client.OdsayClient;
+import com.example.transit.service.client.SearchPathType;
 import com.example.transit.service.client.dto.OdsayPathResponse;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.OptionalInt;
+import java.util.stream.Collectors;
 
 /**
  * 출발지/도착지 좌표를 받아 ODsay 경로탐색 -> 지하철 구간 추출 -> 막차/목표도착시간 역산까지 잇는다.
@@ -49,13 +54,61 @@ public class LastDepartureService {
             }
             targetArrivalMinutes = resolved.getAsInt();
         }
+        return calculateFor(SearchPathType.SUBWAY_ONLY, sx, sy, ex, ey, targetArrivalMinutes);
+    }
 
+    /**
+     * 지하철 / 지하철+버스 / 버스 세 가지로 각각 계산해서, 성립하는 것만 모아 돌려준다.
+     * 세 검색이 같은 경로로 수렴하는 경우(예: 지하철이 최선이면 "지하철+버스"도 같은 답)가 흔해서
+     * 출발시각·경로가 같으면 하나로 합친다. 정렬은 소요시간이 짧은 순 - 화면에서 맨 위가 추천 경로다.
+     */
+    public List<RouteOption> calculateOptions(double sx, double sy, double ex, double ey,
+                                               LocalTime targetArrivalTime) {
+        Integer targetArrivalMinutes = null;
+        if (targetArrivalTime != null) {
+            OptionalInt resolved = resolveTargetArrivalMinutes(targetArrivalTime);
+            if (resolved.isEmpty()) {
+                return List.of();
+            }
+            targetArrivalMinutes = resolved.getAsInt();
+        }
+
+        List<RouteOption> options = new ArrayList<>();
+        for (SearchPathType pathType : List.of(
+                SearchPathType.SUBWAY_ONLY, SearchPathType.ALL, SearchPathType.BUS_ONLY)) {
+            LastDepartureResult result = calculateFor(pathType, sx, sy, ex, ey, targetArrivalMinutes);
+            if (result instanceof LastDepartureResult.Feasible feasible) {
+                options.add(toOption(pathType, feasible));
+            }
+        }
+
+        return options.stream()
+                .collect(Collectors.toMap(
+                        option -> option.departureServiceMinutes() + "|" + legSignature(option),
+                        option -> option,
+                        (first, duplicate) -> first,
+                        LinkedHashMap::new))
+                .values().stream()
+                .sorted(Comparator.comparingInt(RouteOption::totalMinutes))
+                .toList();
+    }
+
+    /** 목표 도착시간 계산이 실패한 이유를 화면에 보여주기 위해, 지하철 기준 결과를 한 번 더 구한다. */
+    public LastDepartureResult calculateSingle(double sx, double sy, double ex, double ey,
+                                                LocalTime targetArrivalTime) {
+        return calculate(sx, sy, ex, ey, targetArrivalTime);
+    }
+
+    private LastDepartureResult calculateFor(SearchPathType pathType, double sx, double sy, double ex, double ey,
+                                              Integer targetArrivalMinutes) {
         List<RouteLegExtractor.ExtractedRoute> pathCandidates;
         try {
-            OdsayPathResponse response = odsayClient.searchSubwayPath(sx, sy, ex, ey);
-            pathCandidates = routeLegExtractor.extractAll(response);
+            OdsayPathResponse response = odsayClient.searchPath(sx, sy, ex, ey, pathType);
+            pathCandidates = routeLegExtractor.extractAll(response, pathType != SearchPathType.SUBWAY_ONLY);
         } catch (NoSubwayRouteFoundException e) {
             return new LastDepartureResult.Infeasible(e.getMessage());
+        } catch (RuntimeException e) {
+            return new LastDepartureResult.Infeasible("경로를 찾는 중 문제가 발생했습니다.");
         }
 
         LastDepartureResult result = bestOf(pathCandidates, targetArrivalMinutes);
@@ -72,6 +125,22 @@ public class LastDepartureService {
                     targetFeasible.legs(), targetFeasible.finalWalkMinutes(), true);
         }
         return targetFeasible;
+    }
+
+    private RouteOption toOption(SearchPathType pathType, LastDepartureResult.Feasible feasible) {
+        int legsMinutes = feasible.legs().stream()
+                .mapToInt(leg -> leg.rideMinutes() + leg.transferBufferMinutes())
+                .sum();
+        boolean hasBus = feasible.legs().stream().anyMatch(TransitLeg::isBus);
+        return new RouteOption(pathType.label(), feasible.departureTime(), feasible.nextDay(),
+                feasible.legs(), feasible.finalWalkMinutes(), legsMinutes + feasible.finalWalkMinutes(),
+                hasBus, feasible.isLastTrainDeparture());
+    }
+
+    private String legSignature(RouteOption option) {
+        return option.legs().stream()
+                .map(leg -> leg.mode() + ":" + leg.stationId() + ":" + leg.rideMinutes())
+                .collect(Collectors.joining(","));
     }
 
     /**

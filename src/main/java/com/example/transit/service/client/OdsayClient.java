@@ -1,5 +1,6 @@
 package com.example.transit.service.client;
 
+import com.example.transit.service.client.dto.OdsayBusLaneDetailResponse;
 import com.example.transit.service.client.dto.OdsayPathResponse;
 import com.example.transit.service.client.dto.OdsayScheduleResponse;
 import com.example.transit.service.client.dto.OdsayStationSearchResponse;
@@ -41,18 +42,31 @@ public class OdsayClient {
         return restClient.get().uri(uri).retrieve().body(OdsayScheduleResponse.class);
     }
 
-    /**
-     * SearchPathType=1(지하철 전용)로 요청해서, 응답에 버스 구간이 섞여 나오지 않게 한다.
-     */
+    /** SearchPathType=1(지하철 전용). */
     public OdsayPathResponse searchSubwayPath(double sx, double sy, double ex, double ey) {
+        return searchPath(sx, sy, ex, ey, SearchPathType.SUBWAY_ONLY);
+    }
+
+    public OdsayPathResponse searchPath(double sx, double sy, double ex, double ey, SearchPathType pathType) {
         URI uri = buildUri("/searchPubTransPathT",
                 "SX=" + sx,
                 "SY=" + sy,
                 "EX=" + ex,
                 "EY=" + ey,
-                "SearchPathType=1",
+                "SearchPathType=" + pathType.code(),
                 "apiKey=" + encode(apiKey));
         return restClient.get().uri(uri).retrieve().body(OdsayPathResponse.class);
+    }
+
+    /**
+     * 버스 노선의 첫차/막차/배차간격을 조회한다. 버스는 지하철과 달리 정류장별 시간표 API가
+     * 없어서, 이 노선 단위 정보로 승차 정류장의 출발 시각을 추정할 수밖에 없다.
+     */
+    public OdsayBusLaneDetailResponse fetchBusLaneDetail(int busId) {
+        URI uri = buildUri("/busLaneDetail",
+                "busID=" + busId,
+                "apiKey=" + encode(apiKey));
+        return restClient.get().uri(uri).retrieve().body(OdsayBusLaneDetailResponse.class);
     }
 
     /**

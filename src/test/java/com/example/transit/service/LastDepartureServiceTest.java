@@ -75,7 +75,7 @@ class LastDepartureServiceTest {
     private LastDepartureService newService(int rideMinutes, LastTrainLookup lookup) {
         OdsayClient odsayClient = odsayStub(singleLegResponse(rideMinutes));
         RouteLegExtractor extractor = new RouteLegExtractor();
-        LastDepartureCalculator calculator = new LastDepartureCalculator(lookup);
+        LastDepartureCalculator calculator = LastDepartureCalculator.subwayOnly(lookup);
         return new LastDepartureService(odsayClient, extractor, calculator);
     }
 
@@ -93,7 +93,8 @@ class LastDepartureServiceTest {
     private OdsayClient odsayStub(OdsayPathResponse response) {
         return new OdsayClient("http://dummy", "dummy") {
             @Override
-            public OdsayPathResponse searchSubwayPath(double sx, double sy, double ex, double ey) {
+            public OdsayPathResponse searchPath(double sx, double sy, double ex, double ey,
+                                                 com.example.transit.service.client.SearchPathType pathType) {
                 return response;
             }
         };

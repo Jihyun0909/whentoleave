@@ -2,6 +2,7 @@ package com.example.transit.web;
 
 import com.example.transit.service.LastDepartureResult;
 import com.example.transit.service.LastDepartureService;
+import com.example.transit.service.RouteOption;
 import com.example.transit.service.StationResolution;
 import com.example.transit.service.StationSearchService;
 import org.springframework.stereotype.Controller;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import java.time.LocalTime;
+import java.util.List;
 
 @Controller
 public class LastDepartureViewController {
@@ -70,52 +72,57 @@ public class LastDepartureViewController {
             return "index";
         }
 
-        LastDepartureResult result = arrivalMode
-                ? lastDepartureService.calculate(origin.x(), origin.y(), dest.x(), dest.y(), targetArrivalTime)
-                : lastDepartureService.calculate(origin.x(), origin.y(), dest.x(), dest.y());
         model.addAttribute("searched", true);
+        List<RouteOption> options =
+                lastDepartureService.calculateOptions(origin.x(), origin.y(), dest.x(), dest.y(),
+                        arrivalMode ? targetArrivalTime : null);
 
-        switch (result) {
-            case LastDepartureResult.Feasible f -> {
-                model.addAttribute("feasible", true);
-                model.addAttribute("departureTime", f.departureTime());
-                model.addAttribute("nextDay", f.nextDay());
-                model.addAttribute("routeLegs", f.legs());
-                model.addAttribute("finalWalkMinutes", f.finalWalkMinutes());
-                model.addAttribute("isLastTrainDeparture", f.isLastTrainDeparture());
-                int totalMinutes = totalMinutes(f);
-                model.addAttribute("totalMinutes", totalMinutes);
-
-                boolean departureAlreadyPassed = hasAlreadyPassed(f);
-                model.addAttribute("departureAlreadyPassed", departureAlreadyPassed);
-                if (departureAlreadyPassed) {
-                    model.addAttribute("earliestArrivalTime", LocalTime.now().plusMinutes(totalMinutes));
-                } else {
-                    int departureMinutes = f.departureTime().getHour() * 60 + f.departureTime().getMinute()
-                            + (f.nextDay() ? MINUTES_PER_DAY : 0);
-                    int arrivalMinutes = departureMinutes + totalMinutes;
-                    boolean arrivalNextDay = arrivalMinutes >= MINUTES_PER_DAY;
-                    int normalizedArrival = arrivalNextDay ? arrivalMinutes - MINUTES_PER_DAY : arrivalMinutes;
-                    model.addAttribute("expectedArrivalTime",
-                            LocalTime.of(normalizedArrival / 60, normalizedArrival % 60));
-                    model.addAttribute("expectedArrivalNextDay", arrivalNextDay);
-                }
-            }
-            case LastDepartureResult.Infeasible i -> {
-                model.addAttribute("feasible", false);
-                model.addAttribute("reason", displayReason(i, arrivalMode));
-            }
+        if (options.isEmpty()) {
+            // 세 가지 모두 실패한 경우, 이유를 보여주기 위해 지하철 기준 결과의 사유를 쓴다.
+            LastDepartureResult fallback = lastDepartureService.calculateSingle(
+                    origin.x(), origin.y(), dest.x(), dest.y(), arrivalMode ? targetArrivalTime : null);
+            model.addAttribute("feasible", false);
+            model.addAttribute("reason", fallback instanceof LastDepartureResult.Infeasible i
+                    ? displayReason(i, arrivalMode)
+                    : "가능한 경로를 찾지 못했습니다.");
+            return "index";
         }
 
+        model.addAttribute("feasible", true);
+        model.addAttribute("routeOptions", options.stream().map(this::toView).toList());
+        // "가장 늦게 출발해도 되는 경로"에 배지를 달기 위한 기준값 (동점이면 둘 다 표시된다).
+        model.addAttribute("latestDepartureMinutes", options.stream()
+                .mapToInt(RouteOption::departureServiceMinutes)
+                .max().orElse(-1));
         return "index";
     }
 
-    /** 출발지 도보 + 승차 + 환승 도보 + 하차 후 도보까지 다 더한 문 앞에서 문 앞까지 총 소요시간(분). */
-    private int totalMinutes(LastDepartureResult.Feasible f) {
-        int legsMinutes = f.legs().stream()
-                .mapToInt(leg -> leg.rideMinutes() + leg.transferBufferMinutes())
-                .sum();
-        return legsMinutes + f.finalWalkMinutes();
+    /**
+     * 화면에서 쓰기 쉬운 형태로 펼친다 (예상 도착 시각, 이미 지난 시각 여부처럼 "지금"에 의존하는
+     * 값은 계산 결과가 아니라 표시 시점의 관심사라 여기서 만든다).
+     */
+    private RouteOptionView toView(RouteOption option) {
+        boolean alreadyPassed = hasAlreadyPassed(option);
+        LocalTime earliestArrival = alreadyPassed
+                ? LocalTime.now().plusMinutes(option.totalMinutes()) : null;
+
+        int arrivalMinutes = option.departureServiceMinutes() + option.totalMinutes();
+        boolean arrivalNextDay = arrivalMinutes >= MINUTES_PER_DAY;
+        int normalizedArrival = arrivalMinutes % MINUTES_PER_DAY;
+
+        return new RouteOptionView(option, alreadyPassed, earliestArrival,
+                LocalTime.of(normalizedArrival / 60, normalizedArrival % 60), arrivalNextDay);
+    }
+
+    /**
+     * @param option              계산 결과
+     * @param departureAlreadyPassed 추천 출발 시각이 이미 지났는지
+     * @param earliestArrivalTime 지금 출발할 경우 가장 빨리 도착하는 시각 (지난 경우에만)
+     * @param expectedArrivalTime 추천 출발 시각에 나설 경우의 도착 시각
+     */
+    public record RouteOptionView(RouteOption option, boolean departureAlreadyPassed,
+                                   LocalTime earliestArrivalTime, LocalTime expectedArrivalTime,
+                                   boolean expectedArrivalNextDay) {
     }
 
     /**
@@ -138,15 +145,12 @@ public class LastDepartureViewController {
      * 이미 23:50인 경우). 새벽 시간대는 "오늘 자정 넘어서"로 이어지는 서비스일 개념이라
      * targetArrivalTime 처리와 같은 방식(새벽 6시 컷오프)으로 "지금"도 확장해서 비교한다.
      */
-    private boolean hasAlreadyPassed(LastDepartureResult.Feasible f) {
+    private boolean hasAlreadyPassed(RouteOption option) {
         LocalTime now = LocalTime.now();
         int nowMinutes = now.getHour() * 60 + now.getMinute();
         int serviceNowMinutes = nowMinutes < EARLY_MORNING_CUTOFF_MINUTES ? nowMinutes + MINUTES_PER_DAY : nowMinutes;
 
-        int departureMinutes = f.departureTime().getHour() * 60 + f.departureTime().getMinute();
-        int serviceDepartureMinutes = f.nextDay() ? departureMinutes + MINUTES_PER_DAY : departureMinutes;
-
-        return serviceDepartureMinutes < serviceNowMinutes;
+        return option.departureServiceMinutes() < serviceNowMinutes;
     }
 
     /**

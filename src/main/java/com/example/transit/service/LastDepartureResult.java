@@ -16,7 +16,7 @@ public sealed interface LastDepartureResult {
      *                              화면에서 "이건 그냥 막차 안내입니다"라고 밝혀주기 위함. 막차 모드(목표 시각 없음)에서는
      *                              항상 false다(그 모드 자체가 이미 막차 기준이라 알려줄 의미가 없음).
      */
-    record Feasible(LocalTime departureTime, boolean nextDay, List<SubwayLeg> legs, int finalWalkMinutes,
+    record Feasible(LocalTime departureTime, boolean nextDay, List<TransitLeg> legs, int finalWalkMinutes,
                      boolean isLastTrainDeparture) implements LastDepartureResult {
     }
 

@@ -20,6 +20,10 @@ public record OdsayPathResponse(Result result) {
     public record Path(Integer pathType, List<SubPath> subPath) {
     }
 
+    /**
+     * @param distance 이 구간의 이동 거리(m). 버스 구간에서 sectionTime과 함께 평균 속도를 구해,
+     *                 "기점에서 승차 정류장까지 오는 데 걸리는 시간"을 추정하는 데 쓴다.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record SubPath(
             Integer trafficType,
@@ -28,13 +32,26 @@ public record OdsayPathResponse(Result result) {
             Integer wayCode,
             PassStopList passStopList,
             String startName,
-            List<Lane> lane
+            List<Lane> lane,
+            Integer distance
     ) {
+        /** 버스 필드가 필요 없는(지하철 전용) 테스트/기존 코드용. */
+        public SubPath(Integer trafficType, Integer sectionTime, Integer startID, Integer wayCode,
+                        PassStopList passStopList, String startName, List<Lane> lane) {
+            this(trafficType, sectionTime, startID, wayCode, passStopList, startName, lane, null);
+        }
     }
 
-    /** 이 구간이 속한 노선 정보. 화면에 "O호선"처럼 보여주는 표시용으로만 쓴다. */
+    /**
+     * 이 구간이 속한 노선 정보. 지하철은 name("수도권 4호선")만 쓰고,
+     * 버스는 busNo(노선번호)와 busID(노선 상세/막차 조회용 키)를 쓴다.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Lane(String name) {
+    public record Lane(String name, String busNo, Integer busID, Integer type) {
+
+        public Lane(String name) {
+            this(name, null, null, null);
+        }
     }
 
     /**

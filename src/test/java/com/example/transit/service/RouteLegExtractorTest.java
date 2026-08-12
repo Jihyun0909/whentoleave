@@ -34,13 +34,13 @@ class RouteLegExtractorTest {
                 ))
         );
 
-        List<SubwayLeg> legs = extractor.extract(response);
+        List<TransitLeg> legs = extractor.extract(response);
 
         assertEquals(2, legs.size());
         // 출발 전 도보 1분이 버퍼로 잡힘(계산에선 안 쓰임)
-        assertEquals(new SubwayLeg(414, 2, 17, 1, Set.of(), "수유", "수도권4호선"), legs.get(0));
+        assertEquals(TransitLeg.subway(414, 2, 17, 1, Set.of(), "수유", "수도권4호선"), legs.get(0));
         // 환승 도보 3분이 버퍼로 들어감
-        assertEquals(new SubwayLeg(205, 2, 5, 3, Set.of(), "동대문역사문화공원", "수도권2호선"), legs.get(1));
+        assertEquals(TransitLeg.subway(205, 2, 5, 3, Set.of(), "동대문역사문화공원", "수도권2호선"), legs.get(1));
     }
 
     /**
@@ -65,7 +65,7 @@ class RouteLegExtractorTest {
                 ))
         );
 
-        List<SubwayLeg> legs = extractor.extract(response);
+        List<TransitLeg> legs = extractor.extract(response);
 
         Set<String> earlierStops = legs.get(0).earlierStopNames();
         assertTrue(earlierStops.contains("약수")); // 압구정보다 앞이라 단축운행 후보에서 제외 대상

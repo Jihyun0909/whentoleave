@@ -25,16 +25,23 @@ public class LastDepartureCalculator {
     private static final int MINUTES_PER_DAY = 24 * 60;
 
     private final LastTrainLookup lastTrainLookup;
+    private final BusDepartureLookup busDepartureLookup;
 
-    public LastDepartureCalculator(LastTrainLookup lastTrainLookup) {
+    public LastDepartureCalculator(LastTrainLookup lastTrainLookup, BusDepartureLookup busDepartureLookup) {
         this.lastTrainLookup = lastTrainLookup;
+        this.busDepartureLookup = busDepartureLookup;
     }
 
-    public LastDepartureResult calculate(List<SubwayLeg> legs) {
+    /** 지하철만 다루는 테스트용 - 버스 구간이 들어오면 후보가 없어 Infeasible이 된다. */
+    public static LastDepartureCalculator subwayOnly(LastTrainLookup lastTrainLookup) {
+        return new LastDepartureCalculator(lastTrainLookup, leg -> List.of());
+    }
+
+    public LastDepartureResult calculate(List<TransitLeg> legs) {
         return calculate(legs, null, 0);
     }
 
-    public LastDepartureResult calculate(List<SubwayLeg> legs, Integer targetArrivalMinutes) {
+    public LastDepartureResult calculate(List<TransitLeg> legs, Integer targetArrivalMinutes) {
         return calculate(legs, targetArrivalMinutes, 0);
     }
 
@@ -44,7 +51,7 @@ public class LastDepartureCalculator {
      * @param finalWalkMinutes     마지막 지하철 하차역에서 실제 목적지까지 걸어야 하는 시간(분).
      *                              목표 도착시간이 있으면 이 시간만큼 미리 당겨서 역산해야 한다.
      */
-    public LastDepartureResult calculate(List<SubwayLeg> legs, Integer targetArrivalMinutes, int finalWalkMinutes) {
+    public LastDepartureResult calculate(List<TransitLeg> legs, Integer targetArrivalMinutes, int finalWalkMinutes) {
         if (legs == null || legs.isEmpty()) {
             throw new IllegalArgumentException("legs must not be empty");
         }
@@ -53,16 +60,13 @@ public class LastDepartureCalculator {
         int firstLegUsableMinutes = -1;
 
         for (int i = legs.size() - 1; i >= 0; i--) {
-            SubwayLeg leg = legs.get(i);
+            TransitLeg leg = legs.get(i);
 
-            List<SubwaySchedule> candidates = lastTrainLookup.getLastTrains(leg.stationId(), leg.wayCode());
-            if (candidates.isEmpty()) {
+            List<Integer> reachableMinutes = departureCandidates(leg);
+            if (reachableMinutes.isEmpty()) {
                 return new LastDepartureResult.Infeasible(
-                        "역 " + leg.stationId() + "의 막차 정보를 찾을 수 없습니다.");
+                        (leg.isBus() ? "버스 " : "역 ") + leg.stationId() + "의 운행 정보를 찾을 수 없습니다.");
             }
-            List<Integer> reachableMinutes = reachableCandidates(candidates, leg).stream()
-                    .map(train -> toServiceMinutes(train.getDepartureTime(), train.isNextDay()))
-                    .toList();
 
             int usableMinutes;
             if (requiredArrivalMinutes == null) {
@@ -104,11 +108,26 @@ public class LastDepartureCalculator {
     }
 
     /**
+     * 이 구간에서 탈 수 있는 차편들의 출발 시각(서비스일 기준 분). 지하철은 실제 시간표에서,
+     * 버스는 노선 막차/배차간격 기반 추정치에서 가져온다 - 이 차이를 여기서 흡수해서
+     * 역산 로직 자체는 교통수단을 구분하지 않는다.
+     */
+    private List<Integer> departureCandidates(TransitLeg leg) {
+        if (leg.isBus()) {
+            return busDepartureLookup.departureServiceMinutes(leg);
+        }
+        List<SubwaySchedule> candidates = lastTrainLookup.getLastTrains(leg.stationId(), leg.wayCode());
+        return reachableCandidates(candidates, leg).stream()
+                .map(train -> toServiceMinutes(train.getDepartureTime(), train.isNextDay()))
+                .toList();
+    }
+
+    /**
      * 목적지가 이 구간의 도착역보다 앞에 있는(즉 단축운행으로 도착역까지 못 가는) 후보는 뺀다.
      * 전부 걸러져서 하나도 안 남으면(정보 부족 등), 걸러내기 전 전체 목록으로 되돌아간다 —
      * 잘못 걸러서 "갈 수 있는데 못 간다"고 하는 것보다는 낫다.
      */
-    private List<SubwaySchedule> reachableCandidates(List<SubwaySchedule> candidates, SubwayLeg leg) {
+    private List<SubwaySchedule> reachableCandidates(List<SubwaySchedule> candidates, TransitLeg leg) {
         if (leg.earlierStopNames().isEmpty()) {
             return candidates;
         }
@@ -123,7 +142,7 @@ public class LastDepartureCalculator {
         return nextDay ? minutes + MINUTES_PER_DAY : minutes;
     }
 
-    private LastDepartureResult.Feasible toFeasible(int serviceMinutes, List<SubwayLeg> legs, int finalWalkMinutes) {
+    private LastDepartureResult.Feasible toFeasible(int serviceMinutes, List<TransitLeg> legs, int finalWalkMinutes) {
         boolean nextDay = serviceMinutes >= MINUTES_PER_DAY;
         int normalized = nextDay ? serviceMinutes - MINUTES_PER_DAY : serviceMinutes;
         // isLastTrainDeparture는 서비스 레이어(LastDepartureService)가 목표시간 결과와 순수 막차
