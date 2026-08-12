@@ -99,6 +99,25 @@ class LastDepartureCalculatorTest {
         assertTrue(feasible.nextDay());
     }
 
+    /**
+     * 출발지를 주소로 입력한 경우, 그 주소에서 첫 승차역까지 걷는 시간(legs.get(0)의
+     * transferBufferMinutes)이 계산에 반영되어야 한다 - 승차 시각이 아니라 "출발지에서
+     * 나서야 하는 시각"을 보여줘야 하기 때문이다.
+     */
+    @Test
+    void 첫_구간_승차역까지_걷는_시간도_출발_시각에서_빼야_한다() {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                300, List.of(lastTrain(LocalTime.of(23, 45), false))
+        ));
+        LastDepartureCalculator calculator = new LastDepartureCalculator(lookup);
+
+        SubwayLeg leg = new SubwayLeg(300, 1, 20, 12, Set.of()); // 출발지->첫 승차역 도보 12분
+        LastDepartureResult result = calculator.calculate(List.of(leg));
+
+        LastDepartureResult.Feasible feasible = assertInstanceOf(LastDepartureResult.Feasible.class, result);
+        assertEquals(LocalTime.of(23, 33), feasible.departureTime()); // 23:45 - 12분
+    }
+
     @Test
     void 구간_리스트가_비어있으면_예외를_던진다() {
         LastTrainLookup lookup = fakeLookup(Map.of());

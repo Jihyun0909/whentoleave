@@ -95,7 +95,12 @@ public class LastDepartureCalculator {
             }
         }
 
-        return toFeasible(firstLegUsableMinutes, legs, finalWalkMinutes);
+        // firstLegUsableMinutes는 "첫 구간 승차역에서 열차를 타는 시각"이다. legs.get(0)의
+        // transferBufferMinutes는 실제 출발지(주소 등)에서 그 승차역까지 걷는 시간이므로,
+        // 그만큼 더 일찍 출발해야 한다 (이슈: 주소를 출발지로 입력했을 때 그 도보시간이
+        // 계산에 전혀 반영되지 않던 문제).
+        int departureMinutes = firstLegUsableMinutes - legs.get(0).transferBufferMinutes();
+        return toFeasible(departureMinutes, legs, finalWalkMinutes);
     }
 
     /**

@@ -13,36 +13,45 @@ public class LineColorResolver {
 
     private static final String FALLBACK_COLOR = "#4E5968";
 
+    /**
+     * 키는 전부 "수도권"/공백/마침표를 뗀 짧은 형태로 통일한다 (colorOf에서 입력도 똑같이
+     * 정규화해서 비교함). ODsay 노선명 표기가 일정하지 않아서다 - 실측해보니
+     * "수도권 4호선"(공백)처럼 나오기도 하고 "수도권 수인.분당선"(마침표까지)처럼 나오기도 함.
+     */
     private static final Map<String, String> LINE_COLORS = Map.ofEntries(
-            Map.entry("수도권1호선", "#0052A4"),
-            Map.entry("수도권2호선", "#00A84D"),
-            Map.entry("수도권3호선", "#EF7C1C"),
-            Map.entry("수도권4호선", "#00A5DE"),
-            Map.entry("수도권5호선", "#996CAC"),
-            Map.entry("수도권6호선", "#CD7C2F"),
-            Map.entry("수도권7호선", "#747F00"),
-            Map.entry("수도권8호선", "#E6186C"),
-            Map.entry("수도권9호선", "#BDB092"),
-            Map.entry("신분당선", "#D4003B"),
-            Map.entry("수인분당선", "#F5A200"),
-            Map.entry("경의중앙선", "#77C4A3"),
-            Map.entry("공항철도", "#0090D2"),
+            Map.entry("1호선", "#0D3692"),
+            Map.entry("2호선", "#33A23D"),
+            Map.entry("3호선", "#EF7C31"),
+            Map.entry("4호선", "#4C9BD6"),
+            Map.entry("5호선", "#77468C"),
+            Map.entry("6호선", "#C5730F"),
+            Map.entry("7호선", "#767C1B"),
+            Map.entry("8호선", "#EA4893"),
+            Map.entry("9호선", "#AD9C5C"),
+            Map.entry("신분당선", "#C9252B"),
+            Map.entry("공항철도", "#359DE0"),
+            Map.entry("경의중앙선", "#6FBE97"),
             Map.entry("경춘선", "#0C8E72"),
+            Map.entry("수인분당선", "#FBB715"),
+            Map.entry("의정부경전철", "#F06A00"),
+            Map.entry("인천1호선", "#6193C6"),
+            Map.entry("인천2호선", "#5EC2E6"),
+            Map.entry("김포골드라인", "#B4A16B"),
+            Map.entry("우이신설선", "#B5D334"),
             Map.entry("서해선", "#8FC31F"),
-            Map.entry("우이신설선", "#B0CE18"),
+            Map.entry("에버라인", "#4C9F70"),
             Map.entry("신림선", "#6789CA"),
-            Map.entry("인천1호선", "#7CA8D5"),
-            Map.entry("인천2호선", "#ED8B00"),
-            Map.entry("김포골드라인", "#A17800"),
-            Map.entry("의정부경전철", "#FDA600"),
-            Map.entry("에버라인", "#74B466")
+            Map.entry("GTX-A", "#9A6292")
     );
 
-    /** ODsay 응답의 노선명 띄어쓰기가 일정하지 않아("수도권4호선" vs "수도권 4호선") 공백을 무시하고 매칭한다. */
     public String colorOf(String laneName) {
         if (laneName == null) {
             return FALLBACK_COLOR;
         }
-        return LINE_COLORS.getOrDefault(laneName.replace(" ", ""), FALLBACK_COLOR);
+        return LINE_COLORS.getOrDefault(normalize(laneName), FALLBACK_COLOR);
+    }
+
+    private String normalize(String laneName) {
+        return laneName.replace("수도권", "").replace(" ", "").replace(".", "");
     }
 }

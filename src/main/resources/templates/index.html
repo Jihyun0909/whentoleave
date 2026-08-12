@@ -115,6 +115,11 @@
             <span class="route-total-badge" th:text="'총 ' + ${totalMinutes} + '분'"></span>
         </div>
         <div class="route-path" th:if="${feasible and routeLegs != null and !routeLegs.isEmpty()}">
+            <span class="route-leg-chip route-leg-final" th:text="${originDisplayName}"></span>
+            <th:block th:if="${routeLegs[0].transferBufferMinutes() > 0}">
+                <span class="route-walk" th:text="'도보 ' + ${routeLegs[0].transferBufferMinutes()} + '분'"></span>
+            </th:block>
+            <span class="route-arrow">→</span>
             <th:block th:each="leg, iter : ${routeLegs}">
                 <span th:unless="${iter.first}" class="route-walk" th:text="'도보 ' + ${leg.transferBufferMinutes()} + '분'"></span>
                 <span th:unless="${iter.first}" class="route-arrow">→</span>
@@ -136,7 +141,14 @@
             <span class="route-station" th:if="${destStatus == 'RESOLVED'}" th:text="${destDisplayName}"></span>
         </div>
 
-        <div th:if="${feasible}" class="result-card result-feasible">
+        <div th:if="${feasible and departureAlreadyPassed}" class="result-card result-feasible">
+            <p class="result-label" th:text="'목적지까지 최소 ' + ${totalMinutes} + '분 소요되어, 가장 빠르게 도착할 수 있는 시각은'"></p>
+            <p class="result-time">
+                <span th:text="${#temporals.format(earliestArrivalTime, 'HH:mm')}"></span>
+                <span class="badge-nextday">입니다</span>
+            </p>
+        </div>
+        <div th:if="${feasible and !departureAlreadyPassed}" class="result-card result-feasible">
             <p class="result-label">
                 <span th:if="${arrivalMode}" th:text="${#temporals.format(targetArrivalTime, 'HH:mm')} + '까지 도착하려면 이 시각까지 출발하세요'"></span>
                 <span th:unless="${arrivalMode}">막차로 도착하려면 이 시각까지 출발하세요</span>

@@ -15,6 +15,9 @@ import java.time.LocalTime;
 @Controller
 public class LastDepartureViewController {
 
+    private static final int EARLY_MORNING_CUTOFF_MINUTES = 6 * 60;
+    private static final int MINUTES_PER_DAY = 24 * 60;
+
     private final LastDepartureService lastDepartureService;
     private final StationSearchService stationSearchService;
 
@@ -79,11 +82,18 @@ public class LastDepartureViewController {
                 model.addAttribute("nextDay", f.nextDay());
                 model.addAttribute("routeLegs", f.legs());
                 model.addAttribute("finalWalkMinutes", f.finalWalkMinutes());
-                model.addAttribute("totalMinutes", totalMinutes(f));
+                int totalMinutes = totalMinutes(f);
+                model.addAttribute("totalMinutes", totalMinutes);
+
+                boolean departureAlreadyPassed = hasAlreadyPassed(f);
+                model.addAttribute("departureAlreadyPassed", departureAlreadyPassed);
+                if (departureAlreadyPassed) {
+                    model.addAttribute("earliestArrivalTime", LocalTime.now().plusMinutes(totalMinutes));
+                }
             }
             case LastDepartureResult.Infeasible i -> {
                 model.addAttribute("feasible", false);
-                model.addAttribute("reason", i.reason());
+                model.addAttribute("reason", displayReason(i, arrivalMode));
             }
         }
 
@@ -96,6 +106,37 @@ public class LastDepartureViewController {
                 .mapToInt(leg -> leg.rideMinutes() + leg.transferBufferMinutes())
                 .sum();
         return legsMinutes + f.finalWalkMinutes();
+    }
+
+    /**
+     * 목표 도착시간(arrivalMode) 계산이 Infeasible인 이유는 대부분 "그 시각까지 갈 방법이
+     * 없다"는 것 하나로 요약된다 - LastDepartureCalculator/Service가 내부적으로 어느 구간에서
+     * 막혔는지 담은 원인 문구는 사용자에게는 불필요하게 기술적이라 통일된 안내로 바꾼다.
+     * 단, "목표 도착 시각이 이미 지난 시각" 케이스는 원인이 전혀 다르므로(사용자가 이미 지난
+     * 시각을 입력함) 그 메시지는 그대로 둔다.
+     */
+    private String displayReason(LastDepartureResult.Infeasible infeasible, boolean arrivalMode) {
+        boolean targetAlreadyPast = infeasible.reason() != null && infeasible.reason().contains("이미 지난 시각");
+        if (arrivalMode && !targetAlreadyPast) {
+            return "해당 목적지까지 대중교통 운행이 종료되어 안내가 불가능합니다.";
+        }
+        return infeasible.reason();
+    }
+
+    /**
+     * 추천 출발 시각이 이미 지난 시각인지 본다 (예: 막차 계산 결과가 23:30인데 확인하는 시점이
+     * 이미 23:50인 경우). 새벽 시간대는 "오늘 자정 넘어서"로 이어지는 서비스일 개념이라
+     * targetArrivalTime 처리와 같은 방식(새벽 6시 컷오프)으로 "지금"도 확장해서 비교한다.
+     */
+    private boolean hasAlreadyPassed(LastDepartureResult.Feasible f) {
+        LocalTime now = LocalTime.now();
+        int nowMinutes = now.getHour() * 60 + now.getMinute();
+        int serviceNowMinutes = nowMinutes < EARLY_MORNING_CUTOFF_MINUTES ? nowMinutes + MINUTES_PER_DAY : nowMinutes;
+
+        int departureMinutes = f.departureTime().getHour() * 60 + f.departureTime().getMinute();
+        int serviceDepartureMinutes = f.nextDay() ? departureMinutes + MINUTES_PER_DAY : departureMinutes;
+
+        return serviceDepartureMinutes < serviceNowMinutes;
     }
 
     /**
