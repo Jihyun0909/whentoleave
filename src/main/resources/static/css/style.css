@@ -13,6 +13,7 @@
     --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
     --font-body: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", Roboto, sans-serif;
     --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Segoe UI Mono", "Roboto Mono", monospace;
+    --font-display: "Do Hyeon", var(--font-body);
 }
 
 * {
@@ -109,11 +110,12 @@ body {
 }
 
 .app-header h1 {
-    font-size: 26px;
-    font-weight: 800;
+    font-family: var(--font-display);
+    font-size: 28px;
+    font-weight: 400;
     color: var(--text);
     margin: 0;
-    letter-spacing: -0.5px;
+    letter-spacing: -0.3px;
 }
 
 .subtitle {
@@ -160,7 +162,7 @@ body {
 }
 
 .tab-active {
-    background: #ffffff;
+    background: var(--card-bg);
     color: var(--accent);
     box-shadow: 0 1px 3px rgba(var(--shadow-color), 0.1);
 }
@@ -245,7 +247,7 @@ body {
 .field input:focus {
     outline: none;
     border-color: var(--accent);
-    background: #ffffff;
+    background: var(--card-bg);
 }
 
 .field input:focus-visible {
@@ -375,6 +377,37 @@ body {
 
 .route-arrow {
     color: var(--accent);
+}
+
+.route-path {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.route-leg-chip {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    font-size: 13px;
+    font-weight: 700;
+    padding: 5px 12px;
+    border-radius: 9999px;
+    white-space: nowrap;
+}
+
+.route-leg-final {
+    background: var(--card-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+.route-walk {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+    white-space: nowrap;
 }
 
 .result-card {

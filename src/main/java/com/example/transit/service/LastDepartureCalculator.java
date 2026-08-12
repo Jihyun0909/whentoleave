@@ -89,7 +89,7 @@ public class LastDepartureCalculator {
             }
         }
 
-        return toFeasible(firstLegUsableMinutes);
+        return toFeasible(firstLegUsableMinutes, legs);
     }
 
     /**
@@ -112,9 +112,9 @@ public class LastDepartureCalculator {
         return nextDay ? minutes + MINUTES_PER_DAY : minutes;
     }
 
-    private LastDepartureResult.Feasible toFeasible(int serviceMinutes) {
+    private LastDepartureResult.Feasible toFeasible(int serviceMinutes, List<SubwayLeg> legs) {
         boolean nextDay = serviceMinutes >= MINUTES_PER_DAY;
         int normalized = nextDay ? serviceMinutes - MINUTES_PER_DAY : serviceMinutes;
-        return new LastDepartureResult.Feasible(LocalTime.of(normalized / 60, normalized % 60), nextDay);
+        return new LastDepartureResult.Feasible(LocalTime.of(normalized / 60, normalized % 60), nextDay, legs);
     }
 }

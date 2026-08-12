@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>When To Leave</title>
     <link rel="icon" type="image/png" href="/img/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Do+Hyeon&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../static/css/style.css" th:href="@{/css/style.css}">
 </head>
 <body>
@@ -86,7 +89,17 @@
     </div>
 
     <div th:if="${searched}" class="result">
-        <div class="route-summary" th:if="${originStatus == 'RESOLVED' or destStatus == 'RESOLVED'}">
+        <div class="route-path" th:if="${feasible and routeLegs != null and !routeLegs.isEmpty()}">
+            <th:block th:each="leg, iter : ${routeLegs}">
+                <span th:unless="${iter.first}" class="route-arrow">→</span>
+                <span th:unless="${iter.first}" class="route-walk" th:text="'도보 ' + ${leg.transferBufferMinutes()} + '분'"></span>
+                <span th:unless="${iter.first}" class="route-arrow">→</span>
+                <span class="route-leg-chip" th:text="${leg.stationName()} + ' ' + ${leg.laneName()}"></span>
+            </th:block>
+            <span class="route-arrow">→</span>
+            <span class="route-leg-chip route-leg-final" th:text="${destDisplayName}"></span>
+        </div>
+        <div class="route-summary" th:if="${!feasible and (originStatus == 'RESOLVED' or destStatus == 'RESOLVED')}">
             <span class="route-station" th:if="${originStatus == 'RESOLVED'}" th:text="${originDisplayName}"></span>
             <span class="route-arrow" th:if="${originStatus == 'RESOLVED' and destStatus == 'RESOLVED'}">→</span>
             <span class="route-station" th:if="${destStatus == 'RESOLVED'}" th:text="${destDisplayName}"></span>

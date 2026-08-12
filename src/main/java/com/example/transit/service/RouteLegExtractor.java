@@ -70,7 +70,7 @@ public class RouteLegExtractor {
                 }
                 Set<String> earlierStopNames = earlierStopNames(subPath);
                 legs.add(new SubwayLeg(subPath.startID(), subPath.wayCode(), sectionTime,
-                        pendingWalkMinutes, earlierStopNames));
+                        pendingWalkMinutes, earlierStopNames, subPath.startName(), laneName(subPath)));
                 pendingWalkMinutes = 0;
             } else {
                 throw new NoSubwayRouteFoundException(
@@ -105,6 +105,14 @@ public class RouteLegExtractor {
             }
         }
         return names;
+    }
+
+    /** lane 배열의 첫 번째 노선 이름을 쓴다 (여러 노선이 겹치는 구간이면 그중 대표 하나). */
+    private String laneName(OdsayPathResponse.SubPath subPath) {
+        if (subPath.lane() == null || subPath.lane().isEmpty()) {
+            return null;
+        }
+        return subPath.lane().get(0).name();
     }
 
     private List<OdsayPathResponse.Path> allPaths(OdsayPathResponse response) {

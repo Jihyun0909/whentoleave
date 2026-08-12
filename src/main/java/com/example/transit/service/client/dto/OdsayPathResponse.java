@@ -26,8 +26,15 @@ public record OdsayPathResponse(Result result) {
             Integer sectionTime,
             Integer startID,
             Integer wayCode,
-            PassStopList passStopList
+            PassStopList passStopList,
+            String startName,
+            List<Lane> lane
     ) {
+    }
+
+    /** 이 구간이 속한 노선 정보. 화면에 "O호선"처럼 보여주는 표시용으로만 쓴다. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Lane(String name) {
     }
 
     /**
