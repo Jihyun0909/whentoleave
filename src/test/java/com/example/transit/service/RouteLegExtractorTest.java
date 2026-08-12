@@ -115,14 +115,40 @@ class RouteLegExtractorTest {
                 ))
         );
 
-        List<List<SubwayLeg>> candidates = extractor.extractAll(response);
+        List<RouteLegExtractor.ExtractedRoute> candidates = extractor.extractAll(response);
 
         assertEquals(2, candidates.size());
-        assertEquals(1, candidates.get(0).size());
-        assertEquals(414, candidates.get(0).get(0).stationId());
-        assertEquals(2, candidates.get(1).size());
-        assertEquals(1824, candidates.get(1).get(0).stationId());
-        assertEquals(220, candidates.get(1).get(1).stationId());
+        assertEquals(1, candidates.get(0).legs().size());
+        assertEquals(414, candidates.get(0).legs().get(0).stationId());
+        assertEquals(2, candidates.get(1).legs().size());
+        assertEquals(1824, candidates.get(1).legs().get(0).stationId());
+        assertEquals(220, candidates.get(1).legs().get(1).stationId());
+    }
+
+    /**
+     * 사당->신논현 실사용 발견 케이스: 마지막 지하철 구간(강남 하차) 뒤에 도보 9분이 남는데,
+     * 다음 지하철 구간이 없어서 붙일 곳이 없다고 통째로 버려지면 안 된다 (실제 목적지인
+     * 신논현까지 걸어야 하는 시간이 화면/계산에서 사라지는 버그였음). extractAll이 각 후보의
+     * finalWalkMinutes로 따로 들고 나오는지 확인한다.
+     */
+    @Test
+    void 마지막_지하철_구간_뒤에_남은_도보는_finalWalkMinutes로_따로_들고나온다() {
+        OdsayPathResponse response = new OdsayPathResponse(
+                new OdsayPathResponse.Result(List.of(
+                        new OdsayPathResponse.Path(1, List.of(
+                                new OdsayPathResponse.SubPath(1, 17, 900, 2, null, "사당",
+                                        List.of(new OdsayPathResponse.Lane("수도권2호선"))),
+                                new OdsayPathResponse.SubPath(3, 9, null, null, null, null, null)
+                        ))
+                ))
+        );
+
+        List<RouteLegExtractor.ExtractedRoute> candidates = extractor.extractAll(response);
+
+        assertEquals(1, candidates.size());
+        RouteLegExtractor.ExtractedRoute route = candidates.get(0);
+        assertEquals(1, route.legs().size());
+        assertEquals(9, route.finalWalkMinutes());
     }
 
     @Test

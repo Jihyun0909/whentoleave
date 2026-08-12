@@ -78,6 +78,7 @@ public class LastDepartureViewController {
                 model.addAttribute("departureTime", f.departureTime());
                 model.addAttribute("nextDay", f.nextDay());
                 model.addAttribute("routeLegs", f.legs());
+                model.addAttribute("finalWalkMinutes", f.finalWalkMinutes());
             }
             case LastDepartureResult.Infeasible i -> {
                 model.addAttribute("feasible", false);

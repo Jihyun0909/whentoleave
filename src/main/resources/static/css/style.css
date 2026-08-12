@@ -255,6 +255,127 @@ body {
     outline-offset: 2px;
 }
 
+.time-picker {
+    display: flex;
+    align-items: stretch;
+    background: var(--bg);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.time-picker-segment {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 8px 4px;
+    position: relative;
+    border-right: 1px solid var(--border);
+}
+
+.time-picker-segment:last-child {
+    border-right: none;
+}
+
+.time-picker-day {
+    flex: 0 0 auto;
+    padding: 8px 16px;
+    color: var(--text-muted);
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.time-picker-day.is-disabled {
+    cursor: not-allowed;
+}
+
+.time-picker-unit {
+    flex: 1;
+}
+
+.time-picker-step {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 8px;
+    font-family: inherit;
+    transition: background 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+
+.time-picker-step:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.time-picker-value {
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-variant-numeric: tabular-nums;
+    transition: background 0.15s var(--ease-out);
+}
+
+.time-picker-value:hover {
+    background: var(--accent-soft);
+}
+
+.time-picker-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--card-bg);
+    border-radius: 12px;
+    box-shadow: 0 8px 28px rgba(var(--shadow-color), 0.16);
+    max-height: 220px;
+    overflow-y: auto;
+    z-index: 20;
+    padding: 6px;
+    margin-top: 6px;
+    width: 84px;
+}
+
+.time-picker-dropdown.is-open {
+    display: block;
+}
+
+.time-picker-option {
+    display: block;
+    width: 100%;
+    text-align: center;
+    padding: 8px 0;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: inherit;
+    font-variant-numeric: tabular-nums;
+}
+
+.time-picker-option:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.time-picker-option.is-selected {
+    background: var(--accent);
+    color: #ffffff;
+}
+
 .btn-search {
     display: flex;
     align-items: center;

@@ -48,10 +48,24 @@
                 <input type="text" id="destName" name="destName" th:value="${destName}" required placeholder="예: 압구정">
             </div>
             <div class="field" th:if="${arrivalMode}">
-                <label for="targetArrivalTime">목표 도착 시각</label>
-                <input type="time" id="targetArrivalTime" name="targetArrivalTime"
-                       th:value="${targetArrivalTime != null ? #temporals.format(targetArrivalTime, 'HH:mm') : null}"
-                       required>
+                <label>목표 도착 시각</label>
+                <div class="time-picker" id="timePicker">
+                    <div class="time-picker-segment time-picker-day is-disabled" title="다른날 선택은 준비중입니다">오늘</div>
+                    <div class="time-picker-segment time-picker-unit">
+                        <button type="button" class="time-picker-step" data-target="hour" data-delta="-1" aria-label="시간 감소">‹</button>
+                        <button type="button" class="time-picker-value" id="hourValue"></button>
+                        <button type="button" class="time-picker-step" data-target="hour" data-delta="1" aria-label="시간 증가">›</button>
+                        <div class="time-picker-dropdown" id="hourDropdown"></div>
+                    </div>
+                    <div class="time-picker-segment time-picker-unit">
+                        <button type="button" class="time-picker-step" data-target="minute" data-delta="-1" aria-label="분 감소">‹</button>
+                        <button type="button" class="time-picker-value" id="minuteValue"></button>
+                        <button type="button" class="time-picker-step" data-target="minute" data-delta="1" aria-label="분 증가">›</button>
+                        <div class="time-picker-dropdown" id="minuteDropdown"></div>
+                    </div>
+                </div>
+                <input type="hidden" id="targetArrivalTime" name="targetArrivalTime"
+                       th:value="${targetArrivalTime != null ? #temporals.format(targetArrivalTime, 'HH:mm') : ''}">
             </div>
             <button type="submit" class="btn-search" id="searchBtn">
                 <span class="spinner" aria-hidden="true"></span>
@@ -96,6 +110,10 @@
                 <span th:unless="${iter.first}" class="route-arrow">→</span>
                 <span class="route-leg-chip" th:text="${leg.stationName()} + ' ' + ${leg.laneName()}"></span>
             </th:block>
+            <th:block th:if="${finalWalkMinutes != null and finalWalkMinutes > 0}">
+                <span class="route-arrow">→</span>
+                <span class="route-walk" th:text="'도보 ' + ${finalWalkMinutes} + '분'"></span>
+            </th:block>
             <span class="route-arrow">→</span>
             <span class="route-leg-chip route-leg-final" th:text="${destDisplayName}"></span>
         </div>
@@ -129,6 +147,112 @@
         btn.querySelector('.btn-label').textContent = '검색 중…';
         btn.disabled = true;
     });
+
+    (function initTimePicker() {
+        var picker = document.getElementById('timePicker');
+        if (!picker) {
+            return;
+        }
+
+        var hiddenInput = document.getElementById('targetArrivalTime');
+        var hourValueBtn = document.getElementById('hourValue');
+        var minuteValueBtn = document.getElementById('minuteValue');
+        var hourDropdown = document.getElementById('hourDropdown');
+        var minuteDropdown = document.getElementById('minuteDropdown');
+
+        function pad(n) {
+            return String(n).padStart(2, '0');
+        }
+
+        var hour, minute;
+        var existing = hiddenInput.value;
+        if (existing) {
+            var parts = existing.split(':');
+            hour = Number(parts[0]);
+            minute = Number(parts[1]);
+        } else {
+            var now = new Date();
+            hour = now.getHours();
+            minute = now.getMinutes();
+        }
+
+        function markSelected(dropdown, value) {
+            dropdown.querySelectorAll('.time-picker-option').forEach(function (opt) {
+                opt.classList.toggle('is-selected', Number(opt.dataset.value) === value);
+            });
+        }
+
+        function render() {
+            hourValueBtn.textContent = pad(hour) + '시';
+            minuteValueBtn.textContent = pad(minute) + '분';
+            hiddenInput.value = pad(hour) + ':' + pad(minute);
+            markSelected(hourDropdown, hour);
+            markSelected(minuteDropdown, minute);
+        }
+
+        function closeDropdowns() {
+            hourDropdown.classList.remove('is-open');
+            minuteDropdown.classList.remove('is-open');
+        }
+
+        function buildDropdown(dropdown, values, onPick) {
+            values.forEach(function (v) {
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'time-picker-option';
+                btn.dataset.value = String(v);
+                btn.textContent = pad(v);
+                btn.addEventListener('click', function () {
+                    onPick(v);
+                    render();
+                    closeDropdowns();
+                });
+                dropdown.appendChild(btn);
+            });
+        }
+
+        var hours = [];
+        for (var h = 0; h < 24; h++) {
+            hours.push(h);
+        }
+        buildDropdown(hourDropdown, hours, function (v) {
+            hour = v;
+        });
+        var minutes = [];
+        for (var m = 0; m < 60; m++) {
+            minutes.push(m);
+        }
+        buildDropdown(minuteDropdown, minutes, function (v) {
+            minute = v;
+        });
+
+        hourValueBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            minuteDropdown.classList.remove('is-open');
+            hourDropdown.classList.toggle('is-open');
+        });
+        minuteValueBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            hourDropdown.classList.remove('is-open');
+            minuteDropdown.classList.toggle('is-open');
+        });
+        document.addEventListener('click', closeDropdowns);
+
+        picker.querySelectorAll('.time-picker-step').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var target = btn.dataset.target;
+                var delta = Number(btn.dataset.delta);
+                if (target === 'hour') {
+                    hour = (hour + delta + 24) % 24;
+                } else {
+                    minute = (minute + delta + 60) % 60;
+                }
+                render();
+            });
+        });
+
+        render();
+    })();
 </script>
 </body>
 </html>

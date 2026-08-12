@@ -31,19 +31,25 @@ public class LastDepartureCalculator {
     }
 
     public LastDepartureResult calculate(List<SubwayLeg> legs) {
-        return calculate(legs, null);
+        return calculate(legs, null, 0);
+    }
+
+    public LastDepartureResult calculate(List<SubwayLeg> legs, Integer targetArrivalMinutes) {
+        return calculate(legs, targetArrivalMinutes, 0);
     }
 
     /**
      * @param targetArrivalMinutes null이면 막차 기준(마지막 구간에 도착 제약 없음),
      *                              값이 있으면 그 시각(서비스일 기준 분)까지 도착해야 하는 것으로 보고 역산한다.
+     * @param finalWalkMinutes     마지막 지하철 하차역에서 실제 목적지까지 걸어야 하는 시간(분).
+     *                              목표 도착시간이 있으면 이 시간만큼 미리 당겨서 역산해야 한다.
      */
-    public LastDepartureResult calculate(List<SubwayLeg> legs, Integer targetArrivalMinutes) {
+    public LastDepartureResult calculate(List<SubwayLeg> legs, Integer targetArrivalMinutes, int finalWalkMinutes) {
         if (legs == null || legs.isEmpty()) {
             throw new IllegalArgumentException("legs must not be empty");
         }
 
-        Integer requiredArrivalMinutes = targetArrivalMinutes;
+        Integer requiredArrivalMinutes = targetArrivalMinutes == null ? null : targetArrivalMinutes - finalWalkMinutes;
         int firstLegUsableMinutes = -1;
 
         for (int i = legs.size() - 1; i >= 0; i--) {
@@ -89,7 +95,7 @@ public class LastDepartureCalculator {
             }
         }
 
-        return toFeasible(firstLegUsableMinutes, legs);
+        return toFeasible(firstLegUsableMinutes, legs, finalWalkMinutes);
     }
 
     /**
@@ -112,9 +118,10 @@ public class LastDepartureCalculator {
         return nextDay ? minutes + MINUTES_PER_DAY : minutes;
     }
 
-    private LastDepartureResult.Feasible toFeasible(int serviceMinutes, List<SubwayLeg> legs) {
+    private LastDepartureResult.Feasible toFeasible(int serviceMinutes, List<SubwayLeg> legs, int finalWalkMinutes) {
         boolean nextDay = serviceMinutes >= MINUTES_PER_DAY;
         int normalized = nextDay ? serviceMinutes - MINUTES_PER_DAY : serviceMinutes;
-        return new LastDepartureResult.Feasible(LocalTime.of(normalized / 60, normalized % 60), nextDay, legs);
+        return new LastDepartureResult.Feasible(
+                LocalTime.of(normalized / 60, normalized % 60), nextDay, legs, finalWalkMinutes);
     }
 }

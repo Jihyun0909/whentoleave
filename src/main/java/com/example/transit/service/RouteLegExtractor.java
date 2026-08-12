@@ -21,7 +21,7 @@ public class RouteLegExtractor {
 
     /** 가장 첫 번째 추천 경로만 뽑는다 (하위 호환용). 여러 경로를 다 시도하려면 {@link #extractAll}을 쓴다. */
     public List<SubwayLeg> extract(OdsayPathResponse response) {
-        return extractAll(response).get(0);
+        return extractAll(response).get(0).legs();
     }
 
     /**
@@ -33,13 +33,13 @@ public class RouteLegExtractor {
      * <p>
      * 버스가 섞이는 등 지하철 전용이 아닌 경로 후보는 조용히 걸러내고, 하나도 안 남으면 예외를 던진다.
      */
-    public List<List<SubwayLeg>> extractAll(OdsayPathResponse response) {
+    public List<ExtractedRoute> extractAll(OdsayPathResponse response) {
         List<OdsayPathResponse.Path> paths = allPaths(response);
 
-        List<List<SubwayLeg>> candidates = new ArrayList<>();
+        List<ExtractedRoute> candidates = new ArrayList<>();
         for (OdsayPathResponse.Path path : paths) {
             try {
-                candidates.add(extractLegs(path));
+                candidates.add(extractRoute(path));
             } catch (NoSubwayRouteFoundException ignored) {
                 // 이 경로 후보는 지하철 전용이 아니거나 정보가 부족함 - 다른 경로 후보로 계속 시도
             }
@@ -50,7 +50,7 @@ public class RouteLegExtractor {
         return candidates;
     }
 
-    private List<SubwayLeg> extractLegs(OdsayPathResponse.Path path) {
+    private ExtractedRoute extractRoute(OdsayPathResponse.Path path) {
         if (path.subPath() == null || path.subPath().isEmpty()) {
             throw new NoSubwayRouteFoundException("경로에 구간 정보가 없습니다.");
         }
@@ -81,7 +81,16 @@ public class RouteLegExtractor {
         if (legs.isEmpty()) {
             throw new NoSubwayRouteFoundException("경로에 지하철 구간이 없습니다.");
         }
-        return legs;
+        // 마지막 지하철 구간 뒤에 남은 도보(= 마지막 하차역에서 실제 목적지까지 걷는 시간)는
+        // 다음 지하철 구간이 없어 버퍼로 붙일 곳이 없으므로 별도로 들고 나간다.
+        return new ExtractedRoute(legs, pendingWalkMinutes);
+    }
+
+    /**
+     * @param legs             경로의 지하철 구간들(정순)
+     * @param finalWalkMinutes 마지막 지하철 하차역에서 실제 목적지까지 걸어야 하는 시간(분)
+     */
+    public record ExtractedRoute(List<SubwayLeg> legs, int finalWalkMinutes) {
     }
 
     /**

@@ -50,7 +50,7 @@ public class LastDepartureService {
             targetArrivalMinutes = resolved.getAsInt();
         }
 
-        List<List<SubwayLeg>> pathCandidates;
+        List<RouteLegExtractor.ExtractedRoute> pathCandidates;
         try {
             OdsayPathResponse response = odsayClient.searchSubwayPath(sx, sy, ex, ey);
             pathCandidates = routeLegExtractor.extractAll(response);
@@ -67,12 +67,12 @@ public class LastDepartureService {
      * 실제보다 훨씬 이르게 계산되는 문제가 있었다 (이슈 #8 — 가평->신림, 청량리 환승 수인분당선
      * 연장구간처럼 하루 몇 대 안 다니는 구간을 타는 경로가 1순위로 나온 경우).
      */
-    private LastDepartureResult bestOf(List<List<SubwayLeg>> pathCandidates, Integer targetArrivalMinutes) {
+    private LastDepartureResult bestOf(List<RouteLegExtractor.ExtractedRoute> pathCandidates, Integer targetArrivalMinutes) {
         LastDepartureResult.Feasible best = null;
         String fallbackReason = null;
 
-        for (List<SubwayLeg> legs : pathCandidates) {
-            LastDepartureResult result = calculator.calculate(legs, targetArrivalMinutes);
+        for (RouteLegExtractor.ExtractedRoute route : pathCandidates) {
+            LastDepartureResult result = calculator.calculate(route.legs(), targetArrivalMinutes, route.finalWalkMinutes());
             if (result instanceof LastDepartureResult.Feasible feasible) {
                 if (best == null || isLater(feasible, best)) {
                     best = feasible;
