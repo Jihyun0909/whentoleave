@@ -255,6 +255,64 @@ body {
     outline-offset: 2px;
 }
 
+.autocomplete {
+    position: relative;
+}
+
+.autocomplete-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--card-bg);
+    border-radius: 12px;
+    box-shadow: 0 8px 28px rgba(var(--shadow-color), 0.16);
+    max-height: 240px;
+    overflow-y: auto;
+    z-index: 20;
+    padding: 6px;
+    margin-top: 6px;
+}
+
+.autocomplete-dropdown.is-open {
+    display: block;
+}
+
+.autocomplete-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 12px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: inherit;
+    text-align: left;
+    transition: background 0.15s var(--ease-out);
+}
+
+.autocomplete-option:hover,
+.autocomplete-option.is-active {
+    background: var(--accent-soft);
+}
+
+.autocomplete-option-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.autocomplete-option-line {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
 .time-picker {
     display: flex;
     align-items: stretch;

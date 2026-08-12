@@ -41,11 +41,19 @@
             <input type="hidden" name="mode" th:if="${arrivalMode}" value="arrival">
             <div class="field">
                 <label for="originName">출발지</label>
-                <input type="text" id="originName" name="originName" th:value="${originName}" required placeholder="역 이름 또는 주소, 예: 수유">
+                <div class="autocomplete">
+                    <input type="text" id="originName" name="originName" th:value="${originName}" required
+                           placeholder="역 이름 또는 주소, 예: 수유" autocomplete="off">
+                    <div class="autocomplete-dropdown" id="originSuggest"></div>
+                </div>
             </div>
             <div class="field">
                 <label for="destName">도착지</label>
-                <input type="text" id="destName" name="destName" th:value="${destName}" required placeholder="역 이름 또는 주소, 예: 압구정">
+                <div class="autocomplete">
+                    <input type="text" id="destName" name="destName" th:value="${destName}" required
+                           placeholder="역 이름 또는 주소, 예: 압구정" autocomplete="off">
+                    <div class="autocomplete-dropdown" id="destSuggest"></div>
+                </div>
             </div>
             <div class="field" th:if="${arrivalMode}">
                 <label>목표 도착 시각</label>
@@ -257,6 +265,123 @@
         });
 
         render();
+    })();
+
+    (function initAutocomplete() {
+        var DEBOUNCE_MS = 250;
+
+        function setup(inputId, dropdownId) {
+            var input = document.getElementById(inputId);
+            var dropdown = document.getElementById(dropdownId);
+            if (!input || !dropdown) {
+                return;
+            }
+
+            var debounceTimer = null;
+            var activeIndex = -1;
+            var options = [];
+
+            function close() {
+                dropdown.classList.remove('is-open');
+                dropdown.innerHTML = '';
+                options = [];
+                activeIndex = -1;
+            }
+
+            function highlight(index) {
+                options.forEach(function (opt, i) {
+                    opt.classList.toggle('is-active', i === index);
+                });
+                activeIndex = index;
+            }
+
+            function select(candidate) {
+                input.value = candidate.stationName;
+                close();
+            }
+
+            function render(candidates) {
+                dropdown.innerHTML = '';
+                options = candidates.map(function (candidate) {
+                    var opt = document.createElement('button');
+                    opt.type = 'button';
+                    opt.className = 'autocomplete-option';
+
+                    var name = document.createElement('span');
+                    name.className = 'autocomplete-option-name';
+                    name.textContent = candidate.stationName;
+                    opt.appendChild(name);
+
+                    if (candidate.laneName) {
+                        var line = document.createElement('span');
+                        line.className = 'autocomplete-option-line';
+                        line.textContent = candidate.laneName;
+                        opt.appendChild(line);
+                    }
+
+                    opt.addEventListener('click', function () {
+                        select(candidate);
+                    });
+                    dropdown.appendChild(opt);
+                    return opt;
+                });
+
+                if (options.length > 0) {
+                    dropdown.classList.add('is-open');
+                } else {
+                    dropdown.classList.remove('is-open');
+                }
+                activeIndex = -1;
+            }
+
+            input.addEventListener('input', function () {
+                var query = input.value.trim();
+                clearTimeout(debounceTimer);
+                if (!query) {
+                    close();
+                    return;
+                }
+                debounceTimer = setTimeout(function () {
+                    fetch('/api/v1/stations/suggest?query=' + encodeURIComponent(query))
+                        .then(function (res) {
+                            return res.ok ? res.json() : [];
+                        })
+                        .then(render)
+                        .catch(function () {
+                            close();
+                        });
+                }, DEBOUNCE_MS);
+            });
+
+            input.addEventListener('keydown', function (e) {
+                if (!dropdown.classList.contains('is-open')) {
+                    return;
+                }
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    highlight(Math.min(activeIndex + 1, options.length - 1));
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    highlight(Math.max(activeIndex - 1, 0));
+                } else if (e.key === 'Enter') {
+                    if (activeIndex >= 0) {
+                        e.preventDefault();
+                        options[activeIndex].click();
+                    }
+                } else if (e.key === 'Escape') {
+                    close();
+                }
+            });
+
+            document.addEventListener('click', function (e) {
+                if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+                    close();
+                }
+            });
+        }
+
+        setup('originName', 'originSuggest');
+        setup('destName', 'destSuggest');
     })();
 </script>
 </body>
