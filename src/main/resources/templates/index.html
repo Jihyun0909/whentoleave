@@ -58,7 +58,7 @@
             <div class="field" th:if="${arrivalMode}">
                 <label>목표 도착 시각</label>
                 <div class="time-picker" id="timePicker">
-                    <div class="time-picker-segment time-picker-day is-disabled" title="다른날 선택은 준비중입니다">오늘</div>
+                    <div class="time-picker-segment time-picker-day is-disabled" id="timePickerDay" title="다른날 선택은 준비중입니다">오늘</div>
                     <div class="time-picker-segment time-picker-unit">
                         <button type="button" class="time-picker-step" data-target="hour" data-delta="-1" aria-label="시간 감소">‹</button>
                         <button type="button" class="time-picker-value" id="hourValue"></button>
@@ -111,29 +111,29 @@
     </div>
 
     <div th:if="${searched}" class="result">
-        <div class="route-total" th:if="${feasible and routeLegs != null and !routeLegs.isEmpty()}">
-            <span class="route-total-badge" th:text="'총 ' + ${totalMinutes} + '분'"></span>
-        </div>
-        <div class="route-path" th:if="${feasible and routeLegs != null and !routeLegs.isEmpty()}">
-            <span class="route-leg-chip route-leg-final" th:text="${originDisplayName}"></span>
-            <th:block th:if="${routeLegs[0].transferBufferMinutes() > 0}">
-                <span class="route-walk" th:text="'도보 ' + ${routeLegs[0].transferBufferMinutes()} + '분'"></span>
-            </th:block>
-            <span class="route-arrow">→</span>
-            <th:block th:each="leg, iter : ${routeLegs}">
-                <span th:unless="${iter.first}" class="route-walk" th:text="'도보 ' + ${leg.transferBufferMinutes()} + '분'"></span>
-                <span th:unless="${iter.first}" class="route-arrow">→</span>
-                <span class="route-leg-chip" th:style="'background-color:' + ${@lineColorResolver.colorOf(leg.laneName())} + ';'">
-                    <span class="route-leg-station" th:text="${leg.stationName()}"></span>
-                    <span class="route-leg-meta" th:text="${leg.laneName()} + ' · 지하철 ' + ${leg.rideMinutes()} + '분'"></span>
-                </span>
+        <div class="route-card" th:if="${feasible and routeLegs != null and !routeLegs.isEmpty()}">
+            <div class="route-total">
+                <span class="route-total-badge" th:text="'총 ' + ${totalMinutes} + '분'"></span>
+            </div>
+            <div class="route-path">
+                <span class="route-leg-chip route-leg-final" th:text="${originDisplayName}"></span>
+                <th:block th:if="${routeLegs[0].transferBufferMinutes() > 0}">
+                    <span class="route-walk" th:text="'도보 ' + ${routeLegs[0].transferBufferMinutes()} + '분'"></span>
+                </th:block>
                 <span class="route-arrow">→</span>
-            </th:block>
-            <th:block th:if="${finalWalkMinutes != null and finalWalkMinutes > 0}">
-                <span class="route-walk" th:text="'도보 ' + ${finalWalkMinutes} + '분'"></span>
-                <span class="route-arrow">→</span>
-            </th:block>
-            <span class="route-leg-chip route-leg-final" th:text="${destDisplayName}"></span>
+                <th:block th:each="leg, iter : ${routeLegs}">
+                    <span th:unless="${iter.first}" class="route-walk" th:text="'도보 ' + ${leg.transferBufferMinutes()} + '분'"></span>
+                    <span th:unless="${iter.first}" class="route-arrow">→</span>
+                    <span class="route-leg-chip" th:style="'background-color:' + ${@lineColorResolver.colorOf(leg.laneName())} + ';'"
+                          th:text="${leg.stationName()} + ' ' + ${@lineColorResolver.shortNameOf(leg.laneName())} + ' ' + ${leg.rideMinutes()} + '분'"></span>
+                    <span class="route-arrow">→</span>
+                </th:block>
+                <th:block th:if="${finalWalkMinutes != null and finalWalkMinutes > 0}">
+                    <span class="route-walk" th:text="'도보 ' + ${finalWalkMinutes} + '분'"></span>
+                    <span class="route-arrow">→</span>
+                </th:block>
+                <span class="route-leg-chip route-leg-final" th:text="${destDisplayName}"></span>
+            </div>
         </div>
         <div class="route-summary" th:if="${!feasible and (originStatus == 'RESOLVED' or destStatus == 'RESOLVED')}">
             <span class="route-station" th:if="${originStatus == 'RESOLVED'}" th:text="${originDisplayName}"></span>
@@ -185,6 +185,7 @@
         }
 
         var hiddenInput = document.getElementById('targetArrivalTime');
+        var dayLabel = document.getElementById('timePickerDay');
         var hourValueBtn = document.getElementById('hourValue');
         var minuteValueBtn = document.getElementById('minuteValue');
         var hourDropdown = document.getElementById('hourDropdown');
@@ -216,6 +217,9 @@
             hourValueBtn.textContent = pad(hour) + '시';
             minuteValueBtn.textContent = pad(minute) + '분';
             hiddenInput.value = pad(hour) + ':' + pad(minute);
+            // 새벽 6시 이전은 "오늘 밤 자정 넘어서"로 보는 서버 로직(EARLY_MORNING_CUTOFF)과
+            // 맞춰서, 그 시간대를 고르면 실제로는 다음날임을 알려준다.
+            dayLabel.textContent = hour < 6 ? '내일' : '오늘';
             markSelected(hourDropdown, hour);
             markSelected(minuteDropdown, minute);
         }

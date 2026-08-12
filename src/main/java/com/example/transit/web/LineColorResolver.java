@@ -51,6 +51,14 @@ public class LineColorResolver {
         return LINE_COLORS.getOrDefault(normalize(laneName), FALLBACK_COLOR);
     }
 
+    /** 화면 표시용 짧은 노선명. "수도권" 접두어와 마침표를 떼서 "수도권 4호선" -> "4호선"으로 보여준다. */
+    public String shortNameOf(String laneName) {
+        if (laneName == null) {
+            return "";
+        }
+        return laneName.replace("수도권", "").replace(".", "").trim();
+    }
+
     private String normalize(String laneName) {
         return laneName.replace("수도권", "").replace(" ", "").replace(".", "");
     }

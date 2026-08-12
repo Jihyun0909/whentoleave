@@ -51,6 +51,34 @@ class StationCandidateResolverTest {
         assertEquals(37.549235, resolved.y());
     }
 
+    /** "역"을 붙여 검색해도("수유역") 실제 저장된 이름("수유(강북구청)")으로 찾아져야 한다. */
+    @Test
+    void 검색어_끝에_역을_붙여도_찾을_수_있다() {
+        List<OdsayStationSearchResponse.Station> suyu = List.of(
+                new OdsayStationSearchResponse.Station("수유(강북구청)", 414, 127.025473, 37.637828, "수도권 4호선")
+        );
+
+        StationResolution result = resolver.resolve("수유역", suyu);
+
+        StationResolution.Resolved resolved = assertInstanceOf(StationResolution.Resolved.class, result);
+        assertEquals(127.025473, resolved.x());
+        assertEquals(37.637828, resolved.y());
+    }
+
+    /** "서울역"처럼 "역"이 실제 역명의 일부인 경우는 원래 검색어로 바로 찾아져야 한다(폴백까지 안 감). */
+    @Test
+    void 역이_이름의_일부인_경우는_그대로_찾는다() {
+        List<OdsayStationSearchResponse.Station> seoulStation = List.of(
+                new OdsayStationSearchResponse.Station("서울역", 133, 126.972559, 37.554648, "수도권 1호선")
+        );
+
+        StationResolution result = resolver.resolve("서울역", seoulStation);
+
+        StationResolution.Resolved resolved = assertInstanceOf(StationResolution.Resolved.class, result);
+        assertEquals(126.972559, resolved.x());
+        assertEquals(37.554648, resolved.y());
+    }
+
     @Test
     void 일치하는_역이_없으면_NotFound를_반환한다() {
         StationResolution result = resolver.resolve("존재하지않는역이름", gangnamSearchResult);

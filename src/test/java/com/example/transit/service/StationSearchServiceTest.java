@@ -61,6 +61,39 @@ class StationSearchServiceTest {
         assertEquals(37.498, resolved.y());
     }
 
+    /**
+     * "수유역"처럼 뒤에 "역"을 붙이면 ODsay 검색이 아무것도 못 찾아서(저장된 이름은
+     * "수유(강북구청)"), 주소 폴백으로 넘어가 엉뚱한 "수유역 두산위브 아파트" 좌표로
+     * 잡히던 버그의 회귀 테스트. "역"을 뗀 이름으로 재검색해서 역으로 찾아야 한다.
+     */
+    @Test
+    void 역을_붙여_입력해도_주소가_아니라_역으로_찾는다() {
+        OdsayClient odsayClient = new OdsayClient("http://dummy", "dummy") {
+            @Override
+            public OdsayStationSearchResponse searchStation(String stationName) {
+                if ("수유".equals(stationName)) {
+                    return new OdsayStationSearchResponse(new OdsayStationSearchResponse.Result(List.of(
+                            new OdsayStationSearchResponse.Station("수유(강북구청)", 414, 127.025473, 37.637828, "4호선")
+                    )));
+                }
+                return new OdsayStationSearchResponse(new OdsayStationSearchResponse.Result(List.of()));
+            }
+        };
+        VWorldGeocoderClient explodingVWorld = new VWorldGeocoderClient("dummy") {
+            @Override
+            public VWorldGeocoderResponse geocode(String address, String type) {
+                throw new AssertionError("역으로 찾아져야 하므로 주소 검색이 호출되면 안 됨");
+            }
+        };
+        StationSearchService service = new StationSearchService(
+                odsayClient, new StationCandidateResolver(), new AddressSearchService(explodingVWorld));
+
+        StationResolution result = service.resolve("수유역");
+
+        StationResolution.Resolved resolved = assertInstanceOf(StationResolution.Resolved.class, result);
+        assertEquals(127.025473, resolved.x());
+    }
+
     @Test
     void 역이름_주소_둘다_못찾으면_NotFound를_반환한다() {
         OdsayClient odsayClient = odsayStub(new OdsayStationSearchResponse(
