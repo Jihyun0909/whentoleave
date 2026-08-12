@@ -1,9 +1,9 @@
 package com.example.transit.service;
 
-import com.example.transit.service.client.KakaoLocalClient;
 import com.example.transit.service.client.OdsayClient;
-import com.example.transit.service.client.dto.KakaoAddressSearchResponse;
+import com.example.transit.service.client.VWorldGeocoderClient;
 import com.example.transit.service.client.dto.OdsayStationSearchResponse;
+import com.example.transit.service.client.dto.VWorldGeocoderResponse;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 /**
- * 이슈 #7 회귀 테스트. 역 이름으로 못 찾은 경우에만 주소 검색(카카오)으로 폴백하는지 확인한다.
+ * 이슈 #7 회귀 테스트. 역 이름으로 못 찾은 경우에만 주소 검색(VWorld)으로 폴백하는지 확인한다.
  */
 class StationSearchServiceTest {
 
@@ -22,14 +22,14 @@ class StationSearchServiceTest {
                 new OdsayStationSearchResponse.Result(List.of(
                         new OdsayStationSearchResponse.Station("수유", 414, 127.025, 37.637, "4호선")
                 ))));
-        KakaoLocalClient explodingKakao = new KakaoLocalClient("dummy") {
+        VWorldGeocoderClient explodingVWorld = new VWorldGeocoderClient("dummy") {
             @Override
-            public KakaoAddressSearchResponse searchAddress(String query) {
+            public VWorldGeocoderResponse geocode(String address, String type) {
                 throw new AssertionError("역 이름으로 찾아진 경우 주소 검색이 호출되면 안 됨");
             }
         };
         StationSearchService service = new StationSearchService(
-                odsayClient, new StationCandidateResolver(), new AddressSearchService(explodingKakao));
+                odsayClient, new StationCandidateResolver(), new AddressSearchService(explodingVWorld));
 
         StationResolution result = service.resolve("수유");
 
@@ -41,15 +41,17 @@ class StationSearchServiceTest {
     void 역이름으로_못찾으면_주소_검색으로_폴백한다() {
         OdsayClient odsayClient = odsayStub(new OdsayStationSearchResponse(
                 new OdsayStationSearchResponse.Result(List.of())));
-        KakaoLocalClient kakaoClient = new KakaoLocalClient("dummy") {
+        VWorldGeocoderClient vWorldClient = new VWorldGeocoderClient("dummy") {
             @Override
-            public KakaoAddressSearchResponse searchAddress(String query) {
-                return new KakaoAddressSearchResponse(List.of(
-                        new KakaoAddressSearchResponse.Document("서울 강남구 테헤란로 1", "127.028", "37.498")));
+            public VWorldGeocoderResponse geocode(String address, String type) {
+                return new VWorldGeocoderResponse(new VWorldGeocoderResponse.Response(
+                        "OK",
+                        new VWorldGeocoderResponse.Result(new VWorldGeocoderResponse.Point("127.028", "37.498")),
+                        new VWorldGeocoderResponse.Refined("서울 강남구 테헤란로 1")));
             }
         };
         StationSearchService service = new StationSearchService(
-                odsayClient, new StationCandidateResolver(), new AddressSearchService(kakaoClient));
+                odsayClient, new StationCandidateResolver(), new AddressSearchService(vWorldClient));
 
         StationResolution result = service.resolve("서울 강남구 테헤란로 1");
 
@@ -63,14 +65,14 @@ class StationSearchServiceTest {
     void 역이름_주소_둘다_못찾으면_NotFound를_반환한다() {
         OdsayClient odsayClient = odsayStub(new OdsayStationSearchResponse(
                 new OdsayStationSearchResponse.Result(List.of())));
-        KakaoLocalClient kakaoClient = new KakaoLocalClient("dummy") {
+        VWorldGeocoderClient vWorldClient = new VWorldGeocoderClient("dummy") {
             @Override
-            public KakaoAddressSearchResponse searchAddress(String query) {
-                return new KakaoAddressSearchResponse(List.of());
+            public VWorldGeocoderResponse geocode(String address, String type) {
+                return new VWorldGeocoderResponse(new VWorldGeocoderResponse.Response("NOT_FOUND", null, null));
             }
         };
         StationSearchService service = new StationSearchService(
-                odsayClient, new StationCandidateResolver(), new AddressSearchService(kakaoClient));
+                odsayClient, new StationCandidateResolver(), new AddressSearchService(vWorldClient));
 
         StationResolution result = service.resolve("존재하지않는곳");
 
