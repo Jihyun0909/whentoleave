@@ -101,7 +101,8 @@ public class BusDepartureCacheService implements BusDepartureLookup {
 
         BusStopDeparture entity = new BusStopDeparture(
                 busId, leg.stationId(), dayType,
-                toLocalTime(firstAtStop), toLocalTime(lastAtStop), lastAtStop >= MINUTES_PER_DAY,
+                toLocalTime(firstAtStop), firstAtStop >= MINUTES_PER_DAY,
+                toLocalTime(lastAtStop), lastAtStop >= MINUTES_PER_DAY,
                 intervalMinutes(detail, dayType), detail.busNo());
         return Optional.of(repository.save(entity));
     }
@@ -141,7 +142,7 @@ public class BusDepartureCacheService implements BusDepartureLookup {
     /** 막차부터 배차간격만큼 거슬러 올라가며 첫차까지의 차편들을 만든다. */
     private List<Integer> toDepartureMinutes(BusStopDeparture departure) {
         int last = toServiceMinutes(departure.getLastTime(), departure.isLastTimeNextDay());
-        int first = toServiceMinutes(departure.getFirstTime(), false);
+        int first = toServiceMinutes(departure.getFirstTime(), departure.isFirstTimeNextDay());
         int interval = Math.max(1, departure.getIntervalMinutes());
 
         List<Integer> minutes = new ArrayList<>();

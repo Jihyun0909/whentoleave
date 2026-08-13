@@ -46,6 +46,17 @@ public class BusStopDeparture {
     @Column(name = "first_time", nullable = false)
     private LocalTime firstTime;
 
+    /**
+     * firstTime이 "다음날 이 시각"인지. 심야버스는 첫차가 24:00처럼 자정 이후라서 이게 꼭 필요하다 —
+     * 없으면 첫차 24:00이 00:00으로 해석되어, 막차부터 배차간격으로 거슬러 내려가는 루프가
+     * 하루 종일치 유령 차편을 만들어낸다(오후 4시에 N버스를 탈 수 있다고 안내하던 버그).
+     */
+    // 기본값을 명시해야 이미 행이 있는 테이블에도 컬럼을 추가할 수 있다
+    // (ddl-auto=update가 기본값 없는 NOT NULL 컬럼 추가에 실패하는 문제).
+    @Column(name = "first_time_next_day", nullable = false,
+            columnDefinition = "boolean not null default false")
+    private boolean firstTimeNextDay;
+
     @Column(name = "last_time", nullable = false)
     private LocalTime lastTime;
 
@@ -67,12 +78,14 @@ public class BusStopDeparture {
         // JPA
     }
 
-    public BusStopDeparture(Integer busId, Integer stationId, DayType dayType, LocalTime firstTime,
+    public BusStopDeparture(Integer busId, Integer stationId, DayType dayType,
+                             LocalTime firstTime, boolean firstTimeNextDay,
                              LocalTime lastTime, boolean lastTimeNextDay, Integer intervalMinutes, String busNo) {
         this.busId = busId;
         this.stationId = stationId;
         this.dayType = dayType;
         this.firstTime = firstTime;
+        this.firstTimeNextDay = firstTimeNextDay;
         this.lastTime = lastTime;
         this.lastTimeNextDay = lastTimeNextDay;
         this.intervalMinutes = intervalMinutes;
@@ -103,6 +116,10 @@ public class BusStopDeparture {
 
     public LocalTime getFirstTime() {
         return firstTime;
+    }
+
+    public boolean isFirstTimeNextDay() {
+        return firstTimeNextDay;
     }
 
     public LocalTime getLastTime() {

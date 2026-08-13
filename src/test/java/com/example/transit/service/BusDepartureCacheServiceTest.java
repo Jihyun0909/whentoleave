@@ -84,6 +84,23 @@ class BusDepartureCacheServiceTest {
         assertEquals(23 * 60 + 40, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
     }
 
+    /**
+     * 심야버스 회귀 테스트. N15는 첫차 24:00 / 막차 27:30이라 자정 이후에만 다니는데,
+     * 첫차의 "다음날" 여부를 잃어버리면 첫차가 00:00으로 해석되어 막차부터 배차간격으로
+     * 거슬러 내려가는 루프가 낮 시간대 차편까지 만들어냈다 (오후 4시에 N버스를 탈 수 있다고
+     * 안내하던 버그). 후보는 전부 24:00 이후여야 한다.
+     */
+    @Test
+    void 자정_이후에만_다니는_노선은_낮_시간대_차편을_만들지_않는다() {
+        BusDepartureCacheService service = service(detail("24:00", "27:30", "35", 0));
+
+        List<Integer> minutes = service.departureServiceMinutes(busLeg(0, 0));
+
+        assertFalse(minutes.isEmpty());
+        assertEquals(24 * 60, minutes.stream().mapToInt(Integer::intValue).min().orElseThrow());
+        assertEquals(27 * 60 + 30, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
+    }
+
     @Test
     void 배차간격이_숫자가_아니면_기본값으로_대체한다() {
         // ODsay는 "1회 -"처럼 숫자가 아닌 배차간격도 준다.

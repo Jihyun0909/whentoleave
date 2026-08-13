@@ -12,6 +12,10 @@ import org.springframework.web.client.RestClient;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * URI를 직접 조립해서 쓴다 (UriComponentsBuilder.queryParam()에 맡기지 않음).
@@ -24,9 +28,26 @@ import java.nio.charset.StandardCharsets;
 @Component
 public class OdsayClient {
 
+    /**
+     * 같은 요청은 이 시간 동안 캐시된 응답을 쓴다.
+     * <p>
+     * ODsay 무료 플랜은 일일 호출 한도가 있는데, 검색 한 번에 호출이 20번 가까이 나간다
+     * (자동완성 타이핑 + 역 확정 2 + 경로탐색 3 + 심야버스 노선목록/상세 19...). 실제로 하루
+     * 한도를 소진한 적이 있어서, URI 단위로 응답을 캐싱해 중복 호출을 없앤다.
+     * <p>
+     * 노선·시간표·역 정보는 하루 단위로만 바뀌면 충분해서 길게 잡고, 경로탐색은 상대적으로
+     * 짧게 둔다. 경로탐색 결과는 목표 도착 시각과 무관하므로(좌표만으로 결정), 시각을 바꿔가며
+     * 재검색해도 캐시가 그대로 쓰인다 — 이게 절약 효과가 가장 크다.
+     */
+    private static final Duration STATIC_DATA_TTL = Duration.ofHours(12);
+    private static final Duration PATH_TTL = Duration.ofHours(1);
+    /** 캐시가 무한정 커지지 않도록 상한을 둔다. 넘으면 만료분부터 비우고, 그래도 넘으면 전부 비운다. */
+    private static final int MAX_CACHE_ENTRIES = 2_000;
+
     private final RestClient restClient;
     private final String baseUrl;
     private final String apiKey;
+    private final Map<String, CacheEntry> responseCache = new ConcurrentHashMap<>();
 
     public OdsayClient(@Value("${odsay.base-url}") String baseUrl,
                         @Value("${odsay.api-key}") String apiKey) {
@@ -40,7 +61,7 @@ public class OdsayClient {
                 "stationID=" + stationId,
                 "wayCode=" + wayCode,
                 "apiKey=" + encode(apiKey));
-        return restClient.get().uri(uri).retrieve().body(OdsayScheduleResponse.class);
+        return getCached(uri, OdsayScheduleResponse.class, STATIC_DATA_TTL);
     }
 
     /** SearchPathType=1(지하철 전용). */
@@ -56,7 +77,7 @@ public class OdsayClient {
                 "EY=" + ey,
                 "SearchPathType=" + pathType.code(),
                 "apiKey=" + encode(apiKey));
-        return restClient.get().uri(uri).retrieve().body(OdsayPathResponse.class);
+        return getCached(uri, OdsayPathResponse.class, PATH_TTL);
     }
 
     /**
@@ -69,7 +90,7 @@ public class OdsayClient {
                 "busNo=" + encode(busNo),
                 "CID=" + cityCode,
                 "apiKey=" + encode(apiKey));
-        return restClient.get().uri(uri).retrieve().body(OdsayBusLaneSearchResponse.class);
+        return getCached(uri, OdsayBusLaneSearchResponse.class, STATIC_DATA_TTL);
     }
 
     /**
@@ -80,7 +101,7 @@ public class OdsayClient {
         URI uri = buildUri("/busLaneDetail",
                 "busID=" + busId,
                 "apiKey=" + encode(apiKey));
-        return restClient.get().uri(uri).retrieve().body(OdsayBusLaneDetailResponse.class);
+        return getCached(uri, OdsayBusLaneDetailResponse.class, STATIC_DATA_TTL);
     }
 
     /**
@@ -92,7 +113,39 @@ public class OdsayClient {
                 "stationName=" + encode(stationName),
                 "stationClass=2",
                 "apiKey=" + encode(apiKey));
-        return restClient.get().uri(uri).retrieve().body(OdsayStationSearchResponse.class);
+        return getCached(uri, OdsayStationSearchResponse.class, STATIC_DATA_TTL);
+    }
+
+    /**
+     * 같은 URI로 이미 받아둔 응답이 있으면 그걸 쓰고, 없으면 호출한 뒤 캐시에 넣는다.
+     * 응답 DTO는 전부 불변 record라 여러 요청이 같은 인스턴스를 공유해도 안전하다.
+     */
+    private <T> T getCached(URI uri, Class<T> type, Duration ttl) {
+        String key = uri.toString();
+        CacheEntry cached = responseCache.get(key);
+        if (cached != null && cached.expiresAt().isAfter(Instant.now())) {
+            return type.cast(cached.body());
+        }
+
+        T body = restClient.get().uri(uri).retrieve().body(type);
+        if (body != null) {
+            evictIfFull();
+            responseCache.put(key, new CacheEntry(body, Instant.now().plus(ttl)));
+        }
+        return body;
+    }
+
+    private void evictIfFull() {
+        if (responseCache.size() < MAX_CACHE_ENTRIES) {
+            return;
+        }
+        Instant now = Instant.now();
+        responseCache.values().removeIf(entry -> entry.expiresAt().isBefore(now));
+        if (responseCache.size() >= MAX_CACHE_ENTRIES) {
+            // 만료분을 걷어내도 가득하면 통째로 비운다. 캐시일 뿐이라 다시 채우면 되고,
+            // 정교한 LRU를 직접 구현하는 것보다 단순한 쪽이 낫다고 판단했다.
+            responseCache.clear();
+        }
     }
 
     private URI buildUri(String path, String... queryParams) {
@@ -101,5 +154,8 @@ public class OdsayClient {
 
     private String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    private record CacheEntry(Object body, Instant expiresAt) {
     }
 }

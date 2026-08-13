@@ -22,7 +22,7 @@ class StationSuggestionServiceTest {
                 new OdsayStationSearchResponse.Station("수유", 1, 127.0, 37.0, "수도권4호선")
         ));
 
-        List<StationCandidate> result = service.suggest("수");
+        List<StationCandidate> result = service.suggest("수유");
 
         assertEquals(List.of("수원", "수유"), result.stream().map(StationCandidate::stationName).toList());
     }
@@ -51,6 +51,22 @@ class StationSuggestionServiceTest {
         assertTrue(service.suggest("  ").isEmpty());
     }
 
+    /**
+     * 자동완성은 타이핑마다 호출돼서 ODsay 일일 한도를 가장 많이 먹는다(실제로 한도를 소진함).
+     * 한 글자는 후보가 너무 넓어 쓸모도 적으므로 아예 호출하지 않는다.
+     */
+    @Test
+    void 한_글자_쿼리는_ODsay를_호출하지_않는다() {
+        StationSuggestionService service = new StationSuggestionService(new OdsayClient("http://dummy", "dummy") {
+            @Override
+            public OdsayStationSearchResponse searchStation(String stationName) {
+                throw new AssertionError("한 글자로는 호출되면 안 됨");
+            }
+        });
+
+        assertTrue(service.suggest("수").isEmpty());
+    }
+
     @Test
     void 결과가_많으면_최대_10개까지만_반환한다() {
         List<OdsayStationSearchResponse.Station> many = java.util.stream.IntStream.range(0, 20)
@@ -58,7 +74,7 @@ class StationSuggestionServiceTest {
                 .toList();
         StationSuggestionService service = serviceReturning(many);
 
-        assertEquals(10, service.suggest("역").size());
+        assertEquals(10, service.suggest("역이").size());
     }
 
     @Test
@@ -68,7 +84,7 @@ class StationSuggestionServiceTest {
                 new OdsayStationSearchResponse.Station("수로왕릉", 2, 128.0, 35.0, "부산-김해경전철")
         ));
 
-        List<StationCandidate> result = service.suggest("수");
+        List<StationCandidate> result = service.suggest("수유");
 
         assertEquals(List.of("수유"), result.stream().map(StationCandidate::stationName).toList());
     }

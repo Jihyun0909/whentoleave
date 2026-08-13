@@ -22,6 +22,8 @@ import java.util.Set;
 public class StationSuggestionService {
 
     private static final int MAX_SUGGESTIONS = 10;
+    /** 자동완성을 시작할 최소 글자 수. ODsay 호출량을 줄이기 위한 하한. */
+    private static final int MIN_QUERY_LENGTH = 2;
 
     /** ODsay 응답에서 "수도권" 접두어 없이 오는 수도권 전철 노선들 (실측 확인: 경의중앙선). */
     private static final Set<String> KNOWN_NON_PREFIXED_SEOUL_LINES = Set.of(
@@ -37,7 +39,9 @@ public class StationSuggestionService {
     }
 
     public List<StationCandidate> suggest(String query) {
-        if (query == null || query.isBlank()) {
+        // 한 글자로는 후보가 너무 넓어 쓸모가 적은데(“수” -> 전국 수십 개) 자동완성은 타이핑마다
+        // 호출돼서 ODsay 일일 한도를 가장 많이 먹는다. 두 글자부터 검색한다.
+        if (query == null || query.trim().length() < MIN_QUERY_LENGTH) {
             return List.of();
         }
         OdsayStationSearchResponse response = odsayClient.searchStation(query);

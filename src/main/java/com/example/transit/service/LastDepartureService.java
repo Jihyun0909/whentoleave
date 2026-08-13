@@ -26,6 +26,8 @@ public class LastDepartureService {
 
     /** 심야버스는 SearchPathType으로 표현되지 않는 별도 경로원이라 라벨을 따로 둔다. */
     private static final String NIGHT_BUS_LABEL = "심야버스";
+    /** 서울 심야버스 중 가장 이른 첫차가 23시대라, 이보다 이른 도착 목표면 탐색 자체를 건너뛴다. */
+    private static final int NIGHT_BUS_EARLIEST_MINUTES = 23 * 60;
 
     private final OdsayClient odsayClient;
     private final RouteLegExtractor routeLegExtractor;
@@ -142,9 +144,18 @@ public class LastDepartureService {
     private record Best(LastDepartureResult result, int fareWon) {
     }
 
-    /** 심야버스는 노선마다 한 구간짜리 경로가 나오므로, 그중 가장 늦게 출발해도 되는 걸 고른다. */
+    /**
+     * 심야버스는 노선마다 한 구간짜리 경로가 나오므로, 그중 가장 늦게 출발해도 되는 걸 고른다.
+     * <p>
+     * 목표 도착 시각이 심야버스 운행 시간대(23시~)보다 이르면 아예 찾지 않는다. 어차피 탈 수 없는
+     * 경로인데, 심야버스 탐색은 노선 목록 + 노선별 상세로 API를 20번 가까이 쓰기 때문이다
+     * (오후 4시 도착 목표로 검색해도 심야버스를 조회하던 문제).
+     */
     private Optional<LastDepartureResult.Feasible> bestNightBus(double sx, double sy, double ex, double ey,
                                                                  Integer targetArrivalMinutes) {
+        if (targetArrivalMinutes != null && targetArrivalMinutes < NIGHT_BUS_EARLIEST_MINUTES) {
+            return Optional.empty();
+        }
         List<RouteLegExtractor.ExtractedRoute> routes;
         try {
             routes = nightBusRouteFinder.find(sx, sy, ex, ey);
