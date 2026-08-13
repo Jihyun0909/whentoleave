@@ -28,3 +28,8 @@ odsay:
 
 vworld:
   api-key: test-key
+
+seoul-bus:
+  base-url: http://localhost/seoul-bus-not-used-in-tests
+  station-service-name: test-service
+  api-key: "" # 빈 값 = 미설정 상태로 애플리케이션 컨텍스트 로딩 테스트(TransitApplicationTests)를 검증

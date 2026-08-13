@@ -32,6 +32,9 @@ public record OdsayPathResponse(Result result) {
     /**
      * @param distance 이 구간의 이동 거리(m). 버스 구간에서 sectionTime과 함께 평균 속도를 구해,
      *                 "기점에서 승차 정류장까지 오는 데 걸리는 시간"을 추정하는 데 쓴다.
+     * @param startX   승차 정류장의 경도, @param startY 위도. 버스 구간에서 실시간 도착정보
+     *                 조회용 정류소(서울시 arsId 등)를 좌표로 매칭하는 데 쓴다(지하철은 stationID로
+     *                 바로 조회하므로 안 씀).
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record SubPath(
@@ -43,12 +46,14 @@ public record OdsayPathResponse(Result result) {
             String startName,
             List<Lane> lane,
             Integer distance,
-            String endName
+            String endName,
+            Double startX,
+            Double startY
     ) {
         /** 버스 필드가 필요 없는(지하철 전용) 테스트/기존 코드용. */
         public SubPath(Integer trafficType, Integer sectionTime, Integer startID, Integer wayCode,
                         PassStopList passStopList, String startName, List<Lane> lane) {
-            this(trafficType, sectionTime, startID, wayCode, passStopList, startName, lane, null, null);
+            this(trafficType, sectionTime, startID, wayCode, passStopList, startName, lane, null, null, null, null);
         }
     }
 

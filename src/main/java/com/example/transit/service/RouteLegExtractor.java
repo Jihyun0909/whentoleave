@@ -118,7 +118,8 @@ public class RouteLegExtractor {
         }
         int distance = subPath.distance() == null ? 0 : subPath.distance();
         return TransitLeg.bus(subPath.startID(), sectionTime, pendingWalkMinutes,
-                subPath.startName(), subPath.endName(), lane.busNo(), busIds, lane.busNo(), distance);
+                subPath.startName(), subPath.endName(), lane.busNo(), busIds, lane.busNo(), distance,
+                subPath.startX(), subPath.startY());
     }
 
     /**

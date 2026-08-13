@@ -98,7 +98,7 @@ public class NightBusRouteFinder {
 
         TransitLeg leg = TransitLeg.bus(boarding.stationId(), rideMinutes, walkMinutes(boarding.distanceMeters()),
                 boarding.stationName(), alighting.stationName(), "심야버스",
-                List.of(lane.busID()), lane.busNo(), rideMeters);
+                List.of(lane.busID()), lane.busNo(), rideMeters, boarding.x(), boarding.y());
         return Optional.of(new RouteLegExtractor.ExtractedRoute(
                 List.of(leg), walkMinutes(alighting.distanceMeters())));
     }
@@ -160,7 +160,7 @@ public class NightBusRouteFinder {
             double meters = distanceMeters(y, x, station.y(), station.x());
             if (meters <= MAX_WALK_METERS) {
                 found.add(new Nearest(station.stationID(), station.stationName(), station.idx(),
-                        station.stationDistance(), meters));
+                        station.stationDistance(), meters, station.x(), station.y()));
             }
         }
         return found;
@@ -219,7 +219,7 @@ public class NightBusRouteFinder {
     }
 
     private record Nearest(int stationId, String stationName, int index, int cumulativeDistance,
-                            double distanceMeters) {
+                            double distanceMeters, Double x, Double y) {
     }
 
     private record StopPair(Nearest boarding, Nearest alighting, double totalMinutes) {
