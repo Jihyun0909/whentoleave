@@ -661,6 +661,70 @@ body {
     white-space: nowrap;
 }
 
+/* 출발지/도착지 - 경로의 양 끝 */
+.route-place {
+    display: inline-block;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 700;
+    padding: 7px 12px;
+    border-radius: 14px;
+}
+
+.route-place-origin {
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.route-place-dest {
+    box-shadow: inset 3px 0 0 var(--error);
+}
+
+/* 승차~하차 한 구간을 하나의 묶음으로 보여준다 (노선 색 테두리 + 승차역/하차역/소요시간).
+   좁은 화면에서는 묶음 안에서 줄바꿈되지만, 테두리 덕분에 어디까지가 한 번 타는 구간인지 보인다. */
+.route-ride {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    border: 2px solid var(--border);
+    border-radius: 14px;
+    padding: 6px 10px;
+    background: var(--bg);
+}
+
+.route-ride-line {
+    display: inline-block;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 9999px;
+    white-space: nowrap;
+}
+
+.route-ride-stops {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.route-ride-sep {
+    color: var(--text-muted);
+}
+
+.route-ride-time {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
 .route-leg-final {
     background: var(--card-bg);
     color: var(--text);

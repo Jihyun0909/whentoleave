@@ -63,7 +63,7 @@ class BusDepartureCacheServiceTest {
         details.put(2, detail("05:00", "23:40", "30", 0)); // 이 노선이 더 늦게까지 다님
         BusDepartureCacheService service = service(details);
 
-        TransitLeg leg = TransitLeg.bus(BOARDING_STOP_ID, 0, 0, "정류장", "간선", List.of(1, 2), "146", 0);
+        TransitLeg leg = TransitLeg.bus(BOARDING_STOP_ID, 0, 0, "정류장", "하차정류장", "간선", List.of(1, 2), "146", 0);
         List<Integer> minutes = service.departureServiceMinutes(leg);
 
         assertEquals(23 * 60 + 40, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
@@ -106,7 +106,7 @@ class BusDepartureCacheServiceTest {
     }
 
     private TransitLeg busLeg(int distanceMeters, int rideMinutes) {
-        return TransitLeg.bus(BOARDING_STOP_ID, rideMinutes, 0, "정류장", "간선", List.of(BUS_ID), "120", distanceMeters);
+        return TransitLeg.bus(BOARDING_STOP_ID, rideMinutes, 0, "정류장", "하차정류장", "간선", List.of(BUS_ID), "120", distanceMeters);
     }
 
     private OdsayBusLaneDetailResponse detail(String first, String last, String interval, int stopDistance) {

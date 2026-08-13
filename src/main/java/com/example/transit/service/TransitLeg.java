@@ -16,6 +16,8 @@ import java.util.Set;
  * @param earlierStopNames       이 구간의 도착역보다 "앞서" 있는 정차역 이름들. 막차 후보 중
  *                               목적지가 여기 포함되면 단축운행 열차이므로 후보에서 제외한다(지하철 전용).
  * @param stationName            승차역/정류장 이름 (표시용)
+ * @param endStationName         하차역/정류장 이름 (표시용). 어디서 내려야 하는지가 환승 경로에서는
+ *                               승차역만큼 중요한 정보라 같이 담는다.
  * @param laneName               노선 이름 (표시용). 지하철은 "4호선", 버스는 "간선" 같은 노선종류.
  * @param busIds                 이 구간을 지나는 버스 노선 ID들. ODsay는 한 구간에 탈 수 있는 버스를
  *                               여러 개 준다("120, 130, 140 중 아무거나") — 그래서 이 구간의 막차는
@@ -26,27 +28,28 @@ import java.util.Set;
  */
 public record TransitLeg(TransitMode mode, int stationId, int wayCode, int rideMinutes,
                           int transferBufferMinutes, Set<String> earlierStopNames,
-                          String stationName, String laneName,
+                          String stationName, String endStationName, String laneName,
                           List<Integer> busIds, String busNo, int distanceMeters) {
 
     /** 지하철 구간 (표시용 이름 포함). */
     public static TransitLeg subway(int stationId, int wayCode, int rideMinutes, int transferBufferMinutes,
-                                     Set<String> earlierStopNames, String stationName, String laneName) {
+                                     Set<String> earlierStopNames, String stationName, String endStationName,
+                                     String laneName) {
         return new TransitLeg(TransitMode.SUBWAY, stationId, wayCode, rideMinutes, transferBufferMinutes,
-                earlierStopNames, stationName, laneName, List.of(), null, 0);
+                earlierStopNames, stationName, endStationName, laneName, List.of(), null, 0);
     }
 
     /** 표시용 이름 없이 계산 로직만 테스트할 때 쓰는 지하철 구간 생성자. */
     public static TransitLeg subway(int stationId, int wayCode, int rideMinutes, int transferBufferMinutes,
                                      Set<String> earlierStopNames) {
-        return subway(stationId, wayCode, rideMinutes, transferBufferMinutes, earlierStopNames, null, null);
+        return subway(stationId, wayCode, rideMinutes, transferBufferMinutes, earlierStopNames, null, null, null);
     }
 
     public static TransitLeg bus(int stationId, int rideMinutes, int transferBufferMinutes,
-                                  String stationName, String laneName, List<Integer> busIds, String busNo,
-                                  int distanceMeters) {
+                                  String stationName, String endStationName, String laneName,
+                                  List<Integer> busIds, String busNo, int distanceMeters) {
         return new TransitLeg(TransitMode.BUS, stationId, 0, rideMinutes, transferBufferMinutes,
-                Set.of(), stationName, laneName, List.copyOf(busIds), busNo, distanceMeters);
+                Set.of(), stationName, endStationName, laneName, List.copyOf(busIds), busNo, distanceMeters);
     }
 
     public boolean isBus() {

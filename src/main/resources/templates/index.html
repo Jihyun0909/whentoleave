@@ -130,24 +130,34 @@
             </div>
 
             <div class="route-path">
-                <span class="route-leg-chip route-leg-final" th:text="${originDisplayName}"></span>
-                <th:block th:if="${view.option().legs()[0].transferBufferMinutes() > 0}">
-                    <span class="route-walk" th:text="'도보 ' + ${view.option().legs()[0].transferBufferMinutes()} + '분'"></span>
-                </th:block>
-                <span class="route-arrow">→</span>
+                <span class="route-place route-place-origin" th:text="${originDisplayName}"></span>
+
                 <th:block th:each="leg, legIter : ${view.option().legs()}">
-                    <span th:unless="${legIter.first}" class="route-walk" th:text="'도보 ' + ${leg.transferBufferMinutes()} + '분'"></span>
-                    <span th:unless="${legIter.first}" class="route-arrow">→</span>
-                    <span class="route-leg-chip"
-                          th:style="'background-color:' + ${leg.isBus() ? '#3C8A3F' : @lineColorResolver.colorOf(leg.laneName())} + ';'"
-                          th:text="${leg.stationName()} + ' ' + ${leg.isBus() ? (leg.busNo() != null ? leg.busNo() + '번' : '버스') : @lineColorResolver.shortNameOf(leg.laneName())} + ' ' + ${leg.rideMinutes()} + '분'"></span>
-                    <span class="route-arrow">→</span>
+                    <span class="route-walk" th:if="${leg.transferBufferMinutes() > 0}"
+                          th:text="'도보 ' + ${leg.transferBufferMinutes()} + '분'"></span>
+                    <span class="route-arrow">›</span>
+
+                    <span class="route-ride"
+                          th:style="'border-color:' + ${leg.isBus() ? '#3C8A3F' : @lineColorResolver.colorOf(leg.laneName())} + ';'">
+                        <span class="route-ride-line"
+                              th:style="'background-color:' + ${leg.isBus() ? '#3C8A3F' : @lineColorResolver.colorOf(leg.laneName())} + ';'"
+                              th:text="${leg.isBus() ? (leg.busNo() != null ? leg.busNo() + '번' : '버스') : @lineColorResolver.shortNameOf(leg.laneName())}"></span>
+                        <span class="route-ride-stops">
+                            <span class="route-ride-stop" th:text="${leg.stationName()} + ' 승차'"></span>
+                            <span class="route-ride-sep">→</span>
+                            <span class="route-ride-stop" th:text="${leg.endStationName() != null ? leg.endStationName() + ' 하차' : '하차'}"></span>
+                        </span>
+                        <span class="route-ride-time" th:text="${leg.rideMinutes()} + '분'"></span>
+                    </span>
+
+                    <span class="route-arrow">›</span>
                 </th:block>
+
                 <th:block th:if="${view.option().finalWalkMinutes() > 0}">
                     <span class="route-walk" th:text="'도보 ' + ${view.option().finalWalkMinutes()} + '분'"></span>
-                    <span class="route-arrow">→</span>
+                    <span class="route-arrow">›</span>
                 </th:block>
-                <span class="route-leg-chip route-leg-final" th:text="${destDisplayName}"></span>
+                <span class="route-place route-place-dest" th:text="${destDisplayName}"></span>
             </div>
 
             <div class="route-result" th:if="${view.departureAlreadyPassed()}">

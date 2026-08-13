@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.stream.Collectors;
 
@@ -23,16 +24,22 @@ public class LastDepartureService {
     /** 목표 시각이 이 시각 이전(0시~새벽 6시)이면 "오늘 밤 자정 넘어서"로 해석한다. 그 이후 시각인데 이미 지났으면 진짜로 지난 것으로 본다. */
     private static final int EARLY_MORNING_CUTOFF_MINUTES = 6 * 60;
 
+    /** 심야버스는 SearchPathType으로 표현되지 않는 별도 경로원이라 라벨을 따로 둔다. */
+    private static final String NIGHT_BUS_LABEL = "심야버스";
+
     private final OdsayClient odsayClient;
     private final RouteLegExtractor routeLegExtractor;
     private final LastDepartureCalculator calculator;
+    private final NightBusRouteFinder nightBusRouteFinder;
 
     public LastDepartureService(OdsayClient odsayClient,
                                  RouteLegExtractor routeLegExtractor,
-                                 LastDepartureCalculator calculator) {
+                                 LastDepartureCalculator calculator,
+                                 NightBusRouteFinder nightBusRouteFinder) {
         this.odsayClient = odsayClient;
         this.routeLegExtractor = routeLegExtractor;
         this.calculator = calculator;
+        this.nightBusRouteFinder = nightBusRouteFinder;
     }
 
     public LastDepartureResult calculate(double sx, double sy, double ex, double ey) {
@@ -78,9 +85,13 @@ public class LastDepartureService {
                 SearchPathType.SUBWAY_ONLY, SearchPathType.ALL, SearchPathType.BUS_ONLY)) {
             LastDepartureResult result = calculateFor(pathType, sx, sy, ex, ey, targetArrivalMinutes);
             if (result instanceof LastDepartureResult.Feasible feasible) {
-                options.add(toOption(pathType, feasible));
+                options.add(toOption(pathType.label(), feasible));
             }
         }
+        // 심야버스는 ODsay 경로탐색에 아예 안 나와서 따로 찾아 붙인다. 지하철/버스가 다 끊긴
+        // 시간대에는 이게 유일한 답인 경우가 많아, 막차 앱에서는 빠지면 안 되는 정보다.
+        bestNightBus(sx, sy, ex, ey, targetArrivalMinutes)
+                .ifPresent(feasible -> options.add(toOption(NIGHT_BUS_LABEL, feasible)));
 
         return options.stream()
                 .collect(Collectors.toMap(
@@ -127,12 +138,28 @@ public class LastDepartureService {
         return targetFeasible;
     }
 
-    private RouteOption toOption(SearchPathType pathType, LastDepartureResult.Feasible feasible) {
+    /** 심야버스는 노선마다 한 구간짜리 경로가 나오므로, 그중 가장 늦게 출발해도 되는 걸 고른다. */
+    private Optional<LastDepartureResult.Feasible> bestNightBus(double sx, double sy, double ex, double ey,
+                                                                 Integer targetArrivalMinutes) {
+        List<RouteLegExtractor.ExtractedRoute> routes;
+        try {
+            routes = nightBusRouteFinder.find(sx, sy, ex, ey);
+        } catch (RuntimeException e) {
+            return Optional.empty();
+        }
+        if (routes.isEmpty()) {
+            return Optional.empty();
+        }
+        return bestOf(routes, targetArrivalMinutes) instanceof LastDepartureResult.Feasible feasible
+                ? Optional.of(feasible) : Optional.empty();
+    }
+
+    private RouteOption toOption(String modeLabel, LastDepartureResult.Feasible feasible) {
         int legsMinutes = feasible.legs().stream()
                 .mapToInt(leg -> leg.rideMinutes() + leg.transferBufferMinutes())
                 .sum();
         boolean hasBus = feasible.legs().stream().anyMatch(TransitLeg::isBus);
-        return new RouteOption(pathType.label(), feasible.departureTime(), feasible.nextDay(),
+        return new RouteOption(modeLabel, feasible.departureTime(), feasible.nextDay(),
                 feasible.legs(), feasible.finalWalkMinutes(), legsMinutes + feasible.finalWalkMinutes(),
                 hasBus, feasible.isLastTrainDeparture());
     }

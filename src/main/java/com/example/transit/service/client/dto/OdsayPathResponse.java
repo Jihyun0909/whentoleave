@@ -33,12 +33,13 @@ public record OdsayPathResponse(Result result) {
             PassStopList passStopList,
             String startName,
             List<Lane> lane,
-            Integer distance
+            Integer distance,
+            String endName
     ) {
         /** 버스 필드가 필요 없는(지하철 전용) 테스트/기존 코드용. */
         public SubPath(Integer trafficType, Integer sectionTime, Integer startID, Integer wayCode,
                         PassStopList passStopList, String startName, List<Lane> lane) {
-            this(trafficType, sectionTime, startID, wayCode, passStopList, startName, lane, null);
+            this(trafficType, sectionTime, startID, wayCode, passStopList, startName, lane, null, null);
         }
     }
 

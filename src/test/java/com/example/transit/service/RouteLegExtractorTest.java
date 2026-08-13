@@ -38,9 +38,9 @@ class RouteLegExtractorTest {
 
         assertEquals(2, legs.size());
         // 출발 전 도보 1분이 버퍼로 잡힘(계산에선 안 쓰임)
-        assertEquals(TransitLeg.subway(414, 2, 17, 1, Set.of(), "수유", "수도권4호선"), legs.get(0));
+        assertEquals(TransitLeg.subway(414, 2, 17, 1, Set.of(), "수유", null, "수도권4호선"), legs.get(0));
         // 환승 도보 3분이 버퍼로 들어감
-        assertEquals(TransitLeg.subway(205, 2, 5, 3, Set.of(), "동대문역사문화공원", "수도권2호선"), legs.get(1));
+        assertEquals(TransitLeg.subway(205, 2, 5, 3, Set.of(), "동대문역사문화공원", null, "수도권2호선"), legs.get(1));
     }
 
     /**

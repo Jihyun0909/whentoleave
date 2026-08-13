@@ -76,7 +76,14 @@ class LastDepartureServiceTest {
         OdsayClient odsayClient = odsayStub(singleLegResponse(rideMinutes));
         RouteLegExtractor extractor = new RouteLegExtractor();
         LastDepartureCalculator calculator = LastDepartureCalculator.subwayOnly(lookup);
-        return new LastDepartureService(odsayClient, extractor, calculator);
+        // 심야버스는 별도 API를 타므로 이 테스트에서는 없는 것으로 둔다.
+        NightBusRouteFinder noNightBus = new NightBusRouteFinder(odsayClient) {
+            @Override
+            public List<RouteLegExtractor.ExtractedRoute> find(double sx, double sy, double ex, double ey) {
+                return List.of();
+            }
+        };
+        return new LastDepartureService(odsayClient, extractor, calculator, noNightBus);
     }
 
     private OdsayPathResponse singleLegResponse(int rideMinutes) {

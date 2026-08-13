@@ -35,8 +35,15 @@ public record OdsayBusLaneDetailResponse(Result result) {
     /**
      * @param stationDistance 기점에서 이 정류장까지의 누적 거리(m). 승차 정류장까지 오는 데
      *                        걸리는 시간을 추정하는 데 쓴다.
+     * @param x               경도, @param y 위도. 심야버스 경로를 직접 찾을 때
+     *                        출발지/도착지에서 걸어갈 수 있는 정류장인지 판단하는 데 쓴다.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Station(Integer idx, Integer stationID, String stationName, Integer stationDistance) {
+    public record Station(Integer idx, Integer stationID, String stationName, Integer stationDistance,
+                           Double x, Double y) {
+
+        public Station(Integer idx, Integer stationID, String stationName, Integer stationDistance) {
+            this(idx, stationID, stationName, stationDistance, null, null);
+        }
     }
 }

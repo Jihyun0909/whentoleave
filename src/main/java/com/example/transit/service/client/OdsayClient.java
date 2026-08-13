@@ -1,6 +1,7 @@
 package com.example.transit.service.client;
 
 import com.example.transit.service.client.dto.OdsayBusLaneDetailResponse;
+import com.example.transit.service.client.dto.OdsayBusLaneSearchResponse;
 import com.example.transit.service.client.dto.OdsayPathResponse;
 import com.example.transit.service.client.dto.OdsayScheduleResponse;
 import com.example.transit.service.client.dto.OdsayStationSearchResponse;
@@ -56,6 +57,19 @@ public class OdsayClient {
                 "SearchPathType=" + pathType.code(),
                 "apiKey=" + encode(apiKey));
         return restClient.get().uri(uri).retrieve().body(OdsayPathResponse.class);
+    }
+
+    /**
+     * 버스 번호로 노선을 검색한다. 부분 검색이라 busNo="N"이면 서울 심야버스가 전부 나온다 —
+     * 심야버스는 경로탐색(searchPubTransPathT) 결과에 아예 포함되지 않아서, 이렇게 따로
+     * 목록을 받아 직접 경로를 찾는다 (NightBusRouteFinder).
+     */
+    public OdsayBusLaneSearchResponse searchBusLanes(String busNo, int cityCode) {
+        URI uri = buildUri("/searchBusLane",
+                "busNo=" + encode(busNo),
+                "CID=" + cityCode,
+                "apiKey=" + encode(apiKey));
+        return restClient.get().uri(uri).retrieve().body(OdsayBusLaneSearchResponse.class);
     }
 
     /**

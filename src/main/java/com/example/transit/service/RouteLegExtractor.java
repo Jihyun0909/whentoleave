@@ -94,7 +94,8 @@ public class RouteLegExtractor {
             throw new NoSubwayRouteFoundException("지하철 구간에 역 정보가 없습니다.");
         }
         return TransitLeg.subway(subPath.startID(), subPath.wayCode(), sectionTime,
-                pendingWalkMinutes, earlierStopNames(subPath), subPath.startName(), laneName(subPath));
+                pendingWalkMinutes, earlierStopNames(subPath), subPath.startName(), subPath.endName(),
+                laneName(subPath));
     }
 
     /**
@@ -116,7 +117,7 @@ public class RouteLegExtractor {
         }
         int distance = subPath.distance() == null ? 0 : subPath.distance();
         return TransitLeg.bus(subPath.startID(), sectionTime, pendingWalkMinutes,
-                subPath.startName(), lane.busNo(), busIds, lane.busNo(), distance);
+                subPath.startName(), subPath.endName(), lane.busNo(), busIds, lane.busNo(), distance);
     }
 
     /**
