@@ -150,7 +150,6 @@
              th:classappend="${iter.first} ? 'route-card-best' : ''">
             <div class="route-badges">
                 <span class="route-mode-badge" th:text="${view.option().modeLabel()}"></span>
-                <span class="route-total-badge" th:text="'총 ' + ${view.option().totalMinutes()} + '분'"></span>
                 <span class="route-flag route-flag-fast" th:if="${iter.first}">가장 빠름</span>
                 <span class="route-flag route-flag-late" th:if="${view.option().departureServiceMinutes() == latestDepartureMinutes}">가장 늦게 출발</span>
                 <span class="route-flag route-flag-estimated" th:if="${view.option().estimated()}">버스 구간 추정</span>
@@ -172,8 +171,7 @@
             </div>
 
             <p class="route-meta">
-                <b th:text="${view.option().totalMinutes()} + '분'"></b>
-                <span class="route-meta-sep">·</span>
+                <b class="route-meta-total" th:text="${view.option().totalMinutes()} + '분'"></b>
                 <span th:text="${#temporals.format(view.expectedArrivalTime(), 'HH:mm')} + ' 도착'"></span>
                 <span th:if="${view.expectedArrivalNextDay()}">(다음날)</span>
                 <th:block th:if="${view.option().fareWon() > 0}">
@@ -188,7 +186,7 @@
                       th:classappend="${seg.walk()} ? 'route-bar-walk' : ''"
                       th:style="'flex-grow:' + ${seg.minutes()} + (${seg.walk()} ? '' : ';background-color:' + ${seg.color()})"
                       th:title="${seg.minutes()} + '분'"
-                      th:text="${seg.minutes() >= 5} ? ${seg.minutes()} + '분' : ''"></span>
+                      th:text="${seg.minutes() >= 3} ? ${seg.minutes()} + '분' : ''"></span>
             </div>
 
             <!-- 접힌 상태: 어느 노선을 어디서 타고 어디서 내리는지만 -->

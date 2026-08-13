@@ -704,20 +704,27 @@ body {
     color: var(--accent);
 }
 
+/* 네이버지도 경로 카드처럼 "총 소요시간"을 크게, 도착/요금은 옆에 작게 */
 .route-meta {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px;
     margin: 0 0 12px;
     font-size: 13px;
     font-weight: 500;
     color: var(--text-muted);
 }
 
-.route-meta b {
-    color: var(--text);
+.route-meta-total {
+    font-size: 22px;
     font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.5px;
+    margin-right: 2px;
 }
 
 .route-meta-sep {
-    margin: 0 5px;
     opacity: 0.5;
 }
 

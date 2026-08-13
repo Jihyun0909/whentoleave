@@ -10,6 +10,16 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: true
+  web:
+    resources:
+      chain:
+        # CSS 파일명에 내용 해시를 붙인다(style.css -> style-<hash>.css).
+        # 이게 없으면 브라우저가 예전 CSS를 계속 캐시해서, 스타일을 고쳐도 반영이 안 된다
+        # (실제로 화면이 스타일 없이 렌더링되는 문제를 겪음).
+        strategy:
+          content:
+            enabled: true
+            paths: /**
 
 odsay:
   base-url: https://api.odsay.com/v1/api
