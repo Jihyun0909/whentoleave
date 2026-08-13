@@ -57,4 +57,32 @@ class DayTypeTest {
         assertEquals(DayType.WEEKDAY, DayType.from(LocalDate.of(2030, 1, 1))); // 신정이지만 표에 없음
         assertEquals(false, KoreanHolidays.isYearCovered(LocalDate.of(2030, 1, 1)));
     }
+
+    /**
+     * from()의 시간표 분류(HOLIDAY)와 달리, 화면 표시용 라벨은 평범한 일요일과 지정된
+     * 공휴일을 구분해야 한다 - 안 그러면 그냥 일요일을 국경일로 착각하게 된다.
+     */
+    @Test
+    void 평범한_일요일의_표시라벨은_일요일이다() {
+        // 2026-08-23은 일요일이지만 공휴일 표에는 없음
+        assertEquals(DayType.HOLIDAY, DayType.from(LocalDate.of(2026, 8, 23)));
+        assertEquals("일요일", DayType.displayLabel(LocalDate.of(2026, 8, 23)));
+    }
+
+    @Test
+    void 공휴일과_겹친_일요일의_표시라벨은_공휴일이다() {
+        // 2026-03-01 삼일절은 일요일
+        assertEquals(DayType.HOLIDAY, DayType.from(LocalDate.of(2026, 3, 1)));
+        assertEquals("공휴일", DayType.displayLabel(LocalDate.of(2026, 3, 1)));
+    }
+
+    @Test
+    void 평일_표시라벨은_from과_같다() {
+        assertEquals("평일", DayType.displayLabel(LocalDate.of(2026, 8, 13)));
+    }
+
+    @Test
+    void 토요일_표시라벨은_from과_같다() {
+        assertEquals("토요일", DayType.displayLabel(LocalDate.of(2026, 8, 22)));
+    }
 }

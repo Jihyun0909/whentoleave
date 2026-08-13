@@ -161,14 +161,14 @@ public class LastDepartureViewController {
         for (LocalDate date = firstDay; !date.isAfter(lastDay); date = date.plusDays(1)) {
             DayType dayType = DayType.from(date);
             days.add(new CalendarDay(date, date.getDayOfMonth(), !date.isBefore(today),
-                    date.equals(selectedDate), dayType, dayType.label()));
+                    date.equals(selectedDate), dayType, DayType.displayLabel(date)));
         }
 
         model.addAttribute("calendarDays", days);
         model.addAttribute("calendarMonth", today.getMonthValue());
         model.addAttribute("selectedDate", selectedDate);
         model.addAttribute("selectedDateIsToday", selectedDate.equals(today));
-        model.addAttribute("selectedDayTypeLabel", DayType.from(selectedDate).label());
+        model.addAttribute("selectedDayTypeLabel", DayType.displayLabel(selectedDate));
         model.addAttribute("holidayDataMissing", !KoreanHolidays.isYearCovered(selectedDate));
     }
 
