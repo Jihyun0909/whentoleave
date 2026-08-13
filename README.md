@@ -163,7 +163,7 @@ CREATE TABLE subway_schedule (
 1. Oracle Cloud 계정 생성 + Always Free VM 인스턴스 생성 (Ubuntu)
 2. VM에 Docker + Docker Compose 설치, 80/443 포트 방화벽(Security List) 오픈
 3. DuckDNS 가입 후 서브도메인을 VM의 공인 IP로 연결
-4. 이 저장소를 VM에 clone, `.env.example`을 참고해 `.env` 작성 (`DB_PASSWORD`, `ODSAY_API_KEY`, `DOMAIN`)
+4. 이 저장소를 VM에 clone, `.env.example`을 참고해 `.env` 작성 (`DB_PASSWORD`, `ODSAY_API_KEY`, `VWORLD_API_KEY`, `DOMAIN`)
 5. `docker compose -f docker-compose.prod.yml up -d --build`
 6. `https://<DOMAIN>`으로 접속 확인
 

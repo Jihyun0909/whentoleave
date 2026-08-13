@@ -8,6 +8,7 @@ services:
       DB_USERNAME: transit
       DB_PASSWORD: ${DB_PASSWORD}
       ODSAY_API_KEY: ${ODSAY_API_KEY}
+      VWORLD_API_KEY: ${VWORLD_API_KEY}
     depends_on:
       - postgres
     expose:
