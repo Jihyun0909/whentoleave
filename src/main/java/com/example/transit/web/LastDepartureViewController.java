@@ -5,6 +5,7 @@ import com.example.transit.service.LastDepartureService;
 import com.example.transit.service.RouteOption;
 import com.example.transit.service.StationResolution;
 import com.example.transit.service.StationSearchService;
+import com.example.transit.service.TransitLeg;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.util.StringUtils;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.List;
 
 @Controller
@@ -19,14 +21,19 @@ public class LastDepartureViewController {
 
     private static final int EARLY_MORNING_CUTOFF_MINUTES = 6 * 60;
     private static final int MINUTES_PER_DAY = 24 * 60;
+    /** 버스 구간 색 (노선별 색이 있는 지하철과 달리 버스는 한 가지 색으로 통일). */
+    private static final String BUS_COLOR = "#3C8A3F";
 
     private final LastDepartureService lastDepartureService;
     private final StationSearchService stationSearchService;
+    private final LineColorResolver lineColorResolver;
 
     public LastDepartureViewController(LastDepartureService lastDepartureService,
-                                        StationSearchService stationSearchService) {
+                                        StationSearchService stationSearchService,
+                                        LineColorResolver lineColorResolver) {
         this.lastDepartureService = lastDepartureService;
         this.stationSearchService = stationSearchService;
+        this.lineColorResolver = lineColorResolver;
     }
 
     /**
@@ -44,6 +51,8 @@ public class LastDepartureViewController {
             @RequestParam(required = false) Double destY,
             @RequestParam(required = false) String mode,
             @RequestParam(required = false) LocalTime targetArrivalTime,
+            @RequestParam(required = false) String originPoint,
+            @RequestParam(required = false) String destPoint,
             Model model) {
 
         boolean arrivalMode = "arrival".equals(mode);
@@ -55,6 +64,18 @@ public class LastDepartureViewController {
         if (!StringUtils.hasText(originName) || !StringUtils.hasText(destName)
                 || (arrivalMode && targetArrivalTime == null)) {
             return "index";
+        }
+
+        // 후보 선택 폼은 라디오 하나로 좌표 둘을 넘겨야 해서 "x,y" 한 값으로 온다.
+        Point originSelected = Point.parse(originPoint);
+        Point destSelected = Point.parse(destPoint);
+        if (originSelected != null) {
+            originX = originSelected.x();
+            originY = originSelected.y();
+        }
+        if (destSelected != null) {
+            destX = destSelected.x();
+            destY = destSelected.y();
         }
 
         StationResolution originResolution = (originX != null && originY != null)
@@ -107,11 +128,68 @@ public class LastDepartureViewController {
                 ? LocalTime.now().plusMinutes(option.totalMinutes()) : null;
 
         int arrivalMinutes = option.departureServiceMinutes() + option.totalMinutes();
-        boolean arrivalNextDay = arrivalMinutes >= MINUTES_PER_DAY;
-        int normalizedArrival = arrivalMinutes % MINUTES_PER_DAY;
 
         return new RouteOptionView(option, alreadyPassed, earliestArrival,
-                LocalTime.of(normalizedArrival / 60, normalizedArrival % 60), arrivalNextDay);
+                toLocalTime(arrivalMinutes), arrivalMinutes >= MINUTES_PER_DAY,
+                segmentsOf(option), timelineOf(option));
+    }
+
+    /** 소요시간 비율 막대에 쓸 구간들 (도보는 회색, 승차는 노선 색). */
+    private List<RouteSegmentView> segmentsOf(RouteOption option) {
+        List<RouteSegmentView> segments = new ArrayList<>();
+        for (TransitLeg leg : option.legs()) {
+            if (leg.transferBufferMinutes() > 0) {
+                segments.add(new RouteSegmentView(leg.transferBufferMinutes(), null, true));
+            }
+            segments.add(new RouteSegmentView(leg.rideMinutes(), colorOf(leg), false));
+        }
+        if (option.finalWalkMinutes() > 0) {
+            segments.add(new RouteSegmentView(option.finalWalkMinutes(), null, true));
+        }
+        return segments;
+    }
+
+    /**
+     * 상세보기용 타임라인. 출발 시각에서 시작해 도보/승차/하차 시간을 차례로 더해가며
+     * 각 지점의 시각을 만든다 (지도 앱의 세로 경로 안내와 같은 구성).
+     */
+    private List<RouteTimelineRow> timelineOf(RouteOption option) {
+        List<RouteTimelineRow> rows = new ArrayList<>();
+        int cursor = option.departureServiceMinutes();
+
+        rows.add(RouteTimelineRow.place(toLocalTime(cursor), "출발"));
+        for (TransitLeg leg : option.legs()) {
+            if (leg.transferBufferMinutes() > 0) {
+                rows.add(RouteTimelineRow.walk(leg.transferBufferMinutes()));
+                cursor += leg.transferBufferMinutes();
+            }
+            LocalTime boardTime = toLocalTime(cursor);
+            cursor += leg.rideMinutes();
+            rows.add(new RouteTimelineRow("RIDE", boardTime, toLocalTime(cursor), leg.rideMinutes(),
+                    leg.stationName(), leg.endStationName(), lineLabelOf(leg), colorOf(leg)));
+        }
+        if (option.finalWalkMinutes() > 0) {
+            rows.add(RouteTimelineRow.walk(option.finalWalkMinutes()));
+            cursor += option.finalWalkMinutes();
+        }
+        rows.add(RouteTimelineRow.place(toLocalTime(cursor), "도착"));
+        return rows;
+    }
+
+    private String lineLabelOf(TransitLeg leg) {
+        if (leg.isBus()) {
+            return leg.busNo() != null ? leg.busNo() + "번" : "버스";
+        }
+        return lineColorResolver.shortNameOf(leg.laneName());
+    }
+
+    private String colorOf(TransitLeg leg) {
+        return leg.isBus() ? BUS_COLOR : lineColorResolver.colorOf(leg.laneName());
+    }
+
+    private LocalTime toLocalTime(int serviceMinutes) {
+        int normalized = Math.floorMod(serviceMinutes, MINUTES_PER_DAY);
+        return LocalTime.of(normalized / 60, normalized % 60);
     }
 
     /**
@@ -119,10 +197,54 @@ public class LastDepartureViewController {
      * @param departureAlreadyPassed 추천 출발 시각이 이미 지났는지
      * @param earliestArrivalTime 지금 출발할 경우 가장 빨리 도착하는 시각 (지난 경우에만)
      * @param expectedArrivalTime 추천 출발 시각에 나설 경우의 도착 시각
+     * @param segments            소요시간 비율 막대용 구간들
+     * @param timeline            상세보기용 타임라인
      */
     public record RouteOptionView(RouteOption option, boolean departureAlreadyPassed,
                                    LocalTime earliestArrivalTime, LocalTime expectedArrivalTime,
-                                   boolean expectedArrivalNextDay) {
+                                   boolean expectedArrivalNextDay,
+                                   List<RouteSegmentView> segments, List<RouteTimelineRow> timeline) {
+    }
+
+    /** @param color null이면 도보 구간 */
+    public record RouteSegmentView(int minutes, String color, boolean walk) {
+    }
+
+    /** 후보 선택 라디오가 넘기는 "경도,위도". 형식이 어긋나면 무시하고 이름으로 다시 찾는다. */
+    private record Point(double x, double y) {
+
+        static Point parse(String raw) {
+            if (raw == null || raw.isBlank()) {
+                return null;
+            }
+            String[] parts = raw.split(",");
+            if (parts.length != 2) {
+                return null;
+            }
+            try {
+                return new Point(Double.parseDouble(parts[0].trim()), Double.parseDouble(parts[1].trim()));
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+    }
+
+    /**
+     * @param type       PLACE(출발/도착) | WALK(도보) | RIDE(승차~하차)
+     * @param time       PLACE는 그 지점 시각, RIDE는 승차 시각
+     * @param endTime    RIDE의 하차 시각
+     * @param label      PLACE의 "출발"/"도착"
+     */
+    public record RouteTimelineRow(String type, LocalTime time, LocalTime endTime, int minutes,
+                                    String fromName, String toName, String lineLabel, String color) {
+
+        static RouteTimelineRow place(LocalTime time, String label) {
+            return new RouteTimelineRow("PLACE", time, null, 0, label, null, null, null);
+        }
+
+        static RouteTimelineRow walk(int minutes) {
+            return new RouteTimelineRow("WALK", null, null, minutes, null, null, null, null);
+        }
     }
 
     /**

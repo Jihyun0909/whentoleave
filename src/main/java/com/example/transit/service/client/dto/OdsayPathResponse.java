@@ -17,7 +17,16 @@ public record OdsayPathResponse(Result result) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Path(Integer pathType, List<SubPath> subPath) {
+    public record Path(Integer pathType, List<SubPath> subPath, Info info) {
+
+        public Path(Integer pathType, List<SubPath> subPath) {
+            this(pathType, subPath, null);
+        }
+    }
+
+    /** @param payment 이 경로의 총 요금(원). */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Info(Integer payment) {
     }
 
     /**

@@ -45,6 +45,21 @@ class BusDepartureCacheServiceTest {
         assertEquals(23 * 60 + 20, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
     }
 
+    /**
+     * 왕복 노선은 정류장 목록에 상·하행이 다 들어있어 복귀 구간 정류장의 누적거리가 수십 km까지
+     * 나온다. 그대로 환산하면 "막차가 아침에 지나간다"는 값이 나와서(N61에서 실제 발생) 상한을 둔다.
+     */
+    @Test
+    void 누적거리가_과하게_크면_오프셋을_상한으로_자른다() {
+        // 60km를 200m/분으로 환산하면 300분이지만, 상한 60분으로 잘려야 한다.
+        BusDepartureCacheService service = service(detail("05:00", "23:00", "10", 60000));
+        TransitLeg leg = busLeg(2000, 10);
+
+        List<Integer> minutes = service.departureServiceMinutes(leg);
+
+        assertEquals(23 * 60 + 60, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
+    }
+
     @Test
     void 막차부터_배차간격만큼_거슬러_올라가며_차편_후보를_만든다() {
         BusDepartureCacheService service = service(detail("22:00", "23:00", "20", 0));

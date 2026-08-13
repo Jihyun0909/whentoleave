@@ -86,7 +86,8 @@ public class RouteLegExtractor {
         }
         // 마지막 구간 뒤에 남은 도보(= 마지막 하차 지점에서 실제 목적지까지 걷는 시간)는
         // 다음 구간이 없어 버퍼로 붙일 곳이 없으므로 별도로 들고 나간다.
-        return new ExtractedRoute(legs, pendingWalkMinutes);
+        int fareWon = path.info() == null || path.info().payment() == null ? 0 : path.info().payment();
+        return new ExtractedRoute(legs, pendingWalkMinutes, fareWon);
     }
 
     private TransitLeg subwayLeg(OdsayPathResponse.SubPath subPath, int sectionTime, int pendingWalkMinutes) {
@@ -123,8 +124,13 @@ public class RouteLegExtractor {
     /**
      * @param legs             경로의 대중교통 구간들(정순)
      * @param finalWalkMinutes 마지막 하차 지점에서 실제 목적지까지 걸어야 하는 시간(분)
+     * @param fareWon          이 경로의 총 요금(원). 모르면 0 (심야버스처럼 직접 만든 경로).
      */
-    public record ExtractedRoute(List<TransitLeg> legs, int finalWalkMinutes) {
+    public record ExtractedRoute(List<TransitLeg> legs, int finalWalkMinutes, int fareWon) {
+
+        public ExtractedRoute(List<TransitLeg> legs, int finalWalkMinutes) {
+            this(legs, finalWalkMinutes, 0);
+        }
 
         public boolean hasBus() {
             return legs.stream().anyMatch(TransitLeg::isBus);

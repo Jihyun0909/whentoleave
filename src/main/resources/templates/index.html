@@ -85,30 +85,57 @@
     <div th:if="${originStatus == 'NOT_FOUND'}" class="alert alert-error">
         <p>출발지 "<span th:text="${originName}"></span>"을(를) 찾을 수 없습니다. 정확한 역 이름이나 주소로 다시 입력해주세요.</p>
     </div>
-    <div th:if="${originStatus == 'AMBIGUOUS'}" class="candidates">
-        <p class="candidates-title">출발역 후보가 여러 개입니다. 하나를 선택하세요.</p>
-        <ul class="candidate-list">
-            <li th:each="c : ${originCandidates}">
-                <a class="candidate-chip"
-                   th:href="@{/(originName=${originName}, destName=${destName}, originX=${c.x()}, originY=${c.y()}, destX=${destStatus == 'RESOLVED'} ? ${destX} : null, destY=${destStatus == 'RESOLVED'} ? ${destY} : null, mode=${arrivalMode} ? 'arrival' : null, targetArrivalTime=${targetArrivalTime})}"
-                   th:text="${c.stationName()} + ' (' + ${c.laneName()} + ')'"></a>
-            </li>
-        </ul>
-    </div>
-
     <div th:if="${destStatus == 'NOT_FOUND'}" class="alert alert-error">
         <p>도착지 "<span th:text="${destName}"></span>"을(를) 찾을 수 없습니다. 정확한 역 이름이나 주소로 다시 입력해주세요.</p>
     </div>
-    <div th:if="${destStatus == 'AMBIGUOUS'}" class="candidates">
-        <p class="candidates-title">도착역 후보가 여러 개입니다. 하나를 선택하세요.</p>
-        <ul class="candidate-list">
-            <li th:each="c : ${destCandidates}">
-                <a class="candidate-chip"
-                   th:href="@{/(originName=${originName}, destName=${destName}, destX=${c.x()}, destY=${c.y()}, originX=${originStatus == 'RESOLVED'} ? ${originX} : null, originY=${originStatus == 'RESOLVED'} ? ${originY} : null, mode=${arrivalMode} ? 'arrival' : null, targetArrivalTime=${targetArrivalTime})}"
-                   th:text="${c.stationName()} + ' (' + ${c.laneName()} + ')'"></a>
-            </li>
-        </ul>
-    </div>
+
+    <!--
+      출발지·도착지가 둘 다 여러 후보에 걸리면(예: 건대입구 2/7호선, 신림 2호선/신림선)
+      한쪽씩 고를 때마다 페이지가 새로 뜨는 게 번거로워서, 하나의 폼에서 양쪽을 다 고른 뒤
+      한 번에 검색하도록 한다. 이미 확정된 쪽은 hidden으로 좌표를 그대로 넘긴다.
+    -->
+    <form th:if="${originStatus == 'AMBIGUOUS' or destStatus == 'AMBIGUOUS'}"
+          method="get" action="/" class="candidates">
+        <input type="hidden" name="originName" th:value="${originName}">
+        <input type="hidden" name="destName" th:value="${destName}">
+        <input type="hidden" name="mode" th:if="${arrivalMode}" value="arrival">
+        <input type="hidden" name="targetArrivalTime" th:if="${arrivalMode}"
+               th:value="${targetArrivalTime != null ? #temporals.format(targetArrivalTime, 'HH:mm') : ''}">
+        <input type="hidden" name="originX" th:if="${originStatus == 'RESOLVED'}" th:value="${originX}">
+        <input type="hidden" name="originY" th:if="${originStatus == 'RESOLVED'}" th:value="${originY}">
+        <input type="hidden" name="destX" th:if="${destStatus == 'RESOLVED'}" th:value="${destX}">
+        <input type="hidden" name="destY" th:if="${destStatus == 'RESOLVED'}" th:value="${destY}">
+
+        <fieldset class="candidate-group" th:if="${originStatus == 'AMBIGUOUS'}">
+            <legend class="candidates-title">출발지 "<span th:text="${originName}"></span>" 후보를 선택하세요</legend>
+            <ul class="candidate-list">
+                <li th:each="c, i : ${originCandidates}">
+                    <label class="candidate-chip">
+                        <input type="radio" name="originPoint" required
+                               th:checked="${i.first}"
+                               th:value="${c.x()} + ',' + ${c.y()}">
+                        <span th:text="${c.stationName()} + ' (' + ${c.laneName()} + ')'"></span>
+                    </label>
+                </li>
+            </ul>
+        </fieldset>
+
+        <fieldset class="candidate-group" th:if="${destStatus == 'AMBIGUOUS'}">
+            <legend class="candidates-title">도착지 "<span th:text="${destName}"></span>" 후보를 선택하세요</legend>
+            <ul class="candidate-list">
+                <li th:each="c, i : ${destCandidates}">
+                    <label class="candidate-chip">
+                        <input type="radio" name="destPoint" required
+                               th:checked="${i.first}"
+                               th:value="${c.x()} + ',' + ${c.y()}">
+                        <span th:text="${c.stationName()} + ' (' + ${c.laneName()} + ')'"></span>
+                    </label>
+                </li>
+            </ul>
+        </fieldset>
+
+        <button type="submit" class="btn-search">선택한 경로로 검색</button>
+    </form>
 
     <div th:if="${searched}" class="result">
         <h2 class="result-heading" th:if="${feasible}">추천 경로</h2>
@@ -129,59 +156,101 @@
                 <span class="route-flag route-flag-estimated" th:if="${view.option().estimated()}">버스 구간 추정</span>
             </div>
 
-            <div class="route-path">
-                <span class="route-place route-place-origin" th:text="${originDisplayName}"></span>
-
-                <th:block th:each="leg, legIter : ${view.option().legs()}">
-                    <span class="route-walk" th:if="${leg.transferBufferMinutes() > 0}"
-                          th:text="'도보 ' + ${leg.transferBufferMinutes()} + '분'"></span>
-                    <span class="route-arrow">›</span>
-
-                    <span class="route-ride"
-                          th:style="'border-color:' + ${leg.isBus() ? '#3C8A3F' : @lineColorResolver.colorOf(leg.laneName())} + ';'">
-                        <span class="route-ride-line"
-                              th:style="'background-color:' + ${leg.isBus() ? '#3C8A3F' : @lineColorResolver.colorOf(leg.laneName())} + ';'"
-                              th:text="${leg.isBus() ? (leg.busNo() != null ? leg.busNo() + '번' : '버스') : @lineColorResolver.shortNameOf(leg.laneName())}"></span>
-                        <span class="route-ride-stops">
-                            <span class="route-ride-stop" th:text="${leg.stationName()} + ' 승차'"></span>
-                            <span class="route-ride-sep">→</span>
-                            <span class="route-ride-stop" th:text="${leg.endStationName() != null ? leg.endStationName() + ' 하차' : '하차'}"></span>
-                        </span>
-                        <span class="route-ride-time" th:text="${leg.rideMinutes()} + '분'"></span>
-                    </span>
-
-                    <span class="route-arrow">›</span>
-                </th:block>
-
-                <th:block th:if="${view.option().finalWalkMinutes() > 0}">
-                    <span class="route-walk" th:text="'도보 ' + ${view.option().finalWalkMinutes()} + '분'"></span>
-                    <span class="route-arrow">›</span>
-                </th:block>
-                <span class="route-place route-place-dest" th:text="${destDisplayName}"></span>
+            <div class="route-headline" th:if="${view.departureAlreadyPassed()}">
+                <p class="route-headline-label">지금 출발하면 가장 빠른 도착</p>
+                <p class="route-headline-time" th:text="${#temporals.format(view.earliestArrivalTime(), 'HH:mm')}"></p>
             </div>
-
-            <div class="route-result" th:if="${view.departureAlreadyPassed()}">
-                <p class="result-label" th:text="'지금 출발하면 가장 빠른 도착은'"></p>
-                <p class="result-time">
-                    <span th:text="${#temporals.format(view.earliestArrivalTime(), 'HH:mm')}"></span>
-                    <span class="badge-nextday">입니다</span>
-                </p>
-            </div>
-            <div class="route-result" th:unless="${view.departureAlreadyPassed()}">
-                <p class="result-label">
+            <div class="route-headline" th:unless="${view.departureAlreadyPassed()}">
+                <p class="route-headline-label">
                     <span th:if="${arrivalMode}" th:text="${#temporals.format(targetArrivalTime, 'HH:mm')} + '까지 도착하려면 이 시각까지 출발'"></span>
                     <span th:unless="${arrivalMode}">막차로 도착하려면 이 시각까지 출발</span>
                 </p>
-                <p class="result-time">
+                <p class="route-headline-time">
                     <span th:text="${#temporals.format(view.option().departureTime(), 'HH:mm')}"></span>
                     <span class="badge-nextday" th:if="${view.option().nextDay()}">다음날 새벽</span>
                 </p>
-                <p class="result-note">
-                    예상 도착 시각 <b th:text="${#temporals.format(view.expectedArrivalTime(), 'HH:mm')}"></b>
-                    <span th:if="${view.expectedArrivalNextDay()}">(다음날)</span>
-                </p>
-                <p class="result-note" th:if="${arrivalMode and view.option().lastTrainDeparture()}">오늘의 마지막 교통편을 이용하는 경로입니다.</p>
             </div>
+
+            <p class="route-meta">
+                <b th:text="${view.option().totalMinutes()} + '분'"></b>
+                <span class="route-meta-sep">·</span>
+                <span th:text="${#temporals.format(view.expectedArrivalTime(), 'HH:mm')} + ' 도착'"></span>
+                <span th:if="${view.expectedArrivalNextDay()}">(다음날)</span>
+                <th:block th:if="${view.option().fareWon() > 0}">
+                    <span class="route-meta-sep">·</span>
+                    <span th:text="${#numbers.formatInteger(view.option().fareWon(), 0, 'COMMA')} + '원'"></span>
+                </th:block>
+            </p>
+
+            <!-- 구간별 소요시간 비율 막대 -->
+            <div class="route-bar">
+                <span th:each="seg : ${view.segments()}" class="route-bar-seg"
+                      th:classappend="${seg.walk()} ? 'route-bar-walk' : ''"
+                      th:style="'flex-grow:' + ${seg.minutes()} + (${seg.walk()} ? '' : ';background-color:' + ${seg.color()})"
+                      th:title="${seg.minutes()} + '분'"
+                      th:text="${seg.minutes() >= 5} ? ${seg.minutes()} + '분' : ''"></span>
+            </div>
+
+            <!-- 접힌 상태: 어느 노선을 어디서 타고 어디서 내리는지만 -->
+            <ul class="route-brief">
+                <li th:each="leg : ${view.option().legs()}">
+                    <span class="route-brief-line"
+                          th:style="'background-color:' + ${leg.isBus() ? '#3C8A3F' : @lineColorResolver.colorOf(leg.laneName())} + ';'"
+                          th:text="${leg.isBus() ? (leg.busNo() != null ? leg.busNo() + '번' : '버스') : @lineColorResolver.shortNameOf(leg.laneName())}"></span>
+                    <span class="route-brief-station" th:text="${leg.stationName()}"></span>
+                </li>
+                <li>
+                    <span class="route-brief-off">하차</span>
+                    <span class="route-brief-station"
+                          th:text="${view.option().legs()[view.option().legs().size() - 1].endStationName()}"></span>
+                </li>
+            </ul>
+
+            <details class="route-detail">
+                <summary class="route-detail-toggle">상세보기</summary>
+                <ol class="route-timeline">
+                    <li th:each="row : ${view.timeline()}" class="route-timeline-row"
+                        th:classappend="'route-timeline-' + ${#strings.toLowerCase(row.type())}">
+                        <th:block th:switch="${row.type()}">
+                            <th:block th:case="'PLACE'">
+                                <span class="route-timeline-time" th:text="${#temporals.format(row.time(), 'HH:mm')}"></span>
+                                <span class="route-timeline-dot"
+                                      th:classappend="${row.fromName() == '출발'} ? 'is-origin' : 'is-dest'"></span>
+                                <span class="route-timeline-body">
+                                    <span class="route-timeline-title"
+                                          th:text="${row.fromName() == '출발'} ? ${originDisplayName} : ${destDisplayName}"></span>
+                                    <span class="route-timeline-kind" th:text="${row.fromName()}"></span>
+                                </span>
+                            </th:block>
+                            <th:block th:case="'WALK'">
+                                <span class="route-timeline-time"></span>
+                                <span class="route-timeline-rail"></span>
+                                <span class="route-timeline-body">
+                                    <span class="route-timeline-walk" th:text="'도보 ' + ${row.minutes()} + '분'"></span>
+                                </span>
+                            </th:block>
+                            <th:block th:case="'RIDE'">
+                                <span class="route-timeline-time" th:text="${#temporals.format(row.time(), 'HH:mm')}"></span>
+                                <span class="route-timeline-rail"
+                                      th:style="'--rail-color:' + ${row.color()}"></span>
+                                <span class="route-timeline-body">
+                                    <span class="route-timeline-title">
+                                        <span class="route-brief-line" th:style="'background-color:' + ${row.color()} + ';'"
+                                              th:text="${row.lineLabel()}"></span>
+                                        <span th:text="${row.fromName()} + ' 승차'"></span>
+                                    </span>
+                                    <span class="route-timeline-kind" th:text="${row.minutes()} + '분 이동'"></span>
+                                    <span class="route-timeline-alight">
+                                        <b th:text="${#temporals.format(row.endTime(), 'HH:mm')}"></b>
+                                        <span th:text="${row.toName()} + ' 하차'"></span>
+                                    </span>
+                                </span>
+                            </th:block>
+                        </th:block>
+                    </li>
+                </ol>
+                <p class="result-note" th:if="${arrivalMode and view.option().lastTrainDeparture()}">오늘의 마지막 교통편을 이용하는 경로입니다.</p>
+            </details>
         </div>
 
         <div th:unless="${feasible}" class="result-card result-infeasible">

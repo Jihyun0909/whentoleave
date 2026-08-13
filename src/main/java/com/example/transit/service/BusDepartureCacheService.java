@@ -47,6 +47,8 @@ public class BusDepartureCacheService implements BusDepartureLookup {
     private static final int DEFAULT_INTERVAL_MINUTES = 15;
     /** 한 노선에서 만들어낼 최대 차편 수 (배차 1~2분짜리 노선에서 후보가 폭발하는 것 방지). */
     private static final int MAX_DEPARTURES_PER_LANE = 200;
+    /** 기점에서 승차 정류장까지 걸린다고 인정할 최대 시간(분). 왕복 노선 누적거리 폭주 방지. */
+    private static final int MAX_OFFSET_MINUTES = 60;
 
     private final BusStopDepartureRepository repository;
     private final OdsayClient odsayClient;
@@ -109,6 +111,11 @@ public class BusDepartureCacheService implements BusDepartureLookup {
      * 이 구간의 평균 속도(구간거리/구간소요시간)를 노선 전체에 적용한다 — 정류장 순번으로
      * 비례 배분하는 것보다 정류장 간격 차이를 잘 반영한다. 거리/시간 정보가 없으면 0을 쓴다
      * (그러면 기점 막차 시각을 그대로 쓰게 되어, 실제보다 이르게 = 안전한 쪽으로 추정된다).
+     * <p>
+     * 결과는 {@link #MAX_OFFSET_MINUTES}로 제한한다. 왕복 노선은 정류장 목록에 상·하행이 모두
+     * 들어있어서 복귀 구간 정류장의 누적거리가 수십 km까지 나오는데, 그대로 쓰면 "막차가 아침
+     * 8시에 지나간다" 같은 값이 나온다 (실제로 N61에서 발생). 상한을 두면 추정이 이른 쪽으로
+     * 치우치는데, 막차 안내에서는 늦게 알려주는 것보다 이르게 알려주는 쪽이 안전하다.
      */
     private int minutesFromRouteStart(OdsayBusLaneDetailResponse.Result detail, TransitLeg leg) {
         Integer stopDistance = distanceFromRouteStart(detail, leg.stationId());
@@ -116,7 +123,7 @@ public class BusDepartureCacheService implements BusDepartureLookup {
             return 0;
         }
         double metersPerMinute = (double) leg.distanceMeters() / leg.rideMinutes();
-        return (int) Math.round(stopDistance / metersPerMinute);
+        return Math.min(MAX_OFFSET_MINUTES, (int) Math.round(stopDistance / metersPerMinute));
     }
 
     private Integer distanceFromRouteStart(OdsayBusLaneDetailResponse.Result detail, int stationId) {

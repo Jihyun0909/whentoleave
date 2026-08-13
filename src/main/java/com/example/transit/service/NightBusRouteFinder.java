@@ -48,6 +48,8 @@ public class NightBusRouteFinder {
     private static final double NIGHT_BUS_METERS_PER_MINUTE = 250.0;
     /** 노선 목록/정류장 캐시 유효기간. 시간표는 하루 단위로만 바뀌면 충분하다. */
     private static final Duration CACHE_TTL = Duration.ofHours(12);
+    /** 이보다 오래 타야 하면 노선을 거의 한 바퀴 도는 비현실적인 조합이라 보고 후보에서 뺀다. */
+    private static final int MAX_RIDE_MINUTES = 90;
 
     private final OdsayClient odsayClient;
     private final Map<Integer, CachedLane> laneCache = new ConcurrentHashMap<>();
@@ -107,8 +109,12 @@ public class NightBusRouteFinder {
      * 각각 "가장 가까운 정류장"을 따로 고르면 안 된다 — 심야버스는 대부분 왕복 노선이라
      * 같은 정류장이 상·하행으로 두 번 들어있고(정류장 ID도 다르다), 하필 반대 방향 정류장을
      * 집으면 "승차가 하차보다 뒤"라서 갈 수 있는 노선인데도 버려진다 (실제로 N15 수유->사당이
-     * 이 이유로 누락됐다). 그래서 순서가 맞는(승차 idx < 하차 idx) 조합 중에서
-     * 도보 거리 합이 가장 짧은 짝을 고른다.
+     * 이 이유로 누락됐다). 그래서 순서가 맞는(승차 idx < 하차 idx) 조합을 다 보고 고른다.
+     * <p>
+     * 고르는 기준은 도보 거리가 아니라 <b>총 소요시간(도보+승차)</b>이다. 도보만 보면 노선을
+     * 거의 한 바퀴 도는 조합이 뽑힐 수 있다 — 실제로 건대입구->신림에서 승차 193분짜리
+     * 말도 안 되는 경로가 나왔다. 그렇게 고르고도 비현실적으로 오래 걸리면
+     * ({@link #MAX_RIDE_MINUTES} 초과) 그 노선은 아예 후보에서 뺀다.
      */
     private Optional<StopPair> bestStopPair(List<OdsayBusLaneDetailResponse.Station> stations,
                                              double sx, double sy, double ex, double ey) {
@@ -122,13 +128,24 @@ public class NightBusRouteFinder {
                         || alighting.cumulativeDistance() <= boarding.cumulativeDistance()) {
                     continue;
                 }
-                double walkTotal = boarding.distanceMeters() + alighting.distanceMeters();
-                if (best == null || walkTotal < best.walkTotalMeters()) {
-                    best = new StopPair(boarding, alighting, walkTotal);
+                int rideMeters = alighting.cumulativeDistance() - boarding.cumulativeDistance();
+                double totalMinutes = walkMinutes(boarding.distanceMeters())
+                        + walkMinutes(alighting.distanceMeters())
+                        + rideMeters / NIGHT_BUS_METERS_PER_MINUTE;
+                if (best == null || totalMinutes < best.totalMinutes()) {
+                    best = new StopPair(boarding, alighting, totalMinutes);
                 }
             }
         }
+        if (best != null && rideMinutesOf(best) > MAX_RIDE_MINUTES) {
+            return Optional.empty();
+        }
         return Optional.ofNullable(best);
+    }
+
+    private int rideMinutesOf(StopPair pair) {
+        int rideMeters = pair.alighting().cumulativeDistance() - pair.boarding().cumulativeDistance();
+        return (int) Math.max(1, Math.round(rideMeters / NIGHT_BUS_METERS_PER_MINUTE));
     }
 
     /** 좌표에서 걸어갈 수 있는 거리 안에 있는 정류장 전부. */
@@ -205,7 +222,7 @@ public class NightBusRouteFinder {
                             double distanceMeters) {
     }
 
-    private record StopPair(Nearest boarding, Nearest alighting, double walkTotalMeters) {
+    private record StopPair(Nearest boarding, Nearest alighting, double totalMinutes) {
     }
 
     private record CachedLane(OdsayBusLaneDetailResponse.Result detail, Instant loadedAt) {
