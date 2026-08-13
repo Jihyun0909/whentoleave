@@ -11,6 +11,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -32,6 +33,8 @@ class BusDepartureCacheServiceTest {
 
     private static final int BUS_ID = 1500;
     private static final int BOARDING_STOP_ID = 80821;
+    /** 요일유형을 고정해야 배차간격 선택이 실행 요일에 따라 흔들리지 않는다 (2026-08-13은 목요일). */
+    private static final LocalDate TODAY = LocalDate.of(2026, 8, 13);
 
     @Test
     void 기점부터_승차정류장까지_걸리는_시간만큼_막차를_늦춰서_추정한다() {
@@ -40,7 +43,7 @@ class BusDepartureCacheServiceTest {
         BusDepartureCacheService service = service(detail("05:00", "23:00", "10", 4000));
         TransitLeg leg = busLeg(2000, 10);
 
-        List<Integer> minutes = service.departureServiceMinutes(leg);
+        List<Integer> minutes = service.departureServiceMinutes(leg, TODAY);
 
         assertEquals(23 * 60 + 20, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
     }
@@ -55,7 +58,7 @@ class BusDepartureCacheServiceTest {
         BusDepartureCacheService service = service(detail("05:00", "23:00", "10", 60000));
         TransitLeg leg = busLeg(2000, 10);
 
-        List<Integer> minutes = service.departureServiceMinutes(leg);
+        List<Integer> minutes = service.departureServiceMinutes(leg, TODAY);
 
         assertEquals(23 * 60 + 60, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
     }
@@ -65,7 +68,7 @@ class BusDepartureCacheServiceTest {
         BusDepartureCacheService service = service(detail("22:00", "23:00", "20", 0));
         TransitLeg leg = busLeg(0, 0); // 거리 정보 없음 -> 기점 시각 그대로
 
-        List<Integer> minutes = service.departureServiceMinutes(leg);
+        List<Integer> minutes = service.departureServiceMinutes(leg, TODAY);
 
         // 23:00, 22:40, 22:20, 22:00
         assertEquals(List.of(23 * 60, 22 * 60 + 40, 22 * 60 + 20, 22 * 60), minutes);
@@ -79,7 +82,7 @@ class BusDepartureCacheServiceTest {
         BusDepartureCacheService service = service(details);
 
         TransitLeg leg = TransitLeg.bus(BOARDING_STOP_ID, 0, 0, "정류장", "하차정류장", "간선", List.of(1, 2), "146", 0);
-        List<Integer> minutes = service.departureServiceMinutes(leg);
+        List<Integer> minutes = service.departureServiceMinutes(leg, TODAY);
 
         assertEquals(23 * 60 + 40, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
     }
@@ -94,7 +97,7 @@ class BusDepartureCacheServiceTest {
     void 자정_이후에만_다니는_노선은_낮_시간대_차편을_만들지_않는다() {
         BusDepartureCacheService service = service(detail("24:00", "27:30", "35", 0));
 
-        List<Integer> minutes = service.departureServiceMinutes(busLeg(0, 0));
+        List<Integer> minutes = service.departureServiceMinutes(busLeg(0, 0), TODAY);
 
         assertFalse(minutes.isEmpty());
         assertEquals(24 * 60, minutes.stream().mapToInt(Integer::intValue).min().orElseThrow());
@@ -107,7 +110,7 @@ class BusDepartureCacheServiceTest {
         BusDepartureCacheService service = service(detail("22:00", "23:00", "1회 -", 0));
         TransitLeg leg = busLeg(0, 0);
 
-        List<Integer> minutes = service.departureServiceMinutes(leg);
+        List<Integer> minutes = service.departureServiceMinutes(leg, TODAY);
 
         assertFalse(minutes.isEmpty());
         assertEquals(23 * 60, minutes.get(0));
@@ -123,7 +126,7 @@ class BusDepartureCacheServiceTest {
         };
         BusDepartureCacheService service = new BusDepartureCacheService(new InMemoryRepository(), failing);
 
-        assertTrue(service.departureServiceMinutes(busLeg(0, 0)).isEmpty());
+        assertTrue(service.departureServiceMinutes(busLeg(0, 0), TODAY).isEmpty());
     }
 
     @Test
@@ -131,8 +134,8 @@ class BusDepartureCacheServiceTest {
         CountingClient client = new CountingClient(detail("05:00", "23:00", "10", 0));
         BusDepartureCacheService service = new BusDepartureCacheService(new InMemoryRepository(), client);
 
-        service.departureServiceMinutes(busLeg(0, 0));
-        service.departureServiceMinutes(busLeg(0, 0));
+        service.departureServiceMinutes(busLeg(0, 0), TODAY);
+        service.departureServiceMinutes(busLeg(0, 0), TODAY);
 
         assertEquals(1, client.calls);
     }

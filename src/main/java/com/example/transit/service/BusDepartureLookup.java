@@ -1,5 +1,6 @@
 package com.example.transit.service;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -10,6 +11,10 @@ import java.util.List;
 @FunctionalInterface
 public interface BusDepartureLookup {
 
-    /** 후보가 없으면 빈 목록. 오름차순일 필요는 없다. */
-    List<Integer> departureServiceMinutes(TransitLeg leg);
+    /**
+     * 후보가 없으면 빈 목록. 오름차순일 필요는 없다.
+     *
+     * @param date 어느 날짜 기준인지 (평일/토요일/공휴일에 따라 배차간격이 다르다)
+     */
+    List<Integer> departureServiceMinutes(TransitLeg leg, LocalDate date);
 }

@@ -1,17 +1,21 @@
 package com.example.transit.web;
 
+import com.example.transit.domain.DayType;
+import com.example.transit.domain.KoreanHolidays;
 import com.example.transit.service.LastDepartureResult;
 import com.example.transit.service.LastDepartureService;
 import com.example.transit.service.RouteOption;
 import com.example.transit.service.StationResolution;
 import com.example.transit.service.StationSearchService;
 import com.example.transit.service.TransitLeg;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,13 +57,16 @@ public class LastDepartureViewController {
             @RequestParam(required = false) LocalTime targetArrivalTime,
             @RequestParam(required = false) String originPoint,
             @RequestParam(required = false) String destPoint,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate targetDate,
             Model model) {
 
         boolean arrivalMode = "arrival".equals(mode);
+        LocalDate selectedDate = resolveSelectedDate(targetDate);
         model.addAttribute("arrivalMode", arrivalMode);
         model.addAttribute("originName", originName);
         model.addAttribute("destName", destName);
         model.addAttribute("targetArrivalTime", targetArrivalTime);
+        addCalendarToModel(model, selectedDate);
 
         if (!StringUtils.hasText(originName) || !StringUtils.hasText(destName)
                 || (arrivalMode && targetArrivalTime == null)) {
@@ -96,12 +103,13 @@ public class LastDepartureViewController {
         model.addAttribute("searched", true);
         List<RouteOption> options =
                 lastDepartureService.calculateOptions(origin.x(), origin.y(), dest.x(), dest.y(),
-                        arrivalMode ? targetArrivalTime : null);
+                        arrivalMode ? targetArrivalTime : null, selectedDate);
 
         if (options.isEmpty()) {
             // 세 가지 모두 실패한 경우, 이유를 보여주기 위해 지하철 기준 결과의 사유를 쓴다.
-            LastDepartureResult fallback = lastDepartureService.calculateSingle(
-                    origin.x(), origin.y(), dest.x(), dest.y(), arrivalMode ? targetArrivalTime : null);
+            LastDepartureResult fallback = lastDepartureService.calculate(
+                    origin.x(), origin.y(), dest.x(), dest.y(),
+                    arrivalMode ? targetArrivalTime : null, selectedDate);
             model.addAttribute("feasible", false);
             model.addAttribute("reason", fallback instanceof LastDepartureResult.Infeasible i
                     ? displayReason(i, arrivalMode)
@@ -116,6 +124,77 @@ public class LastDepartureViewController {
                 .mapToInt(RouteOption::departureServiceMinutes)
                 .max().orElse(-1));
         return "index";
+    }
+
+    /**
+     * 선택 가능한 날짜는 "오늘부터 이번 달 말일까지"로 제한한다. 그 밖의 값(과거 날짜, 다음 달,
+     * 형식 오류)은 조용히 오늘로 되돌린다 — 쿼리스트링은 사용자가 직접 고칠 수 있어서
+     * 화면에서 못 고르게 막는 것만으로는 부족하다.
+     */
+    private LocalDate resolveSelectedDate(LocalDate requested) {
+        LocalDate today = LocalDate.now();
+        if (requested == null || requested.isBefore(today) || requested.isAfter(lastDayOfMonth(today))) {
+            return today;
+        }
+        return requested;
+    }
+
+    private LocalDate lastDayOfMonth(LocalDate date) {
+        return date.withDayOfMonth(date.lengthOfMonth());
+    }
+
+    /**
+     * 이번 달 달력을 통째로 모델에 담는다. 공휴일 판별이 서버에만 있으므로(음력 기반 명절 때문에
+     * 표로 관리) 날짜 칸을 서버에서 만들어 내려주고, 화면 JS는 열고 닫기만 담당한다.
+     */
+    private void addCalendarToModel(Model model, LocalDate selectedDate) {
+        LocalDate today = LocalDate.now();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay = lastDayOfMonth(today);
+
+        List<CalendarDay> days = new ArrayList<>();
+        // 1일이 무슨 요일인지에 맞춰 앞을 빈 칸으로 채운다 (월요일 시작 기준).
+        int leadingBlanks = firstDay.getDayOfWeek().getValue() - 1;
+        for (int i = 0; i < leadingBlanks; i++) {
+            days.add(CalendarDay.blank());
+        }
+        for (LocalDate date = firstDay; !date.isAfter(lastDay); date = date.plusDays(1)) {
+            DayType dayType = DayType.from(date);
+            days.add(new CalendarDay(date, date.getDayOfMonth(), !date.isBefore(today),
+                    date.equals(selectedDate), dayType, dayType.label()));
+        }
+
+        model.addAttribute("calendarDays", days);
+        model.addAttribute("calendarMonth", today.getMonthValue());
+        model.addAttribute("selectedDate", selectedDate);
+        model.addAttribute("selectedDateIsToday", selectedDate.equals(today));
+        model.addAttribute("selectedDayTypeLabel", DayType.from(selectedDate).label());
+        model.addAttribute("holidayDataMissing", !KoreanHolidays.isYearCovered(selectedDate));
+    }
+
+    /**
+     * 달력 한 칸. date가 null이면 1일 앞을 채우는 빈 칸이다.
+     *
+     * @param selectable 오늘 이후라서 고를 수 있는지 (지난 날짜는 막차를 계산할 의미가 없다)
+     */
+    public record CalendarDay(LocalDate date, int dayOfMonth, boolean selectable, boolean selected,
+                               DayType dayType, String dayTypeLabel) {
+
+        static CalendarDay blank() {
+            return new CalendarDay(null, 0, false, false, null, null);
+        }
+
+        public boolean isBlank() {
+            return date == null;
+        }
+
+        public boolean isHoliday() {
+            return dayType == DayType.HOLIDAY;
+        }
+
+        public boolean isSaturday() {
+            return dayType == DayType.SATURDAY;
+        }
     }
 
     /**

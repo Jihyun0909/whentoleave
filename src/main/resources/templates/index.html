@@ -32,13 +32,49 @@
         </nav>
 
         <nav class="subtabs" th:unless="${arrivalMode}">
-            <span class="subtab subtab-active">오늘 막차 보기</span>
-            <button type="button" class="subtab subtab-disabled" disabled title="준비중">다른날 막차 보기</button>
+            <span class="subtab" th:classappend="${selectedDateIsToday} ? 'subtab-active' : ''"
+                  th:if="${selectedDateIsToday}">오늘 막차 보기</span>
+            <a th:unless="${selectedDateIsToday}" class="subtab"
+               th:href="@{/(originName=${originName}, destName=${destName})}">오늘 막차 보기</a>
+            <button type="button" class="subtab" id="calendarToggle"
+                    th:classappend="${selectedDateIsToday} ? '' : 'subtab-active'">다른날 막차 보기</button>
         </nav>
-        <p class="schedule-note">오늘 기준 시간표로 계산됩니다.</p>
+
+        <div class="calendar" id="calendar" th:unless="${arrivalMode}"
+             th:attr="data-open=${selectedDateIsToday} ? 'false' : 'true'">
+            <p class="calendar-title" th:text="${calendarMonth} + '월 — 오늘 이후 날짜만 선택할 수 있어요'"></p>
+            <div class="calendar-weekdays">
+                <span>월</span><span>화</span><span>수</span><span>목</span><span>금</span>
+                <span class="calendar-sat">토</span><span class="calendar-sun">일</span>
+            </div>
+            <div class="calendar-grid">
+                <th:block th:each="day : ${calendarDays}">
+                    <span th:if="${day.blank}" class="calendar-cell calendar-cell-blank"></span>
+                    <span th:if="${!day.blank and !day.selectable}" class="calendar-cell calendar-cell-disabled"
+                          th:text="${day.dayOfMonth}"></span>
+                    <a th:if="${!day.blank and day.selectable}" class="calendar-cell"
+                       th:classappend="(${day.selected} ? ' calendar-cell-selected' : '')
+                                       + (${day.holiday} ? ' calendar-cell-holiday' : '')
+                                       + (${day.saturday} ? ' calendar-cell-saturday' : '')"
+                       th:href="@{/(originName=${originName}, destName=${destName}, targetDate=${day.date})}"
+                       th:title="${day.dayTypeLabel}"
+                       th:text="${day.dayOfMonth}"></a>
+                </th:block>
+            </div>
+        </div>
+
+        <p class="schedule-note" th:if="${selectedDateIsToday}">오늘 기준 시간표로 계산됩니다.</p>
+        <p class="schedule-note" th:unless="${selectedDateIsToday}">
+            <b th:text="${#temporals.format(selectedDate, 'M월 d일')}"></b>
+            <span th:text="'(' + ${selectedDayTypeLabel} + ')'"></span> 시간표로 계산됩니다.
+        </p>
+        <p class="schedule-note schedule-note-warn" th:if="${holidayDataMissing}">
+            이 연도의 공휴일 정보가 없어 주말만 반영됩니다.
+        </p>
 
         <form method="get" action="/" class="search-form">
             <input type="hidden" name="mode" th:if="${arrivalMode}" value="arrival">
+            <input type="hidden" name="targetDate" th:unless="${selectedDateIsToday}" th:value="${selectedDate}">
             <div class="field">
                 <label for="originName">출발지</label>
                 <div class="autocomplete">
@@ -267,6 +303,21 @@
         btn.querySelector('.btn-label').textContent = '검색 중…';
         btn.disabled = true;
     });
+
+    (function initCalendarToggle() {
+        var toggle = document.getElementById('calendarToggle');
+        var calendar = document.getElementById('calendar');
+        if (!toggle || !calendar) {
+            return;
+        }
+        // 다른 날짜를 이미 고른 상태면 어떤 날을 골랐는지 바로 보이도록 펼쳐둔다.
+        if (calendar.dataset.open === 'true') {
+            calendar.classList.add('is-open');
+        }
+        toggle.addEventListener('click', function () {
+            calendar.classList.toggle('is-open');
+        });
+    })();
 
     (function initTimePicker() {
         var picker = document.getElementById('timePicker');

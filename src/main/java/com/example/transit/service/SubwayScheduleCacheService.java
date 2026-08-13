@@ -41,8 +41,8 @@ public class SubwayScheduleCacheService implements LastTrainLookup {
 
     @Override
     @Transactional
-    public List<SubwaySchedule> getLastTrains(int stationId, int wayCode) {
-        DayType dayType = DayType.from(LocalDate.now());
+    public List<SubwaySchedule> getLastTrains(int stationId, int wayCode, LocalDate date) {
+        DayType dayType = DayType.from(date);
 
         if (repository.existsByStationIdAndWayCodeAndDayType(stationId, wayCode, dayType)) {
             return repository.findByStationIdAndWayCodeAndDayType(stationId, wayCode, dayType);

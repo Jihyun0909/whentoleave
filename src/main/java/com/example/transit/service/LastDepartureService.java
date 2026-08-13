@@ -5,6 +5,7 @@ import com.example.transit.service.client.SearchPathType;
 import com.example.transit.service.client.dto.OdsayPathResponse;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -54,6 +55,11 @@ public class LastDepartureService {
      *                           (예: 저녁 8시에 "새벽 1시까지"). 그 외에 이미 지난 시각이면 Infeasible.
      */
     public LastDepartureResult calculate(double sx, double sy, double ex, double ey, LocalTime targetArrivalTime) {
+        return calculate(sx, sy, ex, ey, targetArrivalTime, LocalDate.now());
+    }
+
+    public LastDepartureResult calculate(double sx, double sy, double ex, double ey,
+                                          LocalTime targetArrivalTime, LocalDate date) {
         Integer targetArrivalMinutes = null;
         if (targetArrivalTime != null) {
             OptionalInt resolved = resolveTargetArrivalMinutes(targetArrivalTime);
@@ -63,7 +69,7 @@ public class LastDepartureService {
             }
             targetArrivalMinutes = resolved.getAsInt();
         }
-        return calculateFor(SearchPathType.SUBWAY_ONLY, sx, sy, ex, ey, targetArrivalMinutes).result();
+        return calculateFor(SearchPathType.SUBWAY_ONLY, sx, sy, ex, ey, targetArrivalMinutes, date).result();
     }
 
     /**
@@ -72,7 +78,7 @@ public class LastDepartureService {
      * 출발시각·경로가 같으면 하나로 합친다. 정렬은 소요시간이 짧은 순 - 화면에서 맨 위가 추천 경로다.
      */
     public List<RouteOption> calculateOptions(double sx, double sy, double ex, double ey,
-                                               LocalTime targetArrivalTime) {
+                                               LocalTime targetArrivalTime, LocalDate date) {
         Integer targetArrivalMinutes = null;
         if (targetArrivalTime != null) {
             OptionalInt resolved = resolveTargetArrivalMinutes(targetArrivalTime);
@@ -85,14 +91,14 @@ public class LastDepartureService {
         List<RouteOption> options = new ArrayList<>();
         for (SearchPathType pathType : List.of(
                 SearchPathType.SUBWAY_ONLY, SearchPathType.ALL, SearchPathType.BUS_ONLY)) {
-            Best best = calculateFor(pathType, sx, sy, ex, ey, targetArrivalMinutes);
+            Best best = calculateFor(pathType, sx, sy, ex, ey, targetArrivalMinutes, date);
             if (best.result() instanceof LastDepartureResult.Feasible feasible) {
                 options.add(toOption(pathType.label(), feasible, best.fareWon()));
             }
         }
         // 심야버스는 ODsay 경로탐색에 아예 안 나와서 따로 찾아 붙인다. 지하철/버스가 다 끊긴
         // 시간대에는 이게 유일한 답인 경우가 많아, 막차 앱에서는 빠지면 안 되는 정보다.
-        bestNightBus(sx, sy, ex, ey, targetArrivalMinutes)
+        bestNightBus(sx, sy, ex, ey, targetArrivalMinutes, date)
                 .ifPresent(feasible -> options.add(toOption(NIGHT_BUS_LABEL, feasible, 0)));
 
         return options.stream()
@@ -113,7 +119,7 @@ public class LastDepartureService {
     }
 
     private Best calculateFor(SearchPathType pathType, double sx, double sy, double ex, double ey,
-                               Integer targetArrivalMinutes) {
+                               Integer targetArrivalMinutes, LocalDate date) {
         List<RouteLegExtractor.ExtractedRoute> pathCandidates;
         try {
             OdsayPathResponse response = odsayClient.searchPath(sx, sy, ex, ey, pathType);
@@ -124,7 +130,7 @@ public class LastDepartureService {
             return new Best(new LastDepartureResult.Infeasible("경로를 찾는 중 문제가 발생했습니다."), 0);
         }
 
-        Best best = bestOf(pathCandidates, targetArrivalMinutes);
+        Best best = bestOf(pathCandidates, targetArrivalMinutes, date);
         if (targetArrivalMinutes == null || !(best.result() instanceof LastDepartureResult.Feasible targetFeasible)) {
             return best;
         }
@@ -132,7 +138,7 @@ public class LastDepartureService {
         // 목표 시각이 밤늦게라 사실상 아무 제약이 안 되면(예: 새벽 2시까지 도착), 역산 결과가
         // 그냥 막차와 똑같이 나온다 - 이 경우 "그 시각까지 도착하려면"이라는 문구가 오해를 살 수
         // 있어서(실제로는 훨씬 일찍 도착함) 화면에서 "이건 그냥 막차입니다"라고 밝혀준다.
-        if (bestOf(pathCandidates, null).result() instanceof LastDepartureResult.Feasible lastTrainFeasible
+        if (bestOf(pathCandidates, null, date).result() instanceof LastDepartureResult.Feasible lastTrainFeasible
                 && toServiceMinutes(targetFeasible) == toServiceMinutes(lastTrainFeasible)) {
             return new Best(new LastDepartureResult.Feasible(targetFeasible.departureTime(), targetFeasible.nextDay(),
                     targetFeasible.legs(), targetFeasible.finalWalkMinutes(), true), best.fareWon());
@@ -152,7 +158,7 @@ public class LastDepartureService {
      * (오후 4시 도착 목표로 검색해도 심야버스를 조회하던 문제).
      */
     private Optional<LastDepartureResult.Feasible> bestNightBus(double sx, double sy, double ex, double ey,
-                                                                 Integer targetArrivalMinutes) {
+                                                                 Integer targetArrivalMinutes, LocalDate date) {
         if (targetArrivalMinutes != null && targetArrivalMinutes < NIGHT_BUS_EARLIEST_MINUTES) {
             return Optional.empty();
         }
@@ -165,7 +171,7 @@ public class LastDepartureService {
         if (routes.isEmpty()) {
             return Optional.empty();
         }
-        return bestOf(routes, targetArrivalMinutes).result() instanceof LastDepartureResult.Feasible feasible
+        return bestOf(routes, targetArrivalMinutes, date).result() instanceof LastDepartureResult.Feasible feasible
                 ? Optional.of(feasible) : Optional.empty();
     }
 
@@ -191,7 +197,8 @@ public class LastDepartureService {
      * 실제보다 훨씬 이르게 계산되는 문제가 있었다 (이슈 #8 — 가평->신림, 청량리 환승 수인분당선
      * 연장구간처럼 하루 몇 대 안 다니는 구간을 타는 경로가 1순위로 나온 경우).
      */
-    private Best bestOf(List<RouteLegExtractor.ExtractedRoute> pathCandidates, Integer targetArrivalMinutes) {
+    private Best bestOf(List<RouteLegExtractor.ExtractedRoute> pathCandidates, Integer targetArrivalMinutes,
+                         LocalDate date) {
         LastDepartureResult.Feasible best = null;
         int bestFareWon = 0;
         String fallbackReason = null;

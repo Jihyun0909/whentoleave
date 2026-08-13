@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
@@ -34,15 +35,22 @@ public class LastDepartureCalculator {
 
     /** 지하철만 다루는 테스트용 - 버스 구간이 들어오면 후보가 없어 Infeasible이 된다. */
     public static LastDepartureCalculator subwayOnly(LastTrainLookup lastTrainLookup) {
-        return new LastDepartureCalculator(lastTrainLookup, leg -> List.of());
+        return new LastDepartureCalculator(lastTrainLookup, (leg, date) -> List.of());
     }
 
+    /** 오늘 기준 막차 계산 (테스트 편의용). */
     public LastDepartureResult calculate(List<TransitLeg> legs) {
-        return calculate(legs, null, 0);
+        return calculate(legs, null, 0, LocalDate.now());
     }
 
+    /** 오늘 기준 계산 (테스트 편의용). */
     public LastDepartureResult calculate(List<TransitLeg> legs, Integer targetArrivalMinutes) {
-        return calculate(legs, targetArrivalMinutes, 0);
+        return calculate(legs, targetArrivalMinutes, 0, LocalDate.now());
+    }
+
+    /** 오늘 기준 계산 (테스트 편의용). */
+    public LastDepartureResult calculate(List<TransitLeg> legs, Integer targetArrivalMinutes, int finalWalkMinutes) {
+        return calculate(legs, targetArrivalMinutes, finalWalkMinutes, LocalDate.now());
     }
 
     /**
@@ -50,8 +58,10 @@ public class LastDepartureCalculator {
      *                              값이 있으면 그 시각(서비스일 기준 분)까지 도착해야 하는 것으로 보고 역산한다.
      * @param finalWalkMinutes     마지막 지하철 하차역에서 실제 목적지까지 걸어야 하는 시간(분).
      *                              목표 도착시간이 있으면 이 시간만큼 미리 당겨서 역산해야 한다.
+     * @param date                 어느 날짜의 시간표로 계산할지 (평일/토요일/공휴일이 갈린다).
      */
-    public LastDepartureResult calculate(List<TransitLeg> legs, Integer targetArrivalMinutes, int finalWalkMinutes) {
+    public LastDepartureResult calculate(List<TransitLeg> legs, Integer targetArrivalMinutes,
+                                          int finalWalkMinutes, LocalDate date) {
         if (legs == null || legs.isEmpty()) {
             throw new IllegalArgumentException("legs must not be empty");
         }
@@ -62,7 +72,7 @@ public class LastDepartureCalculator {
         for (int i = legs.size() - 1; i >= 0; i--) {
             TransitLeg leg = legs.get(i);
 
-            List<Integer> reachableMinutes = departureCandidates(leg);
+            List<Integer> reachableMinutes = departureCandidates(leg, date);
             if (reachableMinutes.isEmpty()) {
                 return new LastDepartureResult.Infeasible(
                         (leg.isBus() ? "버스 " : "역 ") + leg.stationId() + "의 운행 정보를 찾을 수 없습니다.");
@@ -112,11 +122,11 @@ public class LastDepartureCalculator {
      * 버스는 노선 막차/배차간격 기반 추정치에서 가져온다 - 이 차이를 여기서 흡수해서
      * 역산 로직 자체는 교통수단을 구분하지 않는다.
      */
-    private List<Integer> departureCandidates(TransitLeg leg) {
+    private List<Integer> departureCandidates(TransitLeg leg, LocalDate date) {
         if (leg.isBus()) {
-            return busDepartureLookup.departureServiceMinutes(leg);
+            return busDepartureLookup.departureServiceMinutes(leg, date);
         }
-        List<SubwaySchedule> candidates = lastTrainLookup.getLastTrains(leg.stationId(), leg.wayCode());
+        List<SubwaySchedule> candidates = lastTrainLookup.getLastTrains(leg.stationId(), leg.wayCode(), date);
         return reachableCandidates(candidates, leg).stream()
                 .map(train -> toServiceMinutes(train.getDepartureTime(), train.isNextDay()))
                 .toList();

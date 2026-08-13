@@ -60,8 +60,8 @@ public class BusDepartureCacheService implements BusDepartureLookup {
 
     @Override
     @Transactional
-    public List<Integer> departureServiceMinutes(TransitLeg leg) {
-        DayType dayType = DayType.from(LocalDate.now());
+    public List<Integer> departureServiceMinutes(TransitLeg leg, LocalDate date) {
+        DayType dayType = DayType.from(date);
         List<Integer> all = new ArrayList<>();
 
         for (Integer busId : leg.busIds().stream().limit(MAX_LANES_PER_LEG).toList()) {
