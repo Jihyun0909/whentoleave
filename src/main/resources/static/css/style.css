@@ -285,24 +285,19 @@ body {
     gap: 16px;
 }
 
-/* 출발지/도착지를 위아래로 쌓고, 그 경계에 스왑 버튼을 겹쳐 올린다(지도 앱들 흔한 패턴) */
-.origin-dest-stack {
-    position: relative;
+/* 출발지/도착지를 placeholder만으로 한 줄에 나란히 두고, 그 사이에 스왑 버튼을 끼운다 */
+.origin-dest-row {
     display: flex;
-    flex-direction: column;
-    gap: 10px;
+    align-items: center;
+    gap: 6px;
 }
 
-.origin-dest-stack .field {
-    /* 스왑 버튼이 오른쪽 위에 겹치므로 입력 텍스트가 버튼 밑에 깔리지 않게 자리를 비워둔다 */
-    padding-right: 44px;
+.origin-dest-row .field {
+    flex: 1 1 0;
+    min-width: 0;
 }
 
 .swap-button {
-    position: absolute;
-    right: 4px;
-    top: 50%;
-    transform: translateY(-50%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -314,14 +309,13 @@ body {
     background: var(--card-bg);
     color: var(--text-muted);
     cursor: pointer;
-    box-shadow: 0 2px 8px rgba(var(--shadow-color), 0.12);
     transition: background 0.15s var(--ease-out), color 0.15s var(--ease-out), transform 0.15s var(--ease-out);
 }
 
 .swap-button:hover {
     background: var(--accent-soft);
     color: var(--accent-hover);
-    transform: translateY(-50%) rotate(180deg);
+    transform: rotate(180deg);
 }
 
 .field-icon {

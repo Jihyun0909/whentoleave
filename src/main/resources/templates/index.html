@@ -39,9 +39,8 @@
         <form method="get" action="/" class="search-form">
             <input type="hidden" name="mode" th:if="${arrivalMode}" value="arrival">
             <input type="hidden" name="targetDate" th:unless="${selectedDateIsToday}" th:value="${selectedDate}">
-            <div class="origin-dest-stack">
+            <div class="origin-dest-row">
                 <div class="field field-origin">
-                    <label for="originName">출발지</label>
                     <div class="autocomplete">
                         <span class="field-icon field-icon-origin" aria-hidden="true">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
@@ -51,7 +50,7 @@
                             </svg>
                         </span>
                         <input type="text" id="originName" name="originName" th:value="${originName}" required
-                               placeholder="역 이름, 정류장, 주소 (예: 서울역)를 입력하세요." autocomplete="off">
+                               placeholder="출발지" aria-label="출발지" autocomplete="off">
                         <button type="button" class="gps-button" id="gpsButton" title="현재 위치 사용"
                                 aria-label="현재 위치를 출발지로 사용">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
@@ -73,22 +72,6 @@
                     <p class="field-hint" id="gpsStatus"></p>
                 </div>
 
-                <div class="field field-dest">
-                    <label for="destName">도착지</label>
-                    <div class="autocomplete">
-                        <span class="field-icon field-icon-dest" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
-                                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
-                                <line x1="4" y1="22" x2="4" y2="15"></line>
-                            </svg>
-                        </span>
-                        <input type="text" id="destName" name="destName" th:value="${destName}" required
-                               placeholder="역 이름, 정류장, 주소 (예: 강남역)를 입력하세요." autocomplete="off">
-                        <div class="autocomplete-dropdown" id="destSuggest"></div>
-                    </div>
-                </div>
-
                 <button type="button" class="swap-button" id="swapButton" title="출발지/도착지 바꾸기"
                         aria-label="출발지와 도착지 바꾸기">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
@@ -99,6 +82,21 @@
                         <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
                     </svg>
                 </button>
+
+                <div class="field field-dest">
+                    <div class="autocomplete">
+                        <span class="field-icon field-icon-dest" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+                                <line x1="4" y1="22" x2="4" y2="15"></line>
+                            </svg>
+                        </span>
+                        <input type="text" id="destName" name="destName" th:value="${destName}" required
+                               placeholder="도착지" aria-label="도착지" autocomplete="off">
+                        <div class="autocomplete-dropdown" id="destSuggest"></div>
+                    </div>
+                </div>
             </div>
 
             <div class="field" th:if="${arrivalMode}">
@@ -152,8 +150,7 @@
                 </div>
             </div>
 
-            <div class="calendar" id="calendar"
-                 th:attr="data-open=${selectedDateIsToday} ? 'false' : 'true'">
+            <div class="calendar" id="calendar">
                 <p class="calendar-title" th:text="${calendarMonth} + '월 — 오늘 이후 날짜만 선택할 수 있어요'"></p>
                 <div class="calendar-weekdays">
                     <span>월</span><span>화</span><span>수</span><span>목</span><span>금</span>
@@ -392,15 +389,13 @@
         btn.disabled = true;
     });
 
+    // 날짜를 고르면 그 즉시 페이지가 새로 로드되니(캘린더 칸이 링크라서) 캘린더는 항상 닫힌
+    // 채로 시작한다 - 따로 "닫기" 처리를 안 해도 자동으로 닫힌 상태로 보이는 셈이다.
     (function initCalendarToggle() {
         var toggle = document.getElementById('timePickerDay');
         var calendar = document.getElementById('calendar');
         if (!toggle || !calendar) {
             return;
-        }
-        // 다른 날짜를 이미 고른 상태면 어떤 날을 골랐는지 바로 보이도록 펼쳐둔다.
-        if (calendar.dataset.open === 'true') {
-            calendar.classList.add('is-open');
         }
         toggle.addEventListener('click', function () {
             calendar.classList.toggle('is-open');
