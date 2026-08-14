@@ -4,6 +4,7 @@ import com.example.transit.domain.DayType;
 import com.example.transit.domain.KoreanHolidays;
 import com.example.transit.service.LastDepartureResult;
 import com.example.transit.service.LastDepartureService;
+import com.example.transit.service.RealtimeSubwayArrivalLookup;
 import com.example.transit.service.RouteOption;
 import com.example.transit.service.StationResolution;
 import com.example.transit.service.StationSearchService;
@@ -18,7 +19,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Controller
 public class LastDepartureViewController {
@@ -31,13 +35,16 @@ public class LastDepartureViewController {
     private final LastDepartureService lastDepartureService;
     private final StationSearchService stationSearchService;
     private final LineColorResolver lineColorResolver;
+    private final RealtimeSubwayArrivalLookup subwayArrivalLookup;
 
     public LastDepartureViewController(LastDepartureService lastDepartureService,
                                         StationSearchService stationSearchService,
-                                        LineColorResolver lineColorResolver) {
+                                        LineColorResolver lineColorResolver,
+                                        RealtimeSubwayArrivalLookup subwayArrivalLookup) {
         this.lastDepartureService = lastDepartureService;
         this.stationSearchService = stationSearchService;
         this.lineColorResolver = lineColorResolver;
+        this.subwayArrivalLookup = subwayArrivalLookup;
     }
 
     /**
@@ -117,8 +124,11 @@ public class LastDepartureViewController {
             return "index";
         }
 
+        // 실시간 도착정보는 "지금 이 순간"의 값이라 오늘 화면에서만 의미가 있다 (다른날 막차 보기는
+        // 미래 시간표 기준 계산이라 실시간 값을 붙이면 오해를 준다).
+        boolean showRealtimeArrivals = selectedDate.equals(LocalDate.now());
         model.addAttribute("feasible", true);
-        model.addAttribute("routeOptions", options.stream().map(this::toView).toList());
+        model.addAttribute("routeOptions", options.stream().map(o -> toView(o, showRealtimeArrivals)).toList());
         // "가장 늦게 출발해도 되는 경로"에 배지를 달기 위한 기준값 (동점이면 둘 다 표시된다).
         model.addAttribute("latestDepartureMinutes", options.stream()
                 .mapToInt(RouteOption::departureServiceMinutes)
@@ -201,7 +211,7 @@ public class LastDepartureViewController {
      * 화면에서 쓰기 쉬운 형태로 펼친다 (예상 도착 시각, 이미 지난 시각 여부처럼 "지금"에 의존하는
      * 값은 계산 결과가 아니라 표시 시점의 관심사라 여기서 만든다).
      */
-    private RouteOptionView toView(RouteOption option) {
+    private RouteOptionView toView(RouteOption option, boolean showRealtimeArrivals) {
         boolean alreadyPassed = hasAlreadyPassed(option);
         LocalTime earliestArrival = alreadyPassed
                 ? LocalTime.now().plusMinutes(option.totalMinutes()) : null;
@@ -210,7 +220,46 @@ public class LastDepartureViewController {
 
         return new RouteOptionView(option, alreadyPassed, earliestArrival,
                 toLocalTime(arrivalMinutes), arrivalMinutes >= MINUTES_PER_DAY,
-                segmentsOf(option), timelineOf(option));
+                segmentsOf(option), timelineOf(option), realtimeArrivalsFor(option, showRealtimeArrivals));
+    }
+
+    /**
+     * 첫 승차 구간(지금 당장 타야 하는 구간)의 실시간 지하철 도착정보만 보여준다 - 두 번째 구간
+     * 이후는 도착할 즈음이면 이미 예측 시점이 지나 있어 "실시간"의 의미가 없다. 버스 구간은
+     * 지역별 실시간 API 자동 라우팅(좌표 -> 서울/경기/인천 판단)이 아직 없어 대상에서 제외한다.
+     * <p>
+     * 같은 역에 방향이 여러 개(상행/하행, 내선/외선, 환승역의 다른 호선)일 수 있어 어느 열차가
+     * 사용자가 탈 방향인지 자동으로 가려낼 근거가 없다 - 대신 방향별로 가장 빠른 한 대씩만 골라
+     * (최대 3개) 각각 행선지를 그대로 보여줘서, 실제 승강장 전광판처럼 사용자가 직접 확인하게 한다.
+     */
+    private List<RealtimeArrivalView> realtimeArrivalsFor(RouteOption option, boolean showRealtimeArrivals) {
+        if (!showRealtimeArrivals || option.legs().isEmpty()) {
+            return List.of();
+        }
+        TransitLeg firstLeg = option.legs().get(0);
+        if (firstLeg.isBus()) {
+            return List.of();
+        }
+
+        Map<String, RealtimeSubwayArrivalLookup.SubwayArrival> earliestByDirection = new LinkedHashMap<>();
+        for (RealtimeSubwayArrivalLookup.SubwayArrival arrival : subwayArrivalLookup.findArrivals(firstLeg.stationName())) {
+            if (arrival.secondsUntilArrival() == null) {
+                continue;
+            }
+            earliestByDirection.merge(arrival.direction(), arrival,
+                    (a, b) -> a.secondsUntilArrival() <= b.secondsUntilArrival() ? a : b);
+        }
+        return earliestByDirection.values().stream()
+                .sorted(Comparator.comparing(RealtimeSubwayArrivalLookup.SubwayArrival::secondsUntilArrival))
+                .limit(3)
+                .map(this::toRealtimeArrivalView)
+                .toList();
+    }
+
+    private RealtimeArrivalView toRealtimeArrivalView(RealtimeSubwayArrivalLookup.SubwayArrival arrival) {
+        int minutes = arrival.secondsUntilArrival() / 60;
+        String etaLabel = minutes < 1 ? "곧 도착" : minutes + "분 후";
+        return new RealtimeArrivalView(arrival.headsign(), etaLabel, arrival.isLastTrain());
     }
 
     /** 소요시간 비율 막대에 쓸 구간들 (도보는 회색, 승차는 노선 색). */
@@ -278,15 +327,27 @@ public class LastDepartureViewController {
      * @param expectedArrivalTime 추천 출발 시각에 나설 경우의 도착 시각
      * @param segments            소요시간 비율 막대용 구간들
      * @param timeline            상세보기용 타임라인
+     * @param realtimeArrivals    첫 승차 구간의 실시간 지하철 도착정보 (오늘 화면이 아니거나 대상이
+     *                            버스/조회 실패면 빈 목록)
      */
     public record RouteOptionView(RouteOption option, boolean departureAlreadyPassed,
                                    LocalTime earliestArrivalTime, LocalTime expectedArrivalTime,
                                    boolean expectedArrivalNextDay,
-                                   List<RouteSegmentView> segments, List<RouteTimelineRow> timeline) {
+                                   List<RouteSegmentView> segments, List<RouteTimelineRow> timeline,
+                                   List<RealtimeArrivalView> realtimeArrivals) {
     }
 
     /** @param color null이면 도보 구간 */
     public record RouteSegmentView(int minutes, String color, boolean walk) {
+    }
+
+    /**
+     * @param headsign    "OO행 - OO방면" 형태의 종착지 설명 (실제 승강장 전광판과 같은 표기라
+     *                     사용자가 자기 방향을 스스로 알아볼 수 있다)
+     * @param etaLabel     "N분 후" 또는 "곧 도착" (표시용, 이미 초->분 환산 완료)
+     * @param isLastTrain  이 열차가 막차인지
+     */
+    public record RealtimeArrivalView(String headsign, String etaLabel, boolean isLastTrain) {
     }
 
     /** 후보 선택 라디오가 넘기는 "경도,위도". 형식이 어긋나면 무시하고 이름으로 다시 찾는다. */

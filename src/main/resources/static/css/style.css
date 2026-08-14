@@ -897,6 +897,48 @@ body {
     color: var(--text);
 }
 
+/* 첫 승차 구간의 실시간 지하철 도착정보 (오늘 화면에서만 표시) */
+.realtime-arrivals {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.realtime-label {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.realtime-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    white-space: nowrap;
+}
+
+.realtime-chip b {
+    font-weight: 800;
+}
+
+.realtime-chip-last {
+    background: #FFF1CC;
+    color: #8A6100;
+}
+
+.realtime-chip-lastflag {
+    font-size: 10.5px;
+    font-weight: 800;
+}
+
 /* ── 상세보기 타임라인 ───────────────────────────────────── */
 
 .route-detail {
