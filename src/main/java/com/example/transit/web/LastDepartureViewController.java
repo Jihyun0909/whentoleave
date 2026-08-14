@@ -20,9 +20,9 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Controller
 public class LastDepartureViewController {
@@ -228,25 +228,25 @@ public class LastDepartureViewController {
      * (좌표 -> 서울/경기/인천 판단)이 아직 없어 대상에서 제외한다.
      * <p>
      * 같은 역에 방향이 여러 개(상행/하행, 내선/외선, 환승역의 다른 호선)일 수 있어 어느 열차가
-     * 사용자가 탈 방향인지 자동으로 가려낼 근거가 없다 - 대신 방향별로 가장 빠른 한 대씩만 골라
-     * (최대 3개) 각각 행선지를 그대로 보여줘서, 실제 승강장 전광판처럼 사용자가 직접 확인하게 한다.
+     * 사용자가 탈 방향인지 자동으로 가려낼 근거가 없다 - 그래서 방향(=사실상 노선)은 하나도
+     * 빼지 않고 전부 보여준다. 대신 한 방향에 열차가 여러 대 잡히면 화면이 너무 길어지니
+     * 방향마다 가장 빠른 2대까지만 골라, 실제 승강장 전광판처럼 행선지를 그대로 보여준다.
      */
     private List<RealtimeArrivalView> realtimeArrivalsFor(TransitLeg leg, boolean showRealtimeArrivals) {
         if (!showRealtimeArrivals || leg.isBus()) {
             return List.of();
         }
 
-        Map<String, RealtimeSubwayArrivalLookup.SubwayArrival> earliestByDirection = new LinkedHashMap<>();
-        for (RealtimeSubwayArrivalLookup.SubwayArrival arrival : subwayArrivalLookup.findArrivals(leg.stationName())) {
-            if (arrival.secondsUntilArrival() == null) {
-                continue;
-            }
-            earliestByDirection.merge(arrival.direction(), arrival,
-                    (a, b) -> a.secondsUntilArrival() <= b.secondsUntilArrival() ? a : b);
-        }
-        return earliestByDirection.values().stream()
-                .sorted(Comparator.comparing(RealtimeSubwayArrivalLookup.SubwayArrival::secondsUntilArrival))
-                .limit(3)
+        Map<String, List<RealtimeSubwayArrivalLookup.SubwayArrival>> byDirection =
+                subwayArrivalLookup.findArrivals(leg.stationName()).stream()
+                        .filter(arrival -> arrival.secondsUntilArrival() != null)
+                        .collect(Collectors.groupingBy(RealtimeSubwayArrivalLookup.SubwayArrival::direction));
+
+        return byDirection.values().stream()
+                .peek(arrivals -> arrivals.sort(
+                        Comparator.comparing(RealtimeSubwayArrivalLookup.SubwayArrival::secondsUntilArrival)))
+                .sorted(Comparator.comparingInt(arrivals -> arrivals.get(0).secondsUntilArrival()))
+                .flatMap(arrivals -> arrivals.stream().limit(2))
                 .map(this::toRealtimeArrivalView)
                 .toList();
     }
