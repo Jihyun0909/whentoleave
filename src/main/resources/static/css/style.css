@@ -897,13 +897,13 @@ body {
     color: var(--text);
 }
 
-/* 첫 승차 구간의 실시간 지하철 도착정보 (오늘 화면에서만 표시) */
+/* 첫 승차 구간의 실시간 지하철 도착정보 (상세보기의 첫 승차 행, 오늘 화면에서만 표시) */
 .realtime-arrivals {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 6px;
-    margin-top: 10px;
+    margin: 2px 0;
 }
 
 .realtime-label {

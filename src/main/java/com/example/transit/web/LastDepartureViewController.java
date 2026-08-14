@@ -220,7 +220,7 @@ public class LastDepartureViewController {
 
         return new RouteOptionView(option, alreadyPassed, earliestArrival,
                 toLocalTime(arrivalMinutes), arrivalMinutes >= MINUTES_PER_DAY,
-                segmentsOf(option), timelineOf(option), realtimeArrivalsFor(option, showRealtimeArrivals));
+                segmentsOf(option), timelineOf(option, realtimeArrivalsFor(option, showRealtimeArrivals)));
     }
 
     /**
@@ -280,10 +280,12 @@ public class LastDepartureViewController {
     /**
      * 상세보기용 타임라인. 출발 시각에서 시작해 도보/승차/하차 시간을 차례로 더해가며
      * 각 지점의 시각을 만든다 (지도 앱의 세로 경로 안내와 같은 구성).
+     * 실시간 도착정보는 첫 승차 행(RIDE row)에만 붙인다.
      */
-    private List<RouteTimelineRow> timelineOf(RouteOption option) {
+    private List<RouteTimelineRow> timelineOf(RouteOption option, List<RealtimeArrivalView> firstLegRealtimeArrivals) {
         List<RouteTimelineRow> rows = new ArrayList<>();
         int cursor = option.departureServiceMinutes();
+        boolean firstRide = true;
 
         rows.add(RouteTimelineRow.place(toLocalTime(cursor), "출발"));
         for (TransitLeg leg : option.legs()) {
@@ -294,7 +296,9 @@ public class LastDepartureViewController {
             LocalTime boardTime = toLocalTime(cursor);
             cursor += leg.rideMinutes();
             rows.add(new RouteTimelineRow("RIDE", boardTime, toLocalTime(cursor), leg.rideMinutes(),
-                    leg.stationName(), leg.endStationName(), lineLabelOf(leg), colorOf(leg)));
+                    leg.stationName(), leg.endStationName(), lineLabelOf(leg), colorOf(leg),
+                    firstRide ? firstLegRealtimeArrivals : List.of()));
+            firstRide = false;
         }
         if (option.finalWalkMinutes() > 0) {
             rows.add(RouteTimelineRow.walk(option.finalWalkMinutes()));
@@ -326,15 +330,12 @@ public class LastDepartureViewController {
      * @param earliestArrivalTime 지금 출발할 경우 가장 빨리 도착하는 시각 (지난 경우에만)
      * @param expectedArrivalTime 추천 출발 시각에 나설 경우의 도착 시각
      * @param segments            소요시간 비율 막대용 구간들
-     * @param timeline            상세보기용 타임라인
-     * @param realtimeArrivals    첫 승차 구간의 실시간 지하철 도착정보 (오늘 화면이 아니거나 대상이
-     *                            버스/조회 실패면 빈 목록)
+     * @param timeline            상세보기용 타임라인. 첫 승차 행에 실시간 도착정보가 붙어있다.
      */
     public record RouteOptionView(RouteOption option, boolean departureAlreadyPassed,
                                    LocalTime earliestArrivalTime, LocalTime expectedArrivalTime,
                                    boolean expectedArrivalNextDay,
-                                   List<RouteSegmentView> segments, List<RouteTimelineRow> timeline,
-                                   List<RealtimeArrivalView> realtimeArrivals) {
+                                   List<RouteSegmentView> segments, List<RouteTimelineRow> timeline) {
     }
 
     /** @param color null이면 도보 구간 */
@@ -370,20 +371,22 @@ public class LastDepartureViewController {
     }
 
     /**
-     * @param type       PLACE(출발/도착) | WALK(도보) | RIDE(승차~하차)
-     * @param time       PLACE는 그 지점 시각, RIDE는 승차 시각
-     * @param endTime    RIDE의 하차 시각
-     * @param label      PLACE의 "출발"/"도착"
+     * @param type              PLACE(출발/도착) | WALK(도보) | RIDE(승차~하차)
+     * @param time              PLACE는 그 지점 시각, RIDE는 승차 시각
+     * @param endTime           RIDE의 하차 시각
+     * @param label             PLACE의 "출발"/"도착"
+     * @param realtimeArrivals  RIDE 중 첫 승차 행에만 붙는 실시간 지하철 도착정보 (그 외에는 빈 목록)
      */
     public record RouteTimelineRow(String type, LocalTime time, LocalTime endTime, int minutes,
-                                    String fromName, String toName, String lineLabel, String color) {
+                                    String fromName, String toName, String lineLabel, String color,
+                                    List<RealtimeArrivalView> realtimeArrivals) {
 
         static RouteTimelineRow place(LocalTime time, String label) {
-            return new RouteTimelineRow("PLACE", time, null, 0, label, null, null, null);
+            return new RouteTimelineRow("PLACE", time, null, 0, label, null, null, null, List.of());
         }
 
         static RouteTimelineRow walk(int minutes) {
-            return new RouteTimelineRow("WALK", null, null, minutes, null, null, null, null);
+            return new RouteTimelineRow("WALK", null, null, minutes, null, null, null, null, List.of());
         }
     }
 

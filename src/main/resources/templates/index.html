@@ -240,18 +240,6 @@
                 </li>
             </ul>
 
-            <!-- 첫 승차 구간의 실시간 지하철 도착정보. 방향별로 가장 빠른 한 대씩(최대 3개)만
-                 보여주고, 승강장 전광판처럼 행선지를 그대로 노출해 사용자가 자기 방향을 스스로 고르게 한다. -->
-            <div class="realtime-arrivals" th:if="${!view.realtimeArrivals().isEmpty()}">
-                <span class="realtime-label">실시간</span>
-                <span class="realtime-chip" th:each="rt : ${view.realtimeArrivals()}"
-                      th:classappend="${rt.isLastTrain()} ? ' realtime-chip-last' : ''">
-                    <span class="realtime-chip-headsign" th:text="${rt.headsign()}"></span>
-                    <b th:text="${rt.etaLabel()}"></b>
-                    <span class="realtime-chip-lastflag" th:if="${rt.isLastTrain()}">막차</span>
-                </span>
-            </div>
-
             <details class="route-detail">
                 <summary class="route-detail-toggle">상세보기</summary>
                 <ol class="route-timeline">
@@ -285,6 +273,17 @@
                                               th:text="${row.lineLabel()}"></span>
                                         <span th:text="${row.fromName()} + ' 승차'"></span>
                                     </span>
+                                    <!-- 첫 승차 구간의 실시간 지하철 도착정보. 방향별로 가장 빠른 한 대씩(최대 3개)만
+                                         승강장 전광판처럼 행선지를 그대로 보여줘서 사용자가 자기 방향을 스스로 고르게 한다. -->
+                                    <div class="realtime-arrivals" th:if="${!row.realtimeArrivals().isEmpty()}">
+                                        <span class="realtime-label">실시간</span>
+                                        <span class="realtime-chip" th:each="rt : ${row.realtimeArrivals()}"
+                                              th:classappend="${rt.isLastTrain()} ? ' realtime-chip-last' : ''">
+                                            <span class="realtime-chip-headsign" th:text="${rt.headsign()}"></span>
+                                            <b th:text="${rt.etaLabel()}"></b>
+                                            <span class="realtime-chip-lastflag" th:if="${rt.isLastTrain()}">막차</span>
+                                        </span>
+                                    </div>
                                     <span class="route-timeline-kind" th:text="${row.minutes()} + '분 이동'"></span>
                                     <span class="route-timeline-alight">
                                         <b th:text="${#temporals.format(row.endTime(), 'HH:mm')}"></b>
