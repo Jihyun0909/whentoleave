@@ -285,10 +285,13 @@ body {
     gap: 16px;
 }
 
-/* 출발지/도착지를 placeholder만으로 한 줄에 나란히 두고, 그 사이에 스왑 버튼을 끼운다 */
+/* 출발지/도착지를 placeholder만으로 한 줄에 나란히 두고, 그 사이에 스왑 버튼을 끼운다.
+   align-items는 center가 아니라 start를 써야 한다 - 출발지 쪽에만 있는 GPS 안내문구
+   (#gpsStatus, 평소엔 비어있지만 자리는 차지함) 때문에 center로 두면 두 입력창의
+   세로 위치가 어긋나 버린다(입력창 자체 높이는 이미 같다). */
 .origin-dest-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 6px;
 }
 
@@ -301,6 +304,10 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    align-self: flex-start;
+    /* 행 전체(부모)는 align-items:flex-start라, 입력창 높이(51px) 한가운데에 오도록
+       버튼 자신의 높이(34px)만큼 여백을 계산해서 직접 내려준다. */
+    margin-top: 9px;
     flex-shrink: 0;
     width: 34px;
     height: 34px;
@@ -328,12 +335,16 @@ body {
     pointer-events: none;
 }
 
-.field-origin input {
+/* .field 클래스 하나만 있는 기본 input 규칙(.field input)과 명시도가 같아서, 파일 안에서
+   더 뒤에 나오는 쪽이 그냥 이겨버린다 - 아이콘 자리를 비우는 왼쪽 패딩이 이 때문에
+   먹히지 않고 아이콘과 placeholder 글자가 겹쳤었다. 클래스를 두 개 걸어 명시도를 올려
+   순서에 안 흔들리게 고정한다. */
+.field.field-origin input {
     padding-left: 38px;
     padding-right: 40px;
 }
 
-.field-dest input {
+.field.field-dest input {
     padding-left: 38px;
 }
 
@@ -1284,4 +1295,63 @@ body {
     color: var(--text-muted);
     text-align: center;
     margin-top: 18px;
+}
+
+/* ── 반응형 ──────────────────────────────────────────────
+   기본값(.page max-width: 480px)은 모바일 폭에 맞춘 카드 하나짜리 디자인이라,
+   그보다 넓은 화면에서는 카드가 화면 정중앙에 작게 떠 있는 것만으로도 안 깨지고
+   잘 보인다(실측: 375/768/1440px 모두 가로 스크롤·겹침 없음). 아래 두 구간은
+   "안 깨짐"을 넘어 화면 크기에 맞는 여유를 주기 위한 것이다:
+   - 태블릿 이상: 카드를 조금 넓혀 결과 카드 내부가 덜 빽빽해 보이게 한다.
+   - 아주 좁은 구형 폰(360px 이하): 출발지/도착지 한 줄 배치가 타이트해질 수
+     있어 다시 위아래로 쌓는 안전장치를 둔다.
+*/
+@media (min-width: 640px) {
+    .page {
+        max-width: 560px;
+        padding-top: 56px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .page {
+        max-width: 640px;
+        padding-top: 72px;
+    }
+
+    .main-panel {
+        padding: 34px 30px 28px;
+    }
+}
+
+@media (max-width: 360px) {
+    .page {
+        padding-left: 14px;
+        padding-right: 14px;
+    }
+
+    .main-panel {
+        padding: 22px 16px 18px;
+    }
+
+    .origin-dest-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    /* 위아래로 쌓이면 "바꾸기" 의미가 좌우 화살표보다 위아래 화살표에 더 맞는다 */
+    .swap-button {
+        align-self: center;
+        margin: -4px 0;
+        transform: rotate(90deg);
+    }
+
+    .swap-button:hover {
+        transform: rotate(270deg);
+    }
+
+    .time-picker {
+        flex-wrap: wrap;
+    }
 }
