@@ -4,7 +4,9 @@ import com.example.transit.domain.DayType;
 import com.example.transit.domain.KoreanHolidays;
 import com.example.transit.service.LastDepartureResult;
 import com.example.transit.service.LastDepartureService;
+import com.example.transit.service.RealtimeBusArrival;
 import com.example.transit.service.RealtimeSubwayArrivalLookup;
+import com.example.transit.service.RegionalBusArrivalLookup;
 import com.example.transit.service.RouteOption;
 import com.example.transit.service.StationResolution;
 import com.example.transit.service.StationSearchService;
@@ -36,15 +38,18 @@ public class LastDepartureViewController {
     private final StationSearchService stationSearchService;
     private final LineColorResolver lineColorResolver;
     private final RealtimeSubwayArrivalLookup subwayArrivalLookup;
+    private final RegionalBusArrivalLookup busArrivalLookup;
 
     public LastDepartureViewController(LastDepartureService lastDepartureService,
                                         StationSearchService stationSearchService,
                                         LineColorResolver lineColorResolver,
-                                        RealtimeSubwayArrivalLookup subwayArrivalLookup) {
+                                        RealtimeSubwayArrivalLookup subwayArrivalLookup,
+                                        RegionalBusArrivalLookup busArrivalLookup) {
         this.lastDepartureService = lastDepartureService;
         this.stationSearchService = stationSearchService;
         this.lineColorResolver = lineColorResolver;
         this.subwayArrivalLookup = subwayArrivalLookup;
+        this.busArrivalLookup = busArrivalLookup;
     }
 
     /**
@@ -223,20 +228,21 @@ public class LastDepartureViewController {
                 segmentsOf(option), timelineOf(option, showRealtimeArrivals));
     }
 
+    /** 모든 승차 구간(지하철/버스)에 실시간 도착정보를 붙인다. */
+    private List<RealtimeArrivalView> realtimeArrivalsFor(TransitLeg leg, boolean showRealtimeArrivals) {
+        if (!showRealtimeArrivals) {
+            return List.of();
+        }
+        return leg.isBus() ? busRealtimeArrivals(leg) : subwayRealtimeArrivals(leg);
+    }
+
     /**
-     * 지하철 승차 구간마다 실시간 도착정보를 붙인다. 버스 구간은 지역별 실시간 API 자동 라우팅
-     * (좌표 -> 서울/경기/인천 판단)이 아직 없어 대상에서 제외한다.
-     * <p>
      * 같은 역에 방향이 여러 개(상행/하행, 내선/외선, 환승역의 다른 호선)일 수 있어 어느 열차가
      * 사용자가 탈 방향인지 자동으로 가려낼 근거가 없다 - 그래서 방향(=사실상 노선)은 하나도
      * 빼지 않고 전부 보여준다. 대신 한 방향에 열차가 여러 대 잡히면 화면이 너무 길어지니
      * 방향마다 가장 빠른 2대까지만 골라, 실제 승강장 전광판처럼 행선지를 그대로 보여준다.
      */
-    private List<RealtimeArrivalView> realtimeArrivalsFor(TransitLeg leg, boolean showRealtimeArrivals) {
-        if (!showRealtimeArrivals || leg.isBus()) {
-            return List.of();
-        }
-
+    private List<RealtimeArrivalView> subwayRealtimeArrivals(TransitLeg leg) {
         Map<String, List<RealtimeSubwayArrivalLookup.SubwayArrival>> byDirection =
                 subwayArrivalLookup.findArrivals(leg.stationName()).stream()
                         .filter(arrival -> arrival.secondsUntilArrival() != null)
@@ -251,10 +257,39 @@ public class LastDepartureViewController {
                 .toList();
     }
 
+    /**
+     * 정류장 좌표로 TAGO/경기/인천 순서로 조회한다({@link RegionalBusArrivalLookup} 참고). 지하철과
+     * 같은 이유로 노선은 하나도 빼지 않고 전부 보여주되, 한 노선에 여러 대가 잡히면 노선마다
+     * 가장 빠른 2대까지만 보여준다.
+     */
+    private List<RealtimeArrivalView> busRealtimeArrivals(TransitLeg leg) {
+        if (leg.stationX() == null || leg.stationY() == null) {
+            return List.of();
+        }
+
+        Map<String, List<RealtimeBusArrival>> byRoute = busArrivalLookup.findArrivals(leg.stationX(), leg.stationY())
+                .stream()
+                .filter(arrival -> arrival.secondsUntilArrival() != null)
+                .collect(Collectors.groupingBy(arrival -> String.valueOf(arrival.routeName())));
+
+        return byRoute.values().stream()
+                .peek(arrivals -> arrivals.sort(Comparator.comparing(RealtimeBusArrival::secondsUntilArrival)))
+                .sorted(Comparator.comparingInt(arrivals -> arrivals.get(0).secondsUntilArrival()))
+                .flatMap(arrivals -> arrivals.stream().limit(2))
+                .map(this::toRealtimeArrivalView)
+                .toList();
+    }
+
     /** 1분 미만이면 "곧 도착", 그 외엔 "분:초" - 화면 JS가 이 초를 이어받아 매초 카운트다운한다. */
     private RealtimeArrivalView toRealtimeArrivalView(RealtimeSubwayArrivalLookup.SubwayArrival arrival) {
         int seconds = arrival.secondsUntilArrival();
         return new RealtimeArrivalView(arrival.headsign(), etaLabel(seconds), seconds, arrival.isLastTrain());
+    }
+
+    private RealtimeArrivalView toRealtimeArrivalView(RealtimeBusArrival arrival) {
+        int seconds = arrival.secondsUntilArrival();
+        String label = arrival.routeName() != null ? arrival.routeName() + "번" : "버스";
+        return new RealtimeArrivalView(label, etaLabel(seconds), seconds, false);
     }
 
     private String etaLabel(int seconds) {
