@@ -31,16 +31,20 @@
                th:href="@{/(originName=${originName}, destName=${destName})}">막차 시간 계산</a>
         </nav>
 
-        <nav class="subtabs" th:unless="${arrivalMode}">
+        <nav class="subtabs">
             <span class="subtab" th:classappend="${selectedDateIsToday} ? 'subtab-active' : ''"
-                  th:if="${selectedDateIsToday}">오늘 막차 보기</span>
+                  th:if="${selectedDateIsToday}"
+                  th:text="${arrivalMode} ? '오늘 출발 보기' : '오늘 막차 보기'"></span>
             <a th:unless="${selectedDateIsToday}" class="subtab"
-               th:href="@{/(originName=${originName}, destName=${destName})}">오늘 막차 보기</a>
+               th:href="@{/(originName=${originName}, destName=${destName}, mode=${arrivalMode} ? 'arrival' : null,
+                             targetArrivalTime=${arrivalMode and targetArrivalTime != null} ? ${#temporals.format(targetArrivalTime, 'HH:mm')} : null)}"
+               th:text="${arrivalMode} ? '오늘 출발 보기' : '오늘 막차 보기'"></a>
             <button type="button" class="subtab" id="calendarToggle"
-                    th:classappend="${selectedDateIsToday} ? '' : 'subtab-active'">다른날 막차 보기</button>
+                    th:classappend="${selectedDateIsToday} ? '' : 'subtab-active'"
+                    th:text="${arrivalMode} ? '다른날 출발 보기' : '다른날 막차 보기'"></button>
         </nav>
 
-        <div class="calendar" id="calendar" th:unless="${arrivalMode}"
+        <div class="calendar" id="calendar"
              th:attr="data-open=${selectedDateIsToday} ? 'false' : 'true'">
             <p class="calendar-title" th:text="${calendarMonth} + '월 — 오늘 이후 날짜만 선택할 수 있어요'"></p>
             <div class="calendar-weekdays">
@@ -56,7 +60,9 @@
                        th:classappend="(${day.selected} ? ' calendar-cell-selected' : '')
                                        + (${day.holiday} ? ' calendar-cell-holiday' : '')
                                        + (${day.saturday} ? ' calendar-cell-saturday' : '')"
-                       th:href="@{/(originName=${originName}, destName=${destName}, targetDate=${day.date})}"
+                       th:href="@{/(originName=${originName}, destName=${destName}, targetDate=${day.date},
+                                     mode=${arrivalMode} ? 'arrival' : null,
+                                     targetArrivalTime=${arrivalMode and targetArrivalTime != null} ? ${#temporals.format(targetArrivalTime, 'HH:mm')} : null)}"
                        th:title="${day.dayTypeLabel}"
                        th:text="${day.dayOfMonth}"></a>
                 </th:block>
@@ -94,7 +100,8 @@
             <div class="field" th:if="${arrivalMode}">
                 <label>목표 도착 시각</label>
                 <div class="time-picker" id="timePicker">
-                    <div class="time-picker-segment time-picker-day is-disabled" id="timePickerDay" title="다른날 선택은 준비중입니다">오늘</div>
+                    <div class="time-picker-segment time-picker-day is-disabled" id="timePickerDay"
+                         title="새벽 시간대(0~5시)를 고르면 다음날로 계산돼요. 날짜 자체를 바꾸려면 위의 '다른날 출발 보기'를 쓰세요.">오늘</div>
                     <div class="time-picker-segment time-picker-unit">
                         <button type="button" class="time-picker-step" data-target="hour" data-delta="-1" aria-label="시간 감소">‹</button>
                         <button type="button" class="time-picker-value" id="hourValue"></button>
