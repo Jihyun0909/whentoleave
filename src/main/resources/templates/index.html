@@ -32,49 +32,6 @@
                th:href="@{/(originName=${originName}, destName=${destName})}">막차 시간 계산</a>
         </nav>
 
-        <nav class="subtabs">
-            <span class="subtab" th:classappend="${selectedDateIsToday} ? 'subtab-active' : ''"
-                  th:if="${selectedDateIsToday}"
-                  th:text="${arrivalMode} ? '오늘 출발 보기' : '오늘 막차 보기'"></span>
-            <a th:unless="${selectedDateIsToday}" class="subtab"
-               th:href="@{/(originName=${originName}, destName=${destName}, mode=${arrivalMode} ? 'arrival' : null,
-                             targetArrivalTime=${arrivalMode and targetArrivalTime != null} ? ${#temporals.format(targetArrivalTime, 'HH:mm')} : null)}"
-               th:text="${arrivalMode} ? '오늘 출발 보기' : '오늘 막차 보기'"></a>
-            <button type="button" class="subtab" id="calendarToggle"
-                    th:classappend="${selectedDateIsToday} ? '' : 'subtab-active'"
-                    th:text="${arrivalMode} ? '다른날 출발 보기' : '다른날 막차 보기'"></button>
-        </nav>
-
-        <div class="calendar" id="calendar"
-             th:attr="data-open=${selectedDateIsToday} ? 'false' : 'true'">
-            <p class="calendar-title" th:text="${calendarMonth} + '월 — 오늘 이후 날짜만 선택할 수 있어요'"></p>
-            <div class="calendar-weekdays">
-                <span>월</span><span>화</span><span>수</span><span>목</span><span>금</span>
-                <span class="calendar-sat">토</span><span class="calendar-sun">일</span>
-            </div>
-            <div class="calendar-grid">
-                <th:block th:each="day : ${calendarDays}">
-                    <span th:if="${day.blank}" class="calendar-cell calendar-cell-blank"></span>
-                    <span th:if="${!day.blank and !day.selectable}" class="calendar-cell calendar-cell-disabled"
-                          th:text="${day.dayOfMonth}"></span>
-                    <a th:if="${!day.blank and day.selectable}" class="calendar-cell"
-                       th:classappend="(${day.selected} ? ' calendar-cell-selected' : '')
-                                       + (${day.holiday} ? ' calendar-cell-holiday' : '')
-                                       + (${day.saturday} ? ' calendar-cell-saturday' : '')"
-                       th:href="@{/(originName=${originName}, destName=${destName}, targetDate=${day.date},
-                                     mode=${arrivalMode} ? 'arrival' : null,
-                                     targetArrivalTime=${arrivalMode and targetArrivalTime != null} ? ${#temporals.format(targetArrivalTime, 'HH:mm')} : null)}"
-                       th:title="${day.dayTypeLabel}"
-                       th:text="${day.dayOfMonth}"></a>
-                </th:block>
-            </div>
-        </div>
-
-        <p class="schedule-note" th:if="${selectedDateIsToday}">오늘 기준 시간표로 계산됩니다.</p>
-        <p class="schedule-note" th:unless="${selectedDateIsToday}">
-            <b th:text="${#temporals.format(selectedDate, 'M월 d일')}"></b>
-            <span th:text="'(' + ${selectedDayTypeLabel} + ')'"></span> 시간표로 계산됩니다.
-        </p>
         <p class="schedule-note schedule-note-warn" th:if="${holidayDataMissing}">
             이 연도의 공휴일 정보가 없어 주말만 반영됩니다.
         </p>
@@ -82,7 +39,7 @@
         <form method="get" action="/" class="search-form">
             <input type="hidden" name="mode" th:if="${arrivalMode}" value="arrival">
             <input type="hidden" name="targetDate" th:unless="${selectedDateIsToday}" th:value="${selectedDate}">
-            <div class="origin-dest-row">
+            <div class="origin-dest-stack">
                 <div class="field field-origin">
                     <label for="originName">출발지</label>
                     <div class="autocomplete">
@@ -116,17 +73,6 @@
                     <p class="field-hint" id="gpsStatus"></p>
                 </div>
 
-                <button type="button" class="swap-button" id="swapButton" title="출발지/도착지 바꾸기"
-                        aria-label="출발지와 도착지 바꾸기">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
-                         stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="17 1 21 5 17 9"></polyline>
-                        <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
-                        <polyline points="7 23 3 19 7 15"></polyline>
-                        <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
-                    </svg>
-                </button>
-
                 <div class="field field-dest">
                     <label for="destName">도착지</label>
                     <div class="autocomplete">
@@ -142,7 +88,19 @@
                         <div class="autocomplete-dropdown" id="destSuggest"></div>
                     </div>
                 </div>
+
+                <button type="button" class="swap-button" id="swapButton" title="출발지/도착지 바꾸기"
+                        aria-label="출발지와 도착지 바꾸기">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                         stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="17 1 21 5 17 9"></polyline>
+                        <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+                        <polyline points="7 23 3 19 7 15"></polyline>
+                        <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+                    </svg>
+                </button>
             </div>
+
             <div class="field" th:if="${arrivalMode}">
                 <label>목표 도착 시각</label>
                 <div class="time-picker" id="timePicker">
@@ -155,8 +113,10 @@
                             <line x1="3" y1="10" x2="21" y2="10"></line>
                         </svg>
                     </span>
-                    <div class="time-picker-segment time-picker-day is-disabled" id="timePickerDay"
-                         title="새벽 시간대(0~5시)를 고르면 다음날로 계산돼요. 날짜 자체를 바꾸려면 위의 '다른날 출발 보기'를 쓰세요.">오늘</div>
+                    <div class="time-picker-segment time-picker-day" id="timePickerDay" title="날짜 선택">
+                        <span th:if="${selectedDateIsToday}">오늘</span>
+                        <span th:unless="${selectedDateIsToday}" th:text="${#temporals.format(selectedDate, 'M/d')}"></span>
+                    </div>
                     <div class="time-picker-segment time-picker-unit">
                         <button type="button" class="time-picker-step" data-target="hour" data-delta="-1" aria-label="시간 감소">‹</button>
                         <button type="button" class="time-picker-value" id="hourValue"></button>
@@ -173,6 +133,50 @@
                 <input type="hidden" id="targetArrivalTime" name="targetArrivalTime"
                        th:value="${targetArrivalTime != null ? #temporals.format(targetArrivalTime, 'HH:mm') : ''}">
             </div>
+            <div class="field" th:unless="${arrivalMode}">
+                <label>적용 날짜</label>
+                <div class="time-picker" id="datePicker">
+                    <span class="time-picker-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+                             stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="4" width="18" height="18" rx="3"></rect>
+                            <line x1="16" y1="2" x2="16" y2="6"></line>
+                            <line x1="8" y1="2" x2="8" y2="6"></line>
+                            <line x1="3" y1="10" x2="21" y2="10"></line>
+                        </svg>
+                    </span>
+                    <div class="time-picker-segment time-picker-day" id="timePickerDay" title="날짜 선택">
+                        <span th:if="${selectedDateIsToday}">오늘</span>
+                        <span th:unless="${selectedDateIsToday}" th:text="${#temporals.format(selectedDate, 'M/d')} + ' (' + ${selectedDayTypeLabel} + ')'"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="calendar" id="calendar"
+                 th:attr="data-open=${selectedDateIsToday} ? 'false' : 'true'">
+                <p class="calendar-title" th:text="${calendarMonth} + '월 — 오늘 이후 날짜만 선택할 수 있어요'"></p>
+                <div class="calendar-weekdays">
+                    <span>월</span><span>화</span><span>수</span><span>목</span><span>금</span>
+                    <span class="calendar-sat">토</span><span class="calendar-sun">일</span>
+                </div>
+                <div class="calendar-grid">
+                    <th:block th:each="day : ${calendarDays}">
+                        <span th:if="${day.blank}" class="calendar-cell calendar-cell-blank"></span>
+                        <span th:if="${!day.blank and !day.selectable}" class="calendar-cell calendar-cell-disabled"
+                              th:text="${day.dayOfMonth}"></span>
+                        <a th:if="${!day.blank and day.selectable}" class="calendar-cell"
+                           th:classappend="(${day.selected} ? ' calendar-cell-selected' : '')
+                                           + (${day.holiday} ? ' calendar-cell-holiday' : '')
+                                           + (${day.saturday} ? ' calendar-cell-saturday' : '')"
+                           th:href="@{/(originName=${originName}, destName=${destName}, targetDate=${day.date},
+                                         mode=${arrivalMode} ? 'arrival' : null,
+                                         targetArrivalTime=${arrivalMode and targetArrivalTime != null} ? ${#temporals.format(targetArrivalTime, 'HH:mm')} : null)}"
+                           th:title="${day.dayTypeLabel}"
+                           th:text="${day.dayOfMonth}"></a>
+                    </th:block>
+                </div>
+            </div>
+
             <button type="submit" class="btn-search" id="searchBtn">
                 <span class="spinner" aria-hidden="true"></span>
                 <span class="btn-label">검색</span>
@@ -389,7 +393,7 @@
     });
 
     (function initCalendarToggle() {
-        var toggle = document.getElementById('calendarToggle');
+        var toggle = document.getElementById('timePickerDay');
         var calendar = document.getElementById('calendar');
         if (!toggle || !calendar) {
             return;
@@ -410,7 +414,6 @@
         }
 
         var hiddenInput = document.getElementById('targetArrivalTime');
-        var dayLabel = document.getElementById('timePickerDay');
         var hourValueBtn = document.getElementById('hourValue');
         var minuteValueBtn = document.getElementById('minuteValue');
         var hourDropdown = document.getElementById('hourDropdown');
@@ -442,9 +445,6 @@
             hourValueBtn.textContent = pad(hour) + '시';
             minuteValueBtn.textContent = pad(minute) + '분';
             hiddenInput.value = pad(hour) + ':' + pad(minute);
-            // 새벽 6시 이전은 "오늘 밤 자정 넘어서"로 보는 서버 로직(EARLY_MORNING_CUTOFF)과
-            // 맞춰서, 그 시간대를 고르면 실제로는 다음날임을 알려준다.
-            dayLabel.textContent = hour < 6 ? '내일' : '오늘';
             markSelected(hourDropdown, hour);
             markSelected(minuteDropdown, minute);
         }
