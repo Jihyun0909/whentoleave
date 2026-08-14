@@ -35,12 +35,15 @@ seoul-subway:
 
 tago:
   base-url: http://localhost/tago-not-used-in-tests
+  station-base-url: http://localhost/tago-station-not-used-in-tests
   api-key: ""
 
 gyeonggi-bus:
   base-url: http://localhost/gyeonggi-bus-not-used-in-tests
+  station-base-url: http://localhost/gyeonggi-bus-station-not-used-in-tests
   api-key: ""
 
 incheon-bus:
   base-url: http://localhost/incheon-bus-not-used-in-tests
+  station-base-url: http://localhost/incheon-bus-station-not-used-in-tests
   api-key: ""

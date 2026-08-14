@@ -44,14 +44,20 @@ seoul-subway:
 tago:
   # 국가대중교통정보센터(TAGO). 로컬 실행 환경변수(TAGO_API_KEY)로 주입.
   base-url: http://apis.data.go.kr/1613000/ArvlInfoInqireService
+  # 좌표기반 근접 정류소 조회(정류소정보조회 서비스). 실제 오퍼레이션 경로는 추정값 - 확인 필요.
+  station-base-url: http://apis.data.go.kr/1613000/BusSttnInfoInqireService/getCrdntPrxmtSttnList
   api-key: ${TAGO_API_KEY:}
 
 gyeonggi-bus:
   # 경기도 버스정보시스템(GBIS). 로컬 실행 환경변수(GYEONGGI_BUS_API_KEY)로 주입.
   base-url: http://apis.data.go.kr/6410000/busarrivalservice/v2/getBusArrivalListv2
+  # 정류소 좌표기반 조회. 실제 오퍼레이션 경로는 추정값 - 확인 필요.
+  station-base-url: http://apis.data.go.kr/6410000/busstationservice/v2/getStationByPosList
   api-key: ${GYEONGGI_BUS_API_KEY:}
 
 incheon-bus:
   # 인천 버스정보시스템(BIMS). 로컬 실행 환경변수(INCHEON_BUS_API_KEY)로 주입.
   base-url: http://apis.data.go.kr/6280000/busarrivalservice/v2/getBusArrivalListv2
+  # 정류소 좌표기반 조회. 경기(GBIS)와 같은 벤더 시스템이라는 가정의 추정값 - 확인 필요.
+  station-base-url: http://apis.data.go.kr/6280000/busstationservice/v2/getStationByPosList
   api-key: ${INCHEON_BUS_API_KEY:}
