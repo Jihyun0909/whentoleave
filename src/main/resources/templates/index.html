@@ -18,7 +18,8 @@
                 <img class="logo-badge" src="/img/logo.png" alt="When To Leave 로고">
                 <h1>When To Leave</h1>
             </div>
-            <p class="subtitle">출발지/도착지 역 이름이나 주소를 입력하면, 막차로 도착하려면 몇 시까지 출발해야 하는지 알려줍니다.</p>
+            <p class="subtitle" th:if="${arrivalMode}">목표 도착 시각을 입력하면 몇 시에 출발해야 하는지 알려드릴게요.</p>
+            <p class="subtitle" th:unless="${arrivalMode}">출발지/도착지 기준 막차를 이용하려면 몇 시에 출발해야 하는지 알려드릴게요.</p>
         </header>
 
         <nav class="tabs">
@@ -81,25 +82,79 @@
         <form method="get" action="/" class="search-form">
             <input type="hidden" name="mode" th:if="${arrivalMode}" value="arrival">
             <input type="hidden" name="targetDate" th:unless="${selectedDateIsToday}" th:value="${selectedDate}">
-            <div class="field">
-                <label for="originName">출발지</label>
-                <div class="autocomplete">
-                    <input type="text" id="originName" name="originName" th:value="${originName}" required
-                           placeholder="역 이름 또는 주소, 예: 수유" autocomplete="off">
-                    <div class="autocomplete-dropdown" id="originSuggest"></div>
+            <div class="origin-dest-row">
+                <div class="field field-origin">
+                    <label for="originName">출발지</label>
+                    <div class="autocomplete">
+                        <span class="field-icon field-icon-origin" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                                <circle cx="12" cy="10" r="3"></circle>
+                            </svg>
+                        </span>
+                        <input type="text" id="originName" name="originName" th:value="${originName}" required
+                               placeholder="역 이름, 정류장, 주소 (예: 서울역)를 입력하세요." autocomplete="off">
+                        <button type="button" class="gps-button" id="gpsButton" title="현재 위치 사용"
+                                aria-label="현재 위치를 출발지로 사용">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="7"></circle>
+                                <line x1="12" y1="1" x2="12" y2="4"></line>
+                                <line x1="12" y1="20" x2="12" y2="23"></line>
+                                <line x1="1" y1="12" x2="4" y2="12"></line>
+                                <line x1="20" y1="12" x2="23" y2="12"></line>
+                            </svg>
+                        </button>
+                        <div class="autocomplete-dropdown" id="originSuggest"></div>
+                    </div>
+                    <!-- 항상 비워서 렌더링한다 - 값이 있으면 (GPS로 방금 채운 경우에만) 검색 버튼을
+                         누르는 순간 JS가 채워주고, 없으면 제출 직전 JS가 disabled 처리해서 아예 전송
+                         안 되게 한다(빈 문자열로 보내면 서버의 Double 파라미터 바인딩이 깨진다). -->
+                    <input type="hidden" id="originX" name="originX" value="">
+                    <input type="hidden" id="originY" name="originY" value="">
+                    <p class="field-hint" id="gpsStatus"></p>
                 </div>
-            </div>
-            <div class="field">
-                <label for="destName">도착지</label>
-                <div class="autocomplete">
-                    <input type="text" id="destName" name="destName" th:value="${destName}" required
-                           placeholder="역 이름 또는 주소, 예: 압구정" autocomplete="off">
-                    <div class="autocomplete-dropdown" id="destSuggest"></div>
+
+                <button type="button" class="swap-button" id="swapButton" title="출발지/도착지 바꾸기"
+                        aria-label="출발지와 도착지 바꾸기">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                         stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="17 1 21 5 17 9"></polyline>
+                        <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+                        <polyline points="7 23 3 19 7 15"></polyline>
+                        <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+                    </svg>
+                </button>
+
+                <div class="field field-dest">
+                    <label for="destName">도착지</label>
+                    <div class="autocomplete">
+                        <span class="field-icon field-icon-dest" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+                                <line x1="4" y1="22" x2="4" y2="15"></line>
+                            </svg>
+                        </span>
+                        <input type="text" id="destName" name="destName" th:value="${destName}" required
+                               placeholder="역 이름, 정류장, 주소 (예: 강남역)를 입력하세요." autocomplete="off">
+                        <div class="autocomplete-dropdown" id="destSuggest"></div>
+                    </div>
                 </div>
             </div>
             <div class="field" th:if="${arrivalMode}">
                 <label>목표 도착 시각</label>
                 <div class="time-picker" id="timePicker">
+                    <span class="time-picker-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+                             stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="4" width="18" height="18" rx="3"></rect>
+                            <line x1="16" y1="2" x2="16" y2="6"></line>
+                            <line x1="8" y1="2" x2="8" y2="6"></line>
+                            <line x1="3" y1="10" x2="21" y2="10"></line>
+                        </svg>
+                    </span>
                     <div class="time-picker-segment time-picker-day is-disabled" id="timePickerDay"
                          title="새벽 시간대(0~5시)를 고르면 다음날로 계산돼요. 날짜 자체를 바꾸려면 위의 '다른날 출발 보기'를 쓰세요.">오늘</div>
                     <div class="time-picker-segment time-picker-unit">
@@ -318,6 +373,15 @@
 </div>
 <script th:inline="none">
     document.querySelector('.search-form').addEventListener('submit', function () {
+        // 빈 좌표 hidden input은 아예 전송에서 빼야 한다(빈 문자열로 보내면 서버의 Double
+        // 파라미터 바인딩이 깨진다) - disabled 필드는 폼 전송에서 자동으로 제외된다.
+        ['originX', 'originY'].forEach(function (id) {
+            var input = document.getElementById(id);
+            if (input) {
+                input.disabled = !input.value;
+            }
+        });
+
         var btn = document.getElementById('searchBtn');
         btn.classList.add('is-loading');
         btn.querySelector('.btn-label').textContent = '검색 중…';
@@ -579,6 +643,92 @@
 
         setup('originName', 'originSuggest');
         setup('destName', 'destSuggest');
+    })();
+
+    (function initOriginXY() {
+        var originName = document.getElementById('originName');
+        var originX = document.getElementById('originX');
+        var originY = document.getElementById('originY');
+        var gpsStatus = document.getElementById('gpsStatus');
+        if (!originName || !originX || !originY) {
+            return;
+        }
+        // 사용자가 출발지를 직접 타이핑하면, GPS나 후보 선택으로 채워졌던 좌표는 더 이상
+        // 이 텍스트와 안 맞으므로 지운다 - 안 그러면 "수유역"이라고 쳐놓고 이전에 GPS로
+        // 잡아뒀던 좌표로 검색되는(엉뚱한 곳을 출발지로 오해하는) 문제가 생긴다.
+        originName.addEventListener('input', function () {
+            originX.value = '';
+            originY.value = '';
+            if (gpsStatus) {
+                gpsStatus.textContent = '';
+            }
+        });
+    })();
+
+    (function initSwapButton() {
+        var button = document.getElementById('swapButton');
+        if (!button) {
+            return;
+        }
+        button.addEventListener('click', function () {
+            var originName = document.getElementById('originName');
+            var destName = document.getElementById('destName');
+            var originX = document.getElementById('originX');
+            var originY = document.getElementById('originY');
+            var gpsStatus = document.getElementById('gpsStatus');
+            var temp = originName.value;
+            originName.value = destName.value;
+            destName.value = temp;
+            // 도착지엔 좌표 입력칸이 없어서(GPS는 출발지 전용) 좌표를 그대로 들고 넘어갈 수 없다 -
+            // 바뀐 이름으로 다시 찾도록 비운다.
+            if (originX) {
+                originX.value = '';
+            }
+            if (originY) {
+                originY.value = '';
+            }
+            if (gpsStatus) {
+                gpsStatus.textContent = '';
+            }
+        });
+    })();
+
+    (function initGpsButton() {
+        var button = document.getElementById('gpsButton');
+        var originName = document.getElementById('originName');
+        var originX = document.getElementById('originX');
+        var originY = document.getElementById('originY');
+        var status = document.getElementById('gpsStatus');
+        if (!button || !originName || !originX || !originY) {
+            return;
+        }
+
+        button.addEventListener('click', function () {
+            if (!navigator.geolocation) {
+                if (status) {
+                    status.textContent = '이 브라우저는 위치 정보를 지원하지 않아요.';
+                }
+                return;
+            }
+            button.classList.add('is-loading');
+            if (status) {
+                status.textContent = '현재 위치를 찾는 중…';
+            }
+            navigator.geolocation.getCurrentPosition(function (position) {
+                button.classList.remove('is-loading');
+                originX.value = String(position.coords.longitude);
+                originY.value = String(position.coords.latitude);
+                originName.value = '현재 위치';
+                if (status) {
+                    status.textContent = '';
+                }
+            }, function () {
+                button.classList.remove('is-loading');
+                if (status) {
+                    status.textContent = '위치 정보를 가져오지 못했어요. 브라우저 위치 권한을 확인해주세요.';
+                }
+            }, { enableHighAccuracy: true, timeout: 10000 });
+        });
     })();
 
     // 실시간 도착정보 칩의 "분:초"를 매초 직접 카운트다운한다(서버가 페이지 렌더 시점의 초를

@@ -314,6 +314,107 @@ body {
     gap: 16px;
 }
 
+/* 출발지/도착지를 나란히 두고 그 사이에 스왑 버튼을 끼운다 */
+.origin-dest-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+.origin-dest-row .field {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.swap-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    margin-bottom: 1px;
+    border: none;
+    border-radius: 9999px;
+    background: var(--bg);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.15s var(--ease-out), color 0.15s var(--ease-out), transform 0.15s var(--ease-out);
+}
+
+.swap-button:hover {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    transform: rotate(180deg);
+}
+
+.field-icon {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    color: var(--text-muted);
+    pointer-events: none;
+}
+
+.field-origin input {
+    padding-left: 38px;
+    padding-right: 40px;
+}
+
+.field-dest input {
+    padding-left: 38px;
+}
+
+.gps-button {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+
+.gps-button:hover {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+}
+
+.gps-button.is-loading {
+    color: var(--accent);
+    animation: gps-pulse 1s ease-in-out infinite;
+}
+
+@keyframes gps-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+
+.field-hint {
+    margin: 0;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+    min-height: 14px;
+}
+
+.time-picker-icon {
+    display: flex;
+    align-items: center;
+    padding-left: 10px;
+    color: var(--text-muted);
+}
+
 .field {
     display: flex;
     flex-direction: column;
