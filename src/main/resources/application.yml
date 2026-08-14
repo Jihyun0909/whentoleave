@@ -37,3 +37,21 @@ seoul-subway:
   # 키 발급: openapi.seoul.go.kr 무료 가입. 로컬 실행 환경변수(SEOUL_SUBWAY_API_KEY)로 주입.
   base-url: http://swopenapi.seoul.go.kr/api/subway
   api-key: ${SEOUL_SUBWAY_API_KEY:}
+
+# 아래 3개는 수도권 실시간 버스 도착정보(보조 기능). 전부 키가 비어있으면 조용히 꺼진 채로
+# 동작한다. 키 발급: data.go.kr 활용신청(공공데이터포털) - Decoding(원본) 키를 넣어야 한다
+# (각 클라이언트가 URL 인코딩을 직접 하므로 Encoding 키를 넣으면 이중 인코딩된다).
+tago:
+  # 국가대중교통정보센터(TAGO). 로컬 실행 환경변수(TAGO_API_KEY)로 주입.
+  base-url: http://apis.data.go.kr/1613000/ArvlInfoInqireService
+  api-key: ${TAGO_API_KEY:}
+
+gyeonggi-bus:
+  # 경기도 버스정보시스템(GBIS). 로컬 실행 환경변수(GYEONGGI_BUS_API_KEY)로 주입.
+  base-url: http://apis.data.go.kr/6410000/busarrivalservice/v2/getBusArrivalListv2
+  api-key: ${GYEONGGI_BUS_API_KEY:}
+
+incheon-bus:
+  # 인천 버스정보시스템(BIMS). 로컬 실행 환경변수(INCHEON_BUS_API_KEY)로 주입.
+  base-url: http://apis.data.go.kr/6280000/busarrivalservice/v2/getBusArrivalListv2
+  api-key: ${INCHEON_BUS_API_KEY:}
