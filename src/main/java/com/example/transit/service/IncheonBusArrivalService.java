@@ -1,20 +1,19 @@
 package com.example.transit.service;
 
 import com.example.transit.service.client.IncheonBusApiClient;
-import com.example.transit.service.client.dto.RegionalBusArrivalResponse;
+import com.example.transit.service.client.dto.IncheonBusArrivalResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import tools.jackson.databind.JsonNode;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.StreamSupport;
 
 /**
  * {@link IncheonBusApiClient}로 인천 BIMS 실시간 버스 도착정보를 조회해 {@link RealtimeBusArrival}로
- * 변환한다. 경기(GBIS)와 같은 응답 스키마를 가정하고 있다 - IncheonBusApiClient 클래스 주석 참고.
- * 조회 시점마다 바뀌는 데이터라 DB 캐시를 두지 않는다.
+ * 변환한다. 조회 시점마다 바뀌는 데이터라 DB 캐시를 두지 않는다.
+ * <p>
+ * 인천 응답에는 표시용 노선번호가 없어 {@code routeId}(내부 ID)를 그대로 routeName 자리에 넣는다 -
+ * 화면에 실제 노선번호를 보여주려면 별도 노선 조회 API로 매핑을 추가해야 한다(TODO).
  */
 @Service
 public class IncheonBusArrivalService implements RealtimeIncheonBusArrivalLookup {
@@ -40,59 +39,14 @@ public class IncheonBusArrivalService implements RealtimeIncheonBusArrivalLookup
         }
     }
 
-    private List<RealtimeBusArrival> toArrivals(RegionalBusArrivalResponse response) {
-        if (response == null || response.response() == null || response.response().msgBody() == null) {
+    private List<RealtimeBusArrival> toArrivals(IncheonBusArrivalResponse response) {
+        if (response == null || response.items() == null) {
             return List.of();
         }
-        List<RealtimeBusArrival> result = new ArrayList<>();
-        for (JsonNode item : items(response.response().msgBody().busArrivalList())) {
-            result.addAll(toArrivals(item));
-        }
-        return result;
-    }
-
-    private List<JsonNode> items(JsonNode node) {
-        if (node == null || node.isNull()) {
-            return List.of();
-        }
-        if (node.isArray()) {
-            return node.isEmpty() ? List.of() : StreamSupport.stream(node.spliterator(), false).toList();
-        }
-        return List.of(node);
-    }
-
-    private List<RealtimeBusArrival> toArrivals(JsonNode item) {
-        String routeName = text(item, "routeName");
-        List<RealtimeBusArrival> result = new ArrayList<>();
-        addIfPresent(result, routeName, integer(item, "predictTime1"), integer(item, "locationNo1"),
-                text(item, "plateNo1"));
-        addIfPresent(result, routeName, integer(item, "predictTime2"), integer(item, "locationNo2"),
-                text(item, "plateNo2"));
-        return result;
-    }
-
-    private void addIfPresent(List<RealtimeBusArrival> result, String routeName, Integer predictMinutes,
-                               Integer locationNo, String plateNo) {
-        if (predictMinutes == null || predictMinutes < 0) {
-            return;
-        }
-        result.add(new RealtimeBusArrival(routeName, predictMinutes * 60, locationNo, plateNo));
-    }
-
-    private String text(JsonNode node, String field) {
-        JsonNode value = node.get(field);
-        return value == null || value.isNull() ? null : value.asString();
-    }
-
-    private Integer integer(JsonNode node, String field) {
-        JsonNode value = node.get(field);
-        if (value == null || value.isNull()) {
-            return null;
-        }
-        try {
-            return Integer.parseInt(value.asString());
-        } catch (NumberFormatException e) {
-            return null;
-        }
+        return response.items().stream()
+                .filter(item -> item.arrivalEstimateSeconds() != null)
+                .map(item -> new RealtimeBusArrival(item.routeId(), item.arrivalEstimateSeconds(),
+                        item.restStopCount(), item.busNumPlate()))
+                .toList();
     }
 }

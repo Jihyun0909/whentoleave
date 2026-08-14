@@ -12,10 +12,11 @@ import java.nio.charset.StandardCharsets;
 /**
  * TAGO(국가대중교통정보센터, data.go.kr) 좌표기반 근접 정류소 조회.
  * <p>
- * <b>주의 - 이 클래스는 실제 인증키로 검증되지 않았다.</b> 오퍼레이션명/파라미터명은 공공데이터포털에
- * 공개된 "정류소정보조회 서비스"의 좌표기반 근접 정류소 조회(문서상 {@code getCrdntPrxmtSttnList})
- * 문서 기준 추정값이다. {@code tago.station-base-url}에 오퍼레이션까지 통째로 넣게 해서, 실제 경로가
- * 다르면 코드 수정 없이 application.yml만 고치면 되게 했다.
+ * <b>주의 - 2026-08-14 라이브 테스트 결과: 경로/파라미터명은 맞지만 이 키로는 아직 호출 불가.</b>
+ * {@code getCrdntPrxmtSttnList} 호출 시 SERVICE_KEY_IS_NOT_REGISTERED가 나는데, TAGO 도착정보
+ * ({@link TagoBusApiClient})는 같은 계정 키로 정상 호출됐다 - "정류소정보조회 서비스"는
+ * data.go.kr에서 별도로 활용신청해야 한다(현재는 "국토교통부_(TAGO)_버스도착정보"만 신청된 상태로
+ * 추정). 활용신청만 되면 그대로 쓸 수 있을 가능성이 높다.
  * <p>
  * 응답 봉투(header/body.items) 모양이 정류소 도착정보 조회와 같아서 {@link TagoBusArrivalResponse}를
  * 그대로 재사용한다 - data.go.kr 응답은 이 봉투 구조를 서비스 전반에서 공유하는 편이라 새 DTO를
