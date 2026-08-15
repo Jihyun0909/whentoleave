@@ -221,11 +221,22 @@ public class LastDepartureViewController {
         LocalTime earliestArrival = alreadyPassed
                 ? LocalTime.now().plusMinutes(option.totalMinutes()) : null;
 
-        int arrivalMinutes = option.departureServiceMinutes() + option.totalMinutes();
+        // 추천 출발 시각이 이미 지났으면(alreadyPassed) 총 소요시간 옆에 보여줄 도착 시각도
+        // "지금 출발" 기준(earliestArrival)과 같은 값을 써야 한다 - 예전엔 여기서만 지난
+        // 추천 출발 시각 기준으로 다시 계산해서, 헤드라인(예: 03:39)과 바로 아래 도착 시각
+        // (예: 18:29)이 서로 다른 시나리오를 섞어서 보여주는 바람에 화면이 모순돼 보였다.
+        int arrivalMinutes = alreadyPassed
+                ? nowServiceMinutes() + option.totalMinutes()
+                : option.departureServiceMinutes() + option.totalMinutes();
 
         return new RouteOptionView(option, alreadyPassed, earliestArrival,
                 toLocalTime(arrivalMinutes), arrivalMinutes >= MINUTES_PER_DAY,
                 segmentsOf(option), timelineOf(option, showRealtimeArrivals));
+    }
+
+    private int nowServiceMinutes() {
+        LocalTime now = LocalTime.now();
+        return now.getHour() * 60 + now.getMinute();
     }
 
     /** 모든 승차 구간(지하철/버스)에 실시간 도착정보를 붙인다. */
