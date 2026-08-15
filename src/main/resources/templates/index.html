@@ -63,9 +63,10 @@
                         </button>
                         <div class="autocomplete-dropdown" id="originSuggest"></div>
                     </div>
-                    <!-- 항상 비워서 렌더링한다 - 값이 있으면 (GPS로 방금 채운 경우에만) 검색 버튼을
-                         누르는 순간 JS가 채워주고, 없으면 제출 직전 JS가 disabled 처리해서 아예 전송
-                         안 되게 한다(빈 문자열로 보내면 서버의 Double 파라미터 바인딩이 깨진다). -->
+                    <!-- 항상 비워서 렌더링한다 - 값이 있으면(GPS로 채웠거나 자동완성에서 특정 후보를
+                         고른 경우) 검색 버튼을 누르는 순간 JS가 채워주고, 없으면 제출 직전 JS가
+                         disabled 처리해서 아예 전송 안 되게 한다(빈 문자열로 보내면 서버의 Double
+                         파라미터 바인딩이 깨진다). -->
                     <input type="hidden" id="originX" name="originX" value="">
                     <input type="hidden" id="originY" name="originY" value="">
                     <p class="field-hint" id="gpsStatus"></p>
@@ -95,6 +96,10 @@
                                placeholder="도착지" aria-label="도착지" autocomplete="off">
                         <div class="autocomplete-dropdown" id="destSuggest"></div>
                     </div>
+                    <!-- 자동완성에서 특정 후보(예: "강남 2호선")를 고르면 여기에 좌표가 채워진다 -
+                         안 그러면 이름만 "강남"으로 남아 검색 시 후보를 또 고르라고 나온다. -->
+                    <input type="hidden" id="destX" name="destX" value="">
+                    <input type="hidden" id="destY" name="destY" value="">
                 </div>
             </div>
 
@@ -375,7 +380,7 @@
     document.querySelector('.search-form').addEventListener('submit', function () {
         // 빈 좌표 hidden input은 아예 전송에서 빼야 한다(빈 문자열로 보내면 서버의 Double
         // 파라미터 바인딩이 깨진다) - disabled 필드는 폼 전송에서 자동으로 제외된다.
-        ['originX', 'originY'].forEach(function (id) {
+        ['originX', 'originY', 'destX', 'destY'].forEach(function (id) {
             var input = document.getElementById(id);
             if (input) {
                 input.disabled = !input.value;
@@ -525,9 +530,11 @@
     (function initAutocomplete() {
         var DEBOUNCE_MS = 250;
 
-        function setup(inputId, dropdownId) {
+        function setup(inputId, dropdownId, xInputId, yInputId) {
             var input = document.getElementById(inputId);
             var dropdown = document.getElementById(dropdownId);
+            var xInput = document.getElementById(xInputId);
+            var yInput = document.getElementById(yInputId);
             if (!input || !dropdown) {
                 return;
             }
@@ -550,8 +557,15 @@
                 activeIndex = index;
             }
 
+            // 후보를 고르면 이름뿐 아니라 좌표까지 같이 저장해야 한다 - 안 그러면 "강남"처럼
+            // 여러 노선에 걸리는 이름만 남아서, 검색 버튼을 눌렀을 때 서버가 또다시 "후보를
+            // 선택하세요" 화면을 보여준다(이미 골랐던 걸 또 고르라고 하는 셈).
             function select(candidate) {
                 input.value = candidate.stationName;
+                if (xInput && yInput) {
+                    xInput.value = String(candidate.x);
+                    yInput.value = String(candidate.y);
+                }
                 close();
             }
 
@@ -590,6 +604,15 @@
             }
 
             input.addEventListener('input', function () {
+                // 직접 타이핑하면 이전에 후보 선택(또는 GPS)으로 채워졌던 좌표는 이 텍스트와
+                // 더 이상 안 맞으므로 지운다.
+                if (xInput) {
+                    xInput.value = '';
+                }
+                if (yInput) {
+                    yInput.value = '';
+                }
+
                 var query = input.value.trim();
                 clearTimeout(debounceTimer);
                 if (!query) {
@@ -635,27 +658,21 @@
             });
         }
 
-        setup('originName', 'originSuggest');
-        setup('destName', 'destSuggest');
+        setup('originName', 'originSuggest', 'originX', 'originY');
+        setup('destName', 'destSuggest', 'destX', 'destY');
     })();
 
-    (function initOriginXY() {
+    // 좌표 클리어 자체는 initAutocomplete의 input 리스너가 이미 처리한다 - 여기서는 GPS
+    // 전용 안내문구만 정리한다(직접 타이핑을 시작하면 "위치 정보를 가져오지 못했어요" 같은
+    // 예전 GPS 결과 문구가 화면에 남아있으면 안 되므로).
+    (function initGpsStatusClear() {
         var originName = document.getElementById('originName');
-        var originX = document.getElementById('originX');
-        var originY = document.getElementById('originY');
         var gpsStatus = document.getElementById('gpsStatus');
-        if (!originName || !originX || !originY) {
+        if (!originName || !gpsStatus) {
             return;
         }
-        // 사용자가 출발지를 직접 타이핑하면, GPS나 후보 선택으로 채워졌던 좌표는 더 이상
-        // 이 텍스트와 안 맞으므로 지운다 - 안 그러면 "수유역"이라고 쳐놓고 이전에 GPS로
-        // 잡아뒀던 좌표로 검색되는(엉뚱한 곳을 출발지로 오해하는) 문제가 생긴다.
         originName.addEventListener('input', function () {
-            originX.value = '';
-            originY.value = '';
-            if (gpsStatus) {
-                gpsStatus.textContent = '';
-            }
+            gpsStatus.textContent = '';
         });
     })();
 

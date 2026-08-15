@@ -450,7 +450,9 @@ body {
     background: var(--card-bg);
     border-radius: 12px;
     box-shadow: 0 8px 28px rgba(var(--shadow-color), 0.16);
-    max-height: 240px;
+    /* 폼이 조밀해서 후보가 5개씩 다 펼쳐지면 바로 아래 시간 선택/검색 버튼까지 덮어버린다 -
+       한 번에 3~4개만 보이게 줄여서 가리는 범위를 최대한 줄인다(나머지는 스크롤). */
+    max-height: 176px;
     overflow-y: auto;
     z-index: 20;
     padding: 6px;
