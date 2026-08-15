@@ -29,7 +29,21 @@ odsay:
 vworld:
   api-key: test-key
 
-seoul-bus:
-  base-url: http://localhost/seoul-bus-not-used-in-tests
-  station-service-name: test-service
+seoul-subway:
+  base-url: http://localhost/seoul-subway-not-used-in-tests
   api-key: "" # 빈 값 = 미설정 상태로 애플리케이션 컨텍스트 로딩 테스트(TransitApplicationTests)를 검증
+
+tago:
+  base-url: http://localhost/tago-not-used-in-tests
+  station-base-url: http://localhost/tago-station-not-used-in-tests
+  api-key: ""
+
+gyeonggi-bus:
+  base-url: http://localhost/gyeonggi-bus-not-used-in-tests
+  station-base-url: http://localhost/gyeonggi-bus-station-not-used-in-tests
+  api-key: ""
+
+incheon-bus:
+  base-url: http://localhost/incheon-bus-not-used-in-tests
+  station-base-url: http://localhost/incheon-bus-station-not-used-in-tests
+  api-key: ""

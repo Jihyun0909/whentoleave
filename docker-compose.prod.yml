@@ -9,6 +9,10 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       ODSAY_API_KEY: ${ODSAY_API_KEY}
       VWORLD_API_KEY: ${VWORLD_API_KEY}
+      SEOUL_SUBWAY_API_KEY: ${SEOUL_SUBWAY_API_KEY}
+      TAGO_API_KEY: ${TAGO_API_KEY}
+      GYEONGGI_BUS_API_KEY: ${GYEONGGI_BUS_API_KEY}
+      INCHEON_BUS_API_KEY: ${INCHEON_BUS_API_KEY}
     depends_on:
       - postgres
     expose:

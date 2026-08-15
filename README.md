@@ -153,7 +153,7 @@ CREATE TABLE subway_schedule (
 - `Dockerfile`: Gradle로 빌드한 뒤 JRE 이미지에 jar만 담는 멀티스테이지 빌드
 - `docker-compose.prod.yml`: `app` + `postgres` + `caddy` 3개 컨테이너. 로컬 개발용 `docker-compose.yml`(포스트그레스만 띄우는 용도)과는 별개 파일로 분리
 - `Caddyfile`: `{$DOMAIN}` 하나로 자동 HTTPS 리버스 프록시 설정
-- `.env.example`: 서버에서 채워야 할 값(`DB_PASSWORD`, `ODSAY_API_KEY`, `DOMAIN`) 목록. 실제 값을 채운 `.env`는 절대 커밋하지 않음(`.gitignore`)
+- `.env.example`: 서버에서 채워야 할 값(`DB_PASSWORD`, `ODSAY_API_KEY`, `VWORLD_API_KEY`, `SEOUL_SUBWAY_API_KEY`, `DOMAIN`) 목록. 실제 값을 채운 `.env`는 절대 커밋하지 않음(`.gitignore`)
 - `application.yml`의 datasource는 `${DB_URL}`/`${DB_USERNAME}`/`${DB_PASSWORD}` 환경변수로 오버라이드 가능하며, 값이 없으면 로컬 개발 기본값(`localhost:5433`)을 그대로 씀
 
 ⚠️ **로컬에서 `docker-compose.prod.yml`을 테스트할 때 주의**: 두 compose 파일이 같은 디렉터리에 있으면 Docker Compose가 프로젝트명을 디렉터리 이름으로 같게 잡아서, `postgres` 서비스가 컨테이너 이름/포트 매핑이 다른데도 "같은 서비스"로 취급해 로컬 개발용 컨테이너를 지우고 재생성해버릴 수 있다(실제로 한 번 겪음 — 볼륨은 이름이 같아 데이터는 안 남았지만 포트 매핑이 사라짐). 로컬에서 프로덕션 compose를 검증할 땐 반드시 `docker compose -p <다른-프로젝트명> -f docker-compose.prod.yml ...`처럼 프로젝트명을 분리해야 한다.
@@ -163,7 +163,7 @@ CREATE TABLE subway_schedule (
 1. Oracle Cloud 계정 생성 + Always Free VM 인스턴스 생성 (Ubuntu)
 2. VM에 Docker + Docker Compose 설치, 80/443 포트 방화벽(Security List) 오픈
 3. DuckDNS 가입 후 서브도메인을 VM의 공인 IP로 연결
-4. 이 저장소를 VM에 clone, `.env.example`을 참고해 `.env` 작성 (`DB_PASSWORD`, `ODSAY_API_KEY`, `VWORLD_API_KEY`, `DOMAIN`)
+4. 이 저장소를 VM에 clone, `.env.example`을 참고해 `.env` 작성 (`DB_PASSWORD`, `ODSAY_API_KEY`, `VWORLD_API_KEY`, `SEOUL_SUBWAY_API_KEY`, `DOMAIN`)
 5. `docker compose -f docker-compose.prod.yml up -d --build`
 6. `https://<DOMAIN>`으로 접속 확인
 

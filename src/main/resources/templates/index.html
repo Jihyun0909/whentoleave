@@ -14,11 +14,8 @@
 <div class="page">
     <div class="main-panel">
         <header class="app-header">
-            <div class="logo-row">
-                <img class="logo-badge" src="/img/logo.png" alt="When To Leave 로고">
-                <h1>When To Leave</h1>
-            </div>
-            <p class="subtitle">출발지/도착지 역 이름이나 주소를 입력하면, 막차로 도착하려면 몇 시까지 출발해야 하는지 알려줍니다.</p>
+            <p class="subtitle" th:if="${arrivalMode}">목표 도착 시각을 입력하면 몇 시에 출발해야 하는지 알려드릴게요.</p>
+            <p class="subtitle" th:unless="${arrivalMode}">출발지/도착지 기준 막차를 이용하려면 몇 시에 출발해야 하는지 알려드릴게요.</p>
         </header>
 
         <nav class="tabs">
@@ -31,43 +28,6 @@
                th:href="@{/(originName=${originName}, destName=${destName})}">막차 시간 계산</a>
         </nav>
 
-        <nav class="subtabs" th:unless="${arrivalMode}">
-            <span class="subtab" th:classappend="${selectedDateIsToday} ? 'subtab-active' : ''"
-                  th:if="${selectedDateIsToday}">오늘 막차 보기</span>
-            <a th:unless="${selectedDateIsToday}" class="subtab"
-               th:href="@{/(originName=${originName}, destName=${destName})}">오늘 막차 보기</a>
-            <button type="button" class="subtab" id="calendarToggle"
-                    th:classappend="${selectedDateIsToday} ? '' : 'subtab-active'">다른날 막차 보기</button>
-        </nav>
-
-        <div class="calendar" id="calendar" th:unless="${arrivalMode}"
-             th:attr="data-open=${selectedDateIsToday} ? 'false' : 'true'">
-            <p class="calendar-title" th:text="${calendarMonth} + '월 — 오늘 이후 날짜만 선택할 수 있어요'"></p>
-            <div class="calendar-weekdays">
-                <span>월</span><span>화</span><span>수</span><span>목</span><span>금</span>
-                <span class="calendar-sat">토</span><span class="calendar-sun">일</span>
-            </div>
-            <div class="calendar-grid">
-                <th:block th:each="day : ${calendarDays}">
-                    <span th:if="${day.blank}" class="calendar-cell calendar-cell-blank"></span>
-                    <span th:if="${!day.blank and !day.selectable}" class="calendar-cell calendar-cell-disabled"
-                          th:text="${day.dayOfMonth}"></span>
-                    <a th:if="${!day.blank and day.selectable}" class="calendar-cell"
-                       th:classappend="(${day.selected} ? ' calendar-cell-selected' : '')
-                                       + (${day.holiday} ? ' calendar-cell-holiday' : '')
-                                       + (${day.saturday} ? ' calendar-cell-saturday' : '')"
-                       th:href="@{/(originName=${originName}, destName=${destName}, targetDate=${day.date})}"
-                       th:title="${day.dayTypeLabel}"
-                       th:text="${day.dayOfMonth}"></a>
-                </th:block>
-            </div>
-        </div>
-
-        <p class="schedule-note" th:if="${selectedDateIsToday}">오늘 기준 시간표로 계산됩니다.</p>
-        <p class="schedule-note" th:unless="${selectedDateIsToday}">
-            <b th:text="${#temporals.format(selectedDate, 'M월 d일')}"></b>
-            <span th:text="'(' + ${selectedDayTypeLabel} + ')'"></span> 시간표로 계산됩니다.
-        </p>
         <p class="schedule-note schedule-note-warn" th:if="${holidayDataMissing}">
             이 연도의 공휴일 정보가 없어 주말만 반영됩니다.
         </p>
@@ -75,26 +35,87 @@
         <form method="get" action="/" class="search-form">
             <input type="hidden" name="mode" th:if="${arrivalMode}" value="arrival">
             <input type="hidden" name="targetDate" th:unless="${selectedDateIsToday}" th:value="${selectedDate}">
-            <div class="field">
-                <label for="originName">출발지</label>
-                <div class="autocomplete">
-                    <input type="text" id="originName" name="originName" th:value="${originName}" required
-                           placeholder="역 이름 또는 주소, 예: 수유" autocomplete="off">
-                    <div class="autocomplete-dropdown" id="originSuggest"></div>
+            <div class="origin-dest-row">
+                <div class="field field-origin">
+                    <div class="autocomplete">
+                        <span class="field-icon field-icon-origin" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                                <circle cx="12" cy="10" r="3"></circle>
+                            </svg>
+                        </span>
+                        <input type="text" id="originName" name="originName" th:value="${originName}" required
+                               placeholder="출발지" aria-label="출발지" autocomplete="off">
+                        <button type="button" class="gps-button" id="gpsButton" title="현재 위치 사용"
+                                aria-label="현재 위치를 출발지로 사용">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="7"></circle>
+                                <line x1="12" y1="1" x2="12" y2="4"></line>
+                                <line x1="12" y1="20" x2="12" y2="23"></line>
+                                <line x1="1" y1="12" x2="4" y2="12"></line>
+                                <line x1="20" y1="12" x2="23" y2="12"></line>
+                            </svg>
+                        </button>
+                        <div class="autocomplete-dropdown" id="originSuggest"></div>
+                    </div>
+                    <!-- 항상 비워서 렌더링한다 - 값이 있으면(GPS로 채웠거나 자동완성에서 특정 후보를
+                         고른 경우) 검색 버튼을 누르는 순간 JS가 채워주고, 없으면 제출 직전 JS가
+                         disabled 처리해서 아예 전송 안 되게 한다(빈 문자열로 보내면 서버의 Double
+                         파라미터 바인딩이 깨진다). -->
+                    <input type="hidden" id="originX" name="originX" value="">
+                    <input type="hidden" id="originY" name="originY" value="">
+                    <p class="field-hint" id="gpsStatus"></p>
+                </div>
+
+                <button type="button" class="swap-button" id="swapButton" title="출발지/도착지 바꾸기"
+                        aria-label="출발지와 도착지 바꾸기">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                         stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="17 1 21 5 17 9"></polyline>
+                        <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+                        <polyline points="7 23 3 19 7 15"></polyline>
+                        <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+                    </svg>
+                </button>
+
+                <div class="field field-dest">
+                    <div class="autocomplete">
+                        <span class="field-icon field-icon-dest" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+                                <line x1="4" y1="22" x2="4" y2="15"></line>
+                            </svg>
+                        </span>
+                        <input type="text" id="destName" name="destName" th:value="${destName}" required
+                               placeholder="도착지" aria-label="도착지" autocomplete="off">
+                        <div class="autocomplete-dropdown" id="destSuggest"></div>
+                    </div>
+                    <!-- 자동완성에서 특정 후보(예: "강남 2호선")를 고르면 여기에 좌표가 채워진다 -
+                         안 그러면 이름만 "강남"으로 남아 검색 시 후보를 또 고르라고 나온다. -->
+                    <input type="hidden" id="destX" name="destX" value="">
+                    <input type="hidden" id="destY" name="destY" value="">
                 </div>
             </div>
-            <div class="field">
-                <label for="destName">도착지</label>
-                <div class="autocomplete">
-                    <input type="text" id="destName" name="destName" th:value="${destName}" required
-                           placeholder="역 이름 또는 주소, 예: 압구정" autocomplete="off">
-                    <div class="autocomplete-dropdown" id="destSuggest"></div>
-                </div>
-            </div>
+
             <div class="field" th:if="${arrivalMode}">
                 <label>목표 도착 시각</label>
                 <div class="time-picker" id="timePicker">
-                    <div class="time-picker-segment time-picker-day is-disabled" id="timePickerDay" title="다른날 선택은 준비중입니다">오늘</div>
+                    <span class="time-picker-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+                             stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="4" width="18" height="18" rx="3"></rect>
+                            <line x1="16" y1="2" x2="16" y2="6"></line>
+                            <line x1="8" y1="2" x2="8" y2="6"></line>
+                            <line x1="3" y1="10" x2="21" y2="10"></line>
+                        </svg>
+                    </span>
+                    <div class="time-picker-segment time-picker-day" id="timePickerDay" title="날짜 선택">
+                        <span th:if="${selectedDateIsToday}">오늘</span>
+                        <span th:unless="${selectedDateIsToday}" th:text="${#temporals.format(selectedDate, 'M/d')}"></span>
+                    </div>
                     <div class="time-picker-segment time-picker-unit">
                         <button type="button" class="time-picker-step" data-target="hour" data-delta="-1" aria-label="시간 감소">‹</button>
                         <button type="button" class="time-picker-value" id="hourValue"></button>
@@ -111,6 +132,49 @@
                 <input type="hidden" id="targetArrivalTime" name="targetArrivalTime"
                        th:value="${targetArrivalTime != null ? #temporals.format(targetArrivalTime, 'HH:mm') : ''}">
             </div>
+            <div class="field" th:unless="${arrivalMode}">
+                <label>적용 날짜</label>
+                <div class="time-picker" id="datePicker">
+                    <span class="time-picker-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+                             stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="4" width="18" height="18" rx="3"></rect>
+                            <line x1="16" y1="2" x2="16" y2="6"></line>
+                            <line x1="8" y1="2" x2="8" y2="6"></line>
+                            <line x1="3" y1="10" x2="21" y2="10"></line>
+                        </svg>
+                    </span>
+                    <div class="time-picker-segment time-picker-day" id="timePickerDay" title="날짜 선택">
+                        <span th:if="${selectedDateIsToday}">오늘</span>
+                        <span th:unless="${selectedDateIsToday}" th:text="${#temporals.format(selectedDate, 'M/d')} + ' (' + ${selectedDayTypeLabel} + ')'"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="calendar" id="calendar">
+                <p class="calendar-title" th:text="${calendarMonth} + '월 — 오늘 이후 날짜만 선택할 수 있어요'"></p>
+                <div class="calendar-weekdays">
+                    <span>월</span><span>화</span><span>수</span><span>목</span><span>금</span>
+                    <span class="calendar-sat">토</span><span class="calendar-sun">일</span>
+                </div>
+                <div class="calendar-grid">
+                    <th:block th:each="day : ${calendarDays}">
+                        <span th:if="${day.blank}" class="calendar-cell calendar-cell-blank"></span>
+                        <span th:if="${!day.blank and !day.selectable}" class="calendar-cell calendar-cell-disabled"
+                              th:text="${day.dayOfMonth}"></span>
+                        <a th:if="${!day.blank and day.selectable}" class="calendar-cell"
+                           th:classappend="(${day.selected} ? ' calendar-cell-selected' : '')
+                                           + (${day.holiday} ? ' calendar-cell-holiday' : '')
+                                           + (${day.saturday} ? ' calendar-cell-saturday' : '')"
+                           th:href="@{/(originName=${originName}, destName=${destName}, targetDate=${day.date},
+                                         mode=${arrivalMode} ? 'arrival' : null,
+                                         targetArrivalTime=${arrivalMode and targetArrivalTime != null} ? ${#temporals.format(targetArrivalTime, 'HH:mm')} : null)}"
+                           th:title="${day.dayTypeLabel}"
+                           th:text="${day.dayOfMonth}"></a>
+                    </th:block>
+                </div>
+            </div>
+
             <button type="submit" class="btn-search" id="searchBtn">
                 <span class="spinner" aria-hidden="true"></span>
                 <span class="btn-label">검색</span>
@@ -273,6 +337,19 @@
                                               th:text="${row.lineLabel()}"></span>
                                         <span th:text="${row.fromName()} + ' 승차'"></span>
                                     </span>
+                                    <!-- 이 승차 구간의 실시간 지하철 도착정보. 방향별로 가장 빠른 한 대씩(최대 3개)만
+                                         승강장 전광판처럼 행선지를 그대로 보여줘서 사용자가 자기 방향을 스스로 고르게 한다.
+                                         분:초는 화면 JS(initRealtimeCountdown)가 매초 직접 카운트다운한다. -->
+                                    <div class="realtime-arrivals" th:if="${!row.realtimeArrivals().isEmpty()}">
+                                        <span class="realtime-label">실시간</span>
+                                        <span class="realtime-chip" th:each="rt : ${row.realtimeArrivals()}"
+                                              th:classappend="${rt.isLastTrain()} ? ' realtime-chip-last' : ''"
+                                              th:attr="data-seconds=${rt.secondsUntilArrival()}">
+                                            <span class="realtime-chip-headsign" th:text="${rt.headsign()}"></span>
+                                            <b class="realtime-chip-eta" th:text="${rt.etaLabel()}"></b>
+                                            <span class="realtime-chip-lastflag" th:if="${rt.isLastTrain()}">막차</span>
+                                        </span>
+                                    </div>
                                     <span class="route-timeline-kind" th:text="${row.minutes()} + '분 이동'"></span>
                                     <span class="route-timeline-alight">
                                         <b th:text="${#temporals.format(row.endTime(), 'HH:mm')}"></b>
@@ -298,21 +375,28 @@
 </div>
 <script th:inline="none">
     document.querySelector('.search-form').addEventListener('submit', function () {
+        // 빈 좌표 hidden input은 아예 전송에서 빼야 한다(빈 문자열로 보내면 서버의 Double
+        // 파라미터 바인딩이 깨진다) - disabled 필드는 폼 전송에서 자동으로 제외된다.
+        ['originX', 'originY', 'destX', 'destY'].forEach(function (id) {
+            var input = document.getElementById(id);
+            if (input) {
+                input.disabled = !input.value;
+            }
+        });
+
         var btn = document.getElementById('searchBtn');
         btn.classList.add('is-loading');
         btn.querySelector('.btn-label').textContent = '검색 중…';
         btn.disabled = true;
     });
 
+    // 날짜를 고르면 그 즉시 페이지가 새로 로드되니(캘린더 칸이 링크라서) 캘린더는 항상 닫힌
+    // 채로 시작한다 - 따로 "닫기" 처리를 안 해도 자동으로 닫힌 상태로 보이는 셈이다.
     (function initCalendarToggle() {
-        var toggle = document.getElementById('calendarToggle');
+        var toggle = document.getElementById('timePickerDay');
         var calendar = document.getElementById('calendar');
         if (!toggle || !calendar) {
             return;
-        }
-        // 다른 날짜를 이미 고른 상태면 어떤 날을 골랐는지 바로 보이도록 펼쳐둔다.
-        if (calendar.dataset.open === 'true') {
-            calendar.classList.add('is-open');
         }
         toggle.addEventListener('click', function () {
             calendar.classList.toggle('is-open');
@@ -326,7 +410,6 @@
         }
 
         var hiddenInput = document.getElementById('targetArrivalTime');
-        var dayLabel = document.getElementById('timePickerDay');
         var hourValueBtn = document.getElementById('hourValue');
         var minuteValueBtn = document.getElementById('minuteValue');
         var hourDropdown = document.getElementById('hourDropdown');
@@ -358,9 +441,6 @@
             hourValueBtn.textContent = pad(hour) + '시';
             minuteValueBtn.textContent = pad(minute) + '분';
             hiddenInput.value = pad(hour) + ':' + pad(minute);
-            // 새벽 6시 이전은 "오늘 밤 자정 넘어서"로 보는 서버 로직(EARLY_MORNING_CUTOFF)과
-            // 맞춰서, 그 시간대를 고르면 실제로는 다음날임을 알려준다.
-            dayLabel.textContent = hour < 6 ? '내일' : '오늘';
             markSelected(hourDropdown, hour);
             markSelected(minuteDropdown, minute);
         }
@@ -447,9 +527,11 @@
     (function initAutocomplete() {
         var DEBOUNCE_MS = 250;
 
-        function setup(inputId, dropdownId) {
+        function setup(inputId, dropdownId, xInputId, yInputId) {
             var input = document.getElementById(inputId);
             var dropdown = document.getElementById(dropdownId);
+            var xInput = document.getElementById(xInputId);
+            var yInput = document.getElementById(yInputId);
             if (!input || !dropdown) {
                 return;
             }
@@ -472,8 +554,15 @@
                 activeIndex = index;
             }
 
+            // 후보를 고르면 이름뿐 아니라 좌표까지 같이 저장해야 한다 - 안 그러면 "강남"처럼
+            // 여러 노선에 걸리는 이름만 남아서, 검색 버튼을 눌렀을 때 서버가 또다시 "후보를
+            // 선택하세요" 화면을 보여준다(이미 골랐던 걸 또 고르라고 하는 셈).
             function select(candidate) {
                 input.value = candidate.stationName;
+                if (xInput && yInput) {
+                    xInput.value = String(candidate.x);
+                    yInput.value = String(candidate.y);
+                }
                 close();
             }
 
@@ -512,6 +601,15 @@
             }
 
             input.addEventListener('input', function () {
+                // 직접 타이핑하면 이전에 후보 선택(또는 GPS)으로 채워졌던 좌표는 이 텍스트와
+                // 더 이상 안 맞으므로 지운다.
+                if (xInput) {
+                    xInput.value = '';
+                }
+                if (yInput) {
+                    yInput.value = '';
+                }
+
                 var query = input.value.trim();
                 clearTimeout(debounceTimer);
                 if (!query) {
@@ -557,8 +655,122 @@
             });
         }
 
-        setup('originName', 'originSuggest');
-        setup('destName', 'destSuggest');
+        setup('originName', 'originSuggest', 'originX', 'originY');
+        setup('destName', 'destSuggest', 'destX', 'destY');
+    })();
+
+    // 좌표 클리어 자체는 initAutocomplete의 input 리스너가 이미 처리한다 - 여기서는 GPS
+    // 전용 안내문구만 정리한다(직접 타이핑을 시작하면 "위치 정보를 가져오지 못했어요" 같은
+    // 예전 GPS 결과 문구가 화면에 남아있으면 안 되므로).
+    (function initGpsStatusClear() {
+        var originName = document.getElementById('originName');
+        var gpsStatus = document.getElementById('gpsStatus');
+        if (!originName || !gpsStatus) {
+            return;
+        }
+        originName.addEventListener('input', function () {
+            gpsStatus.textContent = '';
+        });
+    })();
+
+    (function initSwapButton() {
+        var button = document.getElementById('swapButton');
+        if (!button) {
+            return;
+        }
+        button.addEventListener('click', function () {
+            var originName = document.getElementById('originName');
+            var destName = document.getElementById('destName');
+            var originX = document.getElementById('originX');
+            var originY = document.getElementById('originY');
+            var gpsStatus = document.getElementById('gpsStatus');
+            var temp = originName.value;
+            originName.value = destName.value;
+            destName.value = temp;
+            // 도착지엔 좌표 입력칸이 없어서(GPS는 출발지 전용) 좌표를 그대로 들고 넘어갈 수 없다 -
+            // 바뀐 이름으로 다시 찾도록 비운다.
+            if (originX) {
+                originX.value = '';
+            }
+            if (originY) {
+                originY.value = '';
+            }
+            if (gpsStatus) {
+                gpsStatus.textContent = '';
+            }
+        });
+    })();
+
+    (function initGpsButton() {
+        var button = document.getElementById('gpsButton');
+        var originName = document.getElementById('originName');
+        var originX = document.getElementById('originX');
+        var originY = document.getElementById('originY');
+        var status = document.getElementById('gpsStatus');
+        if (!button || !originName || !originX || !originY) {
+            return;
+        }
+
+        button.addEventListener('click', function () {
+            if (!navigator.geolocation) {
+                if (status) {
+                    status.textContent = '이 브라우저는 위치 정보를 지원하지 않아요.';
+                }
+                return;
+            }
+            button.classList.add('is-loading');
+            if (status) {
+                status.textContent = '현재 위치를 찾는 중…';
+            }
+            navigator.geolocation.getCurrentPosition(function (position) {
+                button.classList.remove('is-loading');
+                originX.value = String(position.coords.longitude);
+                originY.value = String(position.coords.latitude);
+                originName.value = '현재 위치';
+                if (status) {
+                    status.textContent = '';
+                }
+            }, function () {
+                button.classList.remove('is-loading');
+                if (status) {
+                    status.textContent = '위치 정보를 가져오지 못했어요. 브라우저 위치 권한을 확인해주세요.';
+                }
+            }, { enableHighAccuracy: true, timeout: 10000 });
+        });
+    })();
+
+    // 실시간 도착정보 칩의 "분:초"를 매초 직접 카운트다운한다(서버가 페이지 렌더 시점의 초를
+    // 내려주면, 그 다음부턴 다시 요청하지 않고 화면에서만 흘려보낸다). 1분 미만이 되면 "곧 도착"으로
+    // 고정하고 더 이상 줄이지 않는다 - 음수로 흘러가거나 "-1:23" 같은 값이 보이면 안 되기 때문.
+    (function initRealtimeCountdown() {
+        var chips = document.querySelectorAll('.realtime-chip[data-seconds]');
+        if (!chips.length) {
+            return;
+        }
+
+        function format(seconds) {
+            if (seconds < 60) {
+                return '곧 도착';
+            }
+            var minutes = Math.floor(seconds / 60);
+            var rest = seconds % 60;
+            return minutes + ':' + String(rest).padStart(2, '0');
+        }
+
+        setInterval(function () {
+            chips.forEach(function (chip) {
+                var seconds = Number(chip.dataset.seconds);
+                if (!Number.isFinite(seconds) || seconds <= 0) {
+                    return;
+                }
+                seconds -= 1;
+                chip.dataset.seconds = String(seconds);
+                var etaEl = chip.querySelector('.realtime-chip-eta');
+                if (etaEl) {
+                    etaEl.textContent = format(seconds);
+                }
+            });
+        }, 1000);
     })();
 </script>
 </body>
