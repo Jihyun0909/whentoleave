@@ -94,30 +94,6 @@ body {
     margin-bottom: 28px;
 }
 
-.logo-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 18px;
-}
-
-.logo-badge {
-    display: block;
-    width: 64px;
-    height: 64px;
-    object-fit: contain;
-    flex-shrink: 0;
-}
-
-.app-header h1 {
-    font-family: var(--font-display);
-    font-size: 28px;
-    font-weight: 400;
-    color: var(--text);
-    margin: 0;
-    letter-spacing: -0.3px;
-}
-
 .subtitle {
     color: var(--text-muted);
     font-size: 15px;
