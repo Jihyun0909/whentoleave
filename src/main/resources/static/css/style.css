@@ -94,6 +94,14 @@ body {
     margin-bottom: 28px;
 }
 
+.logo-badge {
+    display: block;
+    height: 56px;
+    width: auto;
+    object-fit: contain;
+    margin: 0 auto 16px;
+}
+
 .subtitle {
     color: var(--text-muted);
     font-size: 15px;
@@ -439,11 +447,64 @@ body {
     display: block;
 }
 
-.autocomplete-option {
+/* 브라우저 기본 "이 입력란을 작성하세요" 말풍선은 배경색 등을 CSS로 바꿀 수 없어서(브라우저가
+   직접 그리는 UI라 페이지 스타일이 안 먹는다), 같은 자리에 직접 그린 커스텀 툴팁으로 대체한다. */
+.field-tooltip {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 4px;
+    margin-top: 10px;
+    align-items: center;
+    gap: 8px;
+    background: var(--card-bg);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(var(--shadow-color), 0.2);
+    padding: 9px 12px;
+    max-width: 260px;
+    z-index: 25;
+}
+
+.field-tooltip.is-open {
+    display: flex;
+}
+
+.field-tooltip::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: 16px;
+    width: 10px;
+    height: 10px;
+    background: var(--card-bg);
+    transform: rotate(45deg);
+}
+
+.field-tooltip-icon {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    background: #FFC021;
+    color: #4A3300;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.field-tooltip-text {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.autocomplete-option {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
     width: 100%;
     padding: 10px 12px;
     border: none;
@@ -461,16 +522,22 @@ body {
 }
 
 .autocomplete-option-name {
+    width: 100%;
     font-size: 14px;
     font-weight: 700;
     color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .autocomplete-option-line {
+    width: 100%;
     font-size: 12px;
     font-weight: 600;
     color: var(--text-muted);
-    white-space: nowrap;
+    white-space: normal;
+    word-break: keep-all;
 }
 
 /* overflow:hidden을 쓰면 안 된다 - 시/분 드롭다운이 이 박스 밖으로 펼쳐지는데 통째로 잘려서 안 보인다. */

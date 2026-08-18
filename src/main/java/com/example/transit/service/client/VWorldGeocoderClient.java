@@ -54,6 +54,21 @@ public class VWorldGeocoderClient {
         return restClient.get().uri(uri).retrieve().body(VWorldSearchResponse.class);
     }
 
+    /**
+     * 장소(POI) 검색. 은행 지점·아파트 단지·학교처럼 주소가 아니라 상호/건물명으로 입력해도
+     * 찾아준다("신한은행 본점", "수원SK스카이뷰아파트" 등). 주소 검색과 응답 스키마가 같아서
+     * 같은 DTO({@link VWorldSearchResponse})를 그대로 쓴다. type=ADDRESS와 달리 category
+     * 파라미터가 없다(라이브 테스트로 확인 - 넣으면 오히려 결과가 안 나옴).
+     */
+    public VWorldSearchResponse searchPlace(String query) {
+        URI uri = URI.create(SEARCH_URL
+                + "?service=search&request=search&version=2.0&crs=EPSG:4326&format=json&errorformat=json"
+                + "&size=5&type=PLACE"
+                + "&query=" + encode(query)
+                + "&key=" + encode(apiKey));
+        return restClient.get().uri(uri).retrieve().body(VWorldSearchResponse.class);
+    }
+
     private String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
