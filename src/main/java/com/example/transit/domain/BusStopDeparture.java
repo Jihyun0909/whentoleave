@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -24,9 +25,18 @@ import java.time.LocalTime;
  * </pre>
  * 로 추정한 값을 저장한다. 그래서 이 테이블의 값은 시간표가 아니라 추정치이며,
  * 화면에서도 버스가 낀 경로는 "추정" 표시를 함께 보여준다.
+ * <p>
+ * (bus_id, station_id, day_type)에 유니크 제약을 둔다. subway_schedule과 달리 이 테이블은
+ * 키 하나당 딱 한 행(그 노선·정류장·요일유형의 첫차/막차 한 세트)만 있어야 하는 설계라서
+ * ({@link com.example.transit.repository.BusStopDepartureRepository}가 {@code Optional}을
+ * 반환하는 이유), 제약이 없으면 동시 요청이 캐시 미스에서 경합해 같은 키로 두 행을 넣을 수
+ * 있고, 그러면 이후 조회가 전부 {@code NonUniqueResultException}으로 500을 낸다(실제 발생).
  */
 @Entity
-@Table(name = "bus_stop_departure")
+@Table(name = "bus_stop_departure",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_bus_stop_departure_bus_station_day",
+                columnNames = {"bus_id", "station_id", "day_type"}))
 public class BusStopDeparture {
 
     @Id

@@ -7,8 +7,8 @@ import com.example.transit.service.client.OdsayClient;
 import com.example.transit.service.client.dto.OdsayBusLaneDetailResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -34,6 +34,16 @@ import java.util.Optional;
  * 노선 하나당 API를 한 번 호출해야 해서, 무료 호출 한도를 지키려고 구간당 조회하는 노선 수를
  * {@link #MAX_LANES_PER_LEG}개로 제한하고, (노선, 정류장, 요일유형)별로 캐싱한다
  * (SubwayScheduleCacheService와 같은 lazy cache-aside 방식).
+ * <p>
+ * <b>캐시 미스 경합:</b> 동시 요청이 같은 키에서 캐시 미스를 겪으면 둘 다 insert를 시도할 수
+ * 있다. {@code bus_stop_departure}에 (bus_id, station_id, day_type) 유니크 제약이 있으므로
+ * 진 쪽은 저장 시점에 {@link org.springframework.dao.DataIntegrityViolationException}을 받는데,
+ * {@link #fetchAndCache}에서 이를 이긴 쪽이 이미 커밋한 행으로 재조회해 흡수한다. 이 클래스에
+ * 메서드 단위 {@code @Transactional}을 걸지 않는 것은 의도적이다 — 실패한 저장 시도의 트랜잭션이
+ * 재조회와 같은 트랜잭션에 묶여 있으면(PostgreSQL은 한 문장이 실패하면 그 트랜잭션 전체가
+ * "aborted" 상태가 되어 이후 어떤 명령도 실패한다) 재조회조차 실패한다. Spring Data JPA
+ * 리포지토리 메서드는 기본적으로 호출마다 자기 트랜잭션을 갖기 때문에, 실패한 저장과 뒤이은
+ * 재조회가 서로 다른 트랜잭션/커넥션에서 돌아 이 문제를 자연스럽게 피한다.
  */
 @Service
 public class BusDepartureCacheService implements BusDepartureLookup {
@@ -59,7 +69,6 @@ public class BusDepartureCacheService implements BusDepartureLookup {
     }
 
     @Override
-    @Transactional
     public List<Integer> departureServiceMinutes(TransitLeg leg, LocalDate date) {
         DayType dayType = DayType.from(date);
         List<Integer> all = new ArrayList<>();
@@ -104,7 +113,16 @@ public class BusDepartureCacheService implements BusDepartureLookup {
                 toLocalTime(firstAtStop), firstAtStop >= MINUTES_PER_DAY,
                 toLocalTime(lastAtStop), lastAtStop >= MINUTES_PER_DAY,
                 intervalMinutes(detail, dayType), detail.busNo());
-        return Optional.of(repository.save(entity));
+        try {
+            return Optional.of(repository.save(entity));
+        } catch (DataIntegrityViolationException e) {
+            // 캐시 미스 경합에서 진 경우 (동시 요청이 같은 키로 먼저 커밋). 유니크 제약
+            // 위반이므로 이긴 쪽이 이미 저장한 행을 그대로 쓰면 된다 — 이 예외로 요청을
+            // 실패시키면 안 된다(이게 바로 클래스 도입부에 적어둔 원래 500 버그).
+            log.debug("busId={} stationId={} dayType={} 캐시 저장 경합 - 이미 저장된 행을 재조회",
+                    busId, leg.stationId(), dayType);
+            return repository.findByBusIdAndStationIdAndDayType(busId, leg.stationId(), dayType);
+        }
     }
 
     /**

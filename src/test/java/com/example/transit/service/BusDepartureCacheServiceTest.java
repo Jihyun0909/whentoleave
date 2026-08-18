@@ -6,6 +6,7 @@ import com.example.transit.repository.BusStopDepartureRepository;
 import com.example.transit.service.client.OdsayClient;
 import com.example.transit.service.client.dto.OdsayBusLaneDetailResponse;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Example;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -140,6 +141,34 @@ class BusDepartureCacheServiceTest {
         assertEquals(1, client.calls);
     }
 
+    /**
+     * 캐시 미스 경합 회귀 테스트. 동시 요청이 같은 키(busId, stationId, dayType)로 먼저
+     * 커밋해버리면 우리의 저장은 유니크 제약 위반(DataIntegrityViolationException)을 받는데,
+     * 이때 그 예외로 요청을 실패시키는 대신 이긴 쪽이 이미 저장한 행을 재조회해 써야 한다
+     * (원래 버그: NonUniqueResultException이 아니라, 여기서 예외를 그냥 흘려보내면 매번
+     * DataIntegrityViolationException으로 500이 났다). 이긴 쪽의 막차(22:50)가 우리가
+     * 계산했을 값(23:00)과 다르게 반환되는 것으로 "재조회한 행을 실제로 썼는지" 검증한다.
+     */
+    @Test
+    void 캐시_미스_경합에서_저장이_유니크_제약에_걸리면_먼저_커밋된_행으로_복구한다() {
+        BusStopDeparture winner = new BusStopDeparture(
+                BUS_ID, BOARDING_STOP_ID, DayType.from(TODAY),
+                LocalTime.of(5, 0), false, LocalTime.of(22, 50), false, 10, "120");
+        RaceLosingRepository repository = new RaceLosingRepository(winner);
+        OdsayClient client = new OdsayClient("http://dummy", "dummy") {
+            @Override
+            public OdsayBusLaneDetailResponse fetchBusLaneDetail(int busId) {
+                return detail("05:00", "23:00", "10", 0);
+            }
+        };
+        BusDepartureCacheService service = new BusDepartureCacheService(repository, client);
+
+        List<Integer> minutes = service.departureServiceMinutes(busLeg(0, 0), TODAY);
+
+        assertFalse(minutes.isEmpty());
+        assertEquals(22 * 60 + 50, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
+    }
+
     private TransitLeg busLeg(int distanceMeters, int rideMinutes) {
         return TransitLeg.bus(BOARDING_STOP_ID, rideMinutes, 0, "정류장", "하차정류장", "간선", List.of(BUS_ID), "120", distanceMeters);
     }
@@ -177,6 +206,29 @@ class BusDepartureCacheServiceTest {
         public OdsayBusLaneDetailResponse fetchBusLaneDetail(int busId) {
             calls++;
             return detail;
+        }
+    }
+
+    /**
+     * 첫 저장 시도는 "동시 요청이 먼저 커밋한 행"만 실제로 넣고 유니크 제약 위반을 흉내내
+     * DataIntegrityViolationException을 던진다. 이후 저장은 정상 동작한다(다른 키 재사용 대비).
+     */
+    private static class RaceLosingRepository extends InMemoryRepository {
+        private final BusStopDeparture winner;
+        private boolean firstAttemptDone = false;
+
+        RaceLosingRepository(BusStopDeparture winner) {
+            this.winner = winner;
+        }
+
+        @Override
+        public <S extends BusStopDeparture> S save(S entity) {
+            if (!firstAttemptDone) {
+                firstAttemptDone = true;
+                super.save(winner);
+                throw new DataIntegrityViolationException("duplicate key value violates unique constraint");
+            }
+            return super.save(entity);
         }
     }
 
