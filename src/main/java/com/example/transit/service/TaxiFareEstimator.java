@@ -30,15 +30,13 @@ public class TaxiFareEstimator {
     private static final double DISTANCE_UNIT_METERS = 131;
     private static final int DISTANCE_UNIT_FARE_WON = 100;
     /**
-     * 직선거리는 실제로 달리는 도로거리보다 짧다. 처음엔 20%만 더 봤는데 실사용 비교(카카오맵)
-     * 결과 예상 요금이 눈에 띄게 싸게 나와서, 도심 도로망의 우회 정도(한강·간선도로를 따라
-     * 돌아가는 경로가 흔함)에 맞춰 35%로 올렸다.
+     * 직선거리는 실제로 달리는 도로거리보다 짧다. 카카오맵 실측값(아래 SPEED_BANDS 주석 참고)의
+     * 소요시간과 앞뒤가 맞는 값으로 맞췄다 - 이 값을 바꾸면 거리요금과 소요시간이 같이 움직이므로
+     * 둘 다 실측과 비교해서 조정해야 한다.
      */
-    private static final double ROAD_DISTANCE_FACTOR = 1.35;
+    private static final double ROAD_DISTANCE_FACTOR = 1.30;
     /** 100원 단위로 반올림해서 보여준다 - 어차피 예상치라 원 단위까지 정확한 척할 필요가 없다. */
     private static final int ROUNDING_UNIT_WON = 100;
-    /** 출퇴근 혼잡/심야 어느 쪽에도 안 걸리는 평시 평균 주행속도(km/h). */
-    private static final double DEFAULT_SPEED_KMH = 25;
 
     private static final List<SurchargeBand> SURCHARGE_BANDS = List.of(
             new SurchargeBand(new TimeBand(LocalTime.of(22, 0), LocalTime.of(23, 0)), 0.2),
@@ -47,15 +45,33 @@ public class TaxiFareEstimator {
     );
 
     /**
-     * 심야(00~05시)는 도로가 한산해서 평시보다 빨리 달린다 - 실측 비교(카카오맵) 기준으로
-     * 맞춘 값. 출퇴근 혼잡 시간대(07~09시, 18~20시)는 반대로 크게 느려진다. 그 외 시간대는
-     * DEFAULT_SPEED_KMH를 쓴다.
+     * 정체가 거의 없을 때의 주행속도(km/h). 심야 시간대 속도이자, 아래 시간요금 계산에서
+     * "정체로 얼마나 지연됐는지"를 재는 기준선이기도 하다.
+     */
+    private static final double FREE_FLOW_SPEED_KMH = 50;
+    /** 출퇴근 혼잡/심야 어느 쪽에도 안 걸리는 평시 평균 주행속도(km/h). */
+    private static final double DEFAULT_SPEED_KMH = 26;
+
+    /**
+     * 시간대별 평균 주행속도. 카카오맵 실측 비교(신사역->강북구 번동, 직선 13.7km 구간)로 맞췄다:
+     * 17:28 출발 42분, 다음날 01:00 출발 22분. 출퇴근 혼잡 시간대는 그보다 더 느려지는 것으로 둔다.
      */
     private static final List<SpeedBand> SPEED_BANDS = List.of(
-            new SpeedBand(new TimeBand(LocalTime.of(0, 0), LocalTime.of(5, 0)), 40),
+            new SpeedBand(new TimeBand(LocalTime.of(0, 0), LocalTime.of(5, 0)), FREE_FLOW_SPEED_KMH),
             new SpeedBand(new TimeBand(LocalTime.of(7, 0), LocalTime.of(9, 0)), 18),
             new SpeedBand(new TimeBand(LocalTime.of(18, 0), LocalTime.of(20, 0)), 18)
     );
+
+    /**
+     * 택시 미터기는 거리요금과 별개로, 속도가 시속 15.33km 아래로 떨어지면 시간요금(100원/30초,
+     * 즉 분당 200원)을 매긴다. 거리요금만 계산했을 때 실측(카카오맵 20,100원)보다 2,900원가량
+     * 싸게 나온 게 이 몫이었다.
+     * <p>
+     * 정체로 지연된 시간(= 실제 소요시간 - 정체 없을 때 소요시간) 전부가 시간요금 대상은 아니라
+     * (완전히 멈춰 있는 구간만 해당) 그중 일부만 매긴다. 비율은 위 실측값에 맞춘 값이다.
+     */
+    private static final int TIME_FARE_WON_PER_MINUTE = 200;
+    private static final double CONGESTION_TIME_CHARGED_RATIO = 0.7;
 
     public TaxiFareEstimate estimate(double sx, double sy, double ex, double ey) {
         return estimate(sx, sy, ex, ey, LocalTime.now());
@@ -68,27 +84,47 @@ public class TaxiFareEstimator {
      *                      잘못 적용되지 않는다.
      */
     public TaxiFareEstimate estimate(double sx, double sy, double ex, double ey, LocalTime referenceTime) {
-        double roadMeters = distanceMeters(sy, sx, ey, ex) * ROAD_DISTANCE_FACTOR;
-
-        int baseFare = BASE_FARE_WON;
-        if (roadMeters > BASE_DISTANCE_METERS) {
-            double extraMeters = roadMeters - BASE_DISTANCE_METERS;
-            long units = (long) Math.ceil(extraMeters / DISTANCE_UNIT_METERS);
-            baseFare += (int) (units * DISTANCE_UNIT_FARE_WON);
-        }
-
-        SurchargeBand surcharge = SURCHARGE_BANDS.stream()
-                .filter(band -> band.timeBand().contains(referenceTime))
-                .findFirst().orElse(null);
-        int fare = surcharge == null ? baseFare : (int) Math.round(baseFare * (1 + surcharge.rate()));
-        fare = Math.round((float) fare / ROUNDING_UNIT_WON) * ROUNDING_UNIT_WON;
+        double roadKm = distanceMeters(sy, sx, ey, ex) * ROAD_DISTANCE_FACTOR / 1000;
 
         double speedKmh = SPEED_BANDS.stream()
                 .filter(band -> band.timeBand().contains(referenceTime))
                 .findFirst().map(SpeedBand::speedKmh).orElse(DEFAULT_SPEED_KMH);
-        int minutes = Math.max(1, (int) Math.ceil(roadMeters / 1000 / speedKmh * 60));
+        // 요금 계산엔 반올림하지 않은 소요시간을 쓴다 - 화면 표시용으로 올림/최소 1분 처리한
+        // 값을 그대로 넣으면, 몇백 미터짜리 거리에서 있지도 않은 정체 지연이 잡혀 시간요금이
+        // 붙어버린다.
+        double exactMinutes = roadKm / speedKmh * 60;
+        int minutes = Math.max(1, (int) Math.ceil(exactMinutes));
+
+        int fare = distanceFare(roadKm) + congestionTimeFare(roadKm, exactMinutes);
+
+        SurchargeBand surcharge = SURCHARGE_BANDS.stream()
+                .filter(band -> band.timeBand().contains(referenceTime))
+                .findFirst().orElse(null);
+        if (surcharge != null) {
+            fare = (int) Math.round(fare * (1 + surcharge.rate()));
+        }
+        fare = Math.round((float) fare / ROUNDING_UNIT_WON) * ROUNDING_UNIT_WON;
 
         return new TaxiFareEstimate(fare, minutes, surcharge == null ? null : surcharge.label());
+    }
+
+    /** 기본요금 + 기본거리 초과분에 대한 거리요금. */
+    private int distanceFare(double roadKm) {
+        double roadMeters = roadKm * 1000;
+        if (roadMeters <= BASE_DISTANCE_METERS) {
+            return BASE_FARE_WON;
+        }
+        long units = (long) Math.ceil((roadMeters - BASE_DISTANCE_METERS) / DISTANCE_UNIT_METERS);
+        return BASE_FARE_WON + (int) (units * DISTANCE_UNIT_FARE_WON);
+    }
+
+    /**
+     * 정체로 지연된 만큼 붙는 시간요금. 정체가 없는 심야 시간대는 지연이 0이라 자연히 안 붙는다.
+     */
+    private int congestionTimeFare(double roadKm, double exactMinutes) {
+        double freeFlowMinutes = roadKm / FREE_FLOW_SPEED_KMH * 60;
+        double delayMinutes = Math.max(0, exactMinutes - freeFlowMinutes);
+        return (int) Math.round(delayMinutes * TIME_FARE_WON_PER_MINUTE * CONGESTION_TIME_CHARGED_RATIO);
     }
 
     /** 두 좌표 사이 거리(m). Haversine. */

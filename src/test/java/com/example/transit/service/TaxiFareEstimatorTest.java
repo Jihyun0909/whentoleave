@@ -140,6 +140,42 @@ class TaxiFareEstimatorTest {
     }
 
     /**
+     * 카카오맵 실측값에 대한 회귀 테스트 - 신사역 -> 강북구 번동(직선 약 13.7km) 구간에서
+     * 17:28 출발 42분/20,100원, 다음날 01:00 출발 22분으로 확인된 값이다. 도로거리 보정치나
+     * 시간대별 속도, 시간요금 계수를 건드리면 이 값들이 같이 움직이므로 여기서 잡는다.
+     * (실제 도로 경로가 아니라 직선거리 기반 추정이라 정확히 같을 수는 없어 여유를 둔다.)
+     */
+    @Test
+    void 카카오맵_실측값과_비슷한_범위로_추정한다() {
+        double sx = 127.020402, sy = 37.516484;   // 신사역
+        double ex = 127.0281893, ey = 37.6394739; // 서울특별시 강북구 번동 463-68
+
+        TaxiFareEstimator.TaxiFareEstimate evening = estimator.estimate(sx, sy, ex, ey, LocalTime.of(17, 28));
+        assertTrue(Math.abs(evening.estimatedMinutes() - 42) <= 3,
+                "17:28 소요시간 실측 42분과 3분 이내여야 함: " + evening.estimatedMinutes());
+        assertTrue(Math.abs(evening.fareWon() - 20_100) <= 1_500,
+                "17:28 요금 실측 20,100원과 1,500원 이내여야 함: " + evening.fareWon());
+
+        TaxiFareEstimator.TaxiFareEstimate lateNight = estimator.estimate(sx, sy, ex, ey, LocalTime.of(1, 0));
+        assertTrue(Math.abs(lateNight.estimatedMinutes() - 22) <= 3,
+                "01:00 소요시간 실측 22분과 3분 이내여야 함: " + lateNight.estimatedMinutes());
+    }
+
+    /** 정체가 없는 심야엔 시간요금이 안 붙어야 한다(지연 시간이 0이므로). */
+    @Test
+    void 심야에는_시간요금이_붙지_않는다() {
+        // 04:00은 할증도 끝나고 심야 속도대(00~05시)라 순수 거리요금만 나와야 한다.
+        TaxiFareEstimator.TaxiFareEstimate estimate =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, LocalTime.of(4, 0));
+
+        assertFalse(estimate.hasSurcharge());
+        // 같은 거리를 정체 시간대에 가면 시간요금이 붙어 더 비싸야 한다.
+        TaxiFareEstimator.TaxiFareEstimate rushHour =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, LocalTime.of(8, 0));
+        assertTrue(rushHour.fareWon() > estimate.fareWon());
+    }
+
+    /**
      * 기준 시각을 "지금"이 아니라 파라미터로 받아야 한다 - 예를 들어 새벽 1시반 도착을
      * 목표로 검색하면(현재 시각이 언제든 상관없이) 그 시각 기준 할증/혼잡도가 적용돼야 한다.
      */
