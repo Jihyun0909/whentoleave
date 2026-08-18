@@ -1368,6 +1368,13 @@ body {
     font-weight: 500;
 }
 
+.result-taxi-fallback {
+    margin: 10px 0 0;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
 .disclaimer {
     font-size: 12.5px;
     font-weight: 500;

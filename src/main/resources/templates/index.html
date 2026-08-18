@@ -380,6 +380,10 @@
 
         <div th:if="${!feasible and walkOnlyMinutes == null}" class="result-card result-infeasible">
             <p th:text="${reason}"></p>
+            <p class="result-taxi-fallback" th:if="${taxiFareEstimate != null}">
+                택시 예상 요금 약 <b th:text="${#numbers.formatInteger(taxiFareEstimate.fareWon(), 0, 'COMMA')}"></b>원
+                <span th:if="${taxiFareEstimate.lateNightSurcharge()}">(심야 할증 포함)</span>
+            </p>
         </div>
         <div th:if="${!feasible and walkOnlyMinutes != null}" class="result-card result-walk-only">
             <p>도보로 약 <b th:text="${walkOnlyMinutes}"></b>분이면 충분한 거리예요. 대중교통을 탈 필요가 없습니다.</p>

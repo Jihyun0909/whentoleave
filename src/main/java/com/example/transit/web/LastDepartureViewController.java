@@ -10,6 +10,7 @@ import com.example.transit.service.RegionalBusArrivalLookup;
 import com.example.transit.service.RouteOption;
 import com.example.transit.service.StationResolution;
 import com.example.transit.service.StationSearchService;
+import com.example.transit.service.TaxiFareEstimator;
 import com.example.transit.service.TransitLeg;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.stereotype.Controller;
@@ -41,17 +42,20 @@ public class LastDepartureViewController {
     private final LineColorResolver lineColorResolver;
     private final RealtimeSubwayArrivalLookup subwayArrivalLookup;
     private final RegionalBusArrivalLookup busArrivalLookup;
+    private final TaxiFareEstimator taxiFareEstimator;
 
     public LastDepartureViewController(LastDepartureService lastDepartureService,
                                         StationSearchService stationSearchService,
                                         LineColorResolver lineColorResolver,
                                         RealtimeSubwayArrivalLookup subwayArrivalLookup,
-                                        RegionalBusArrivalLookup busArrivalLookup) {
+                                        RegionalBusArrivalLookup busArrivalLookup,
+                                        TaxiFareEstimator taxiFareEstimator) {
         this.lastDepartureService = lastDepartureService;
         this.stationSearchService = stationSearchService;
         this.lineColorResolver = lineColorResolver;
         this.subwayArrivalLookup = subwayArrivalLookup;
         this.busArrivalLookup = busArrivalLookup;
+        this.taxiFareEstimator = taxiFareEstimator;
     }
 
     /**
@@ -143,6 +147,10 @@ public class LastDepartureViewController {
                 model.addAttribute("reason", fallback instanceof LastDepartureResult.Infeasible i
                         ? displayReason(i, arrivalMode)
                         : "가능한 경로를 찾지 못했습니다.");
+                // 대중교통(막차/버스/심야버스)이 전부 안 되는 진짜 실패 상황에서의 마지막
+                // 대안으로 예상 택시요금을 같이 보여준다.
+                model.addAttribute("taxiFareEstimate", taxiFareEstimator.estimate(
+                        origin.x(), origin.y(), dest.x(), dest.y()));
             }
             return "index";
         }
