@@ -128,8 +128,26 @@ public class LastDepartureService {
                         (first, duplicate) -> first,
                         LinkedHashMap::new))
                 .values().stream()
-                .sorted(Comparator.comparingInt(RouteOption::totalMinutes))
+                .sorted(recommendationOrder(targetArrivalMinutes))
                 .toList();
+    }
+
+    /**
+     * 목표 도착시간이 있으면 "그 시각에 가장 가깝게 도착하는" 경로를 맨 위로 올린다 - 훨씬
+     * 일찍 도착해서 하염없이 기다리게 되는 경로보다, 목표 시각에 딱 맞춰 도착하는 쪽이
+     * 이 모드에서 원하는 답이기 때문이다(도착 시각이 목표를 넘는 경로는 애초에 계산 단계에서
+     * 걸러져 여기까지 오지 않는다). 막차 모드처럼 목표 시각이 없으면 기존대로 소요시간이
+     * 짧은 순으로 둔다.
+     */
+    private Comparator<RouteOption> recommendationOrder(Integer targetArrivalMinutes) {
+        if (targetArrivalMinutes == null) {
+            return Comparator.comparingInt(RouteOption::totalMinutes);
+        }
+        return Comparator.comparingInt(option -> targetArrivalMinutes - arrivalServiceMinutes(option));
+    }
+
+    private int arrivalServiceMinutes(RouteOption option) {
+        return option.departureServiceMinutes() + option.totalMinutes();
     }
 
     /** 목표 도착시간 계산이 실패한 이유를 화면에 보여주기 위해, 지하철 기준 결과를 한 번 더 구한다. */

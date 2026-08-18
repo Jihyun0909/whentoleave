@@ -114,6 +114,41 @@ class LastDepartureServiceTest {
     }
 
     /**
+     * 목표 도착시간 모드에서는 "목표 시각에 가장 가깝게 도착하는" 경로가 맨 위여야 한다.
+     * 소요시간만으로 정렬하면 훨씬 일찍 도착해 하염없이 기다리게 되는 경로가 1순위로 올라온다.
+     * 여기서는 5분짜리 빠른 경로(23:35 도착, 목표보다 24분 이름)보다 50분짜리 경로(23:50 도착,
+     * 목표까지 9분)가 위로 와야 한다.
+     */
+    @Test
+    void 목표_도착시간_모드에서는_목표에_가장_가깝게_도착하는_경로가_맨_위다() {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                300, List.of(train(LocalTime.of(23, 30), false)),
+                400, List.of(train(LocalTime.of(23, 0), false))
+        ));
+        LastDepartureService service = newPerPathTypeService(lookup);
+
+        List<RouteOption> options = service.calculateOptions(0, 0, 0, 0, FIXED_TARGET, LocalDate.now());
+
+        assertEquals(2, options.size());
+        assertEquals(LocalTime.of(23, 0), options.get(0).departureTime()); // 23:50 도착 - 목표에 더 가까움
+        assertEquals(LocalTime.of(23, 30), options.get(1).departureTime()); // 23:35 도착
+    }
+
+    /** 막차 모드(목표 시각 없음)에서는 기존대로 소요시간이 짧은 순이어야 한다. */
+    @Test
+    void 막차_모드에서는_소요시간이_짧은_경로가_맨_위다() {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                300, List.of(train(LocalTime.of(23, 30), false)),
+                400, List.of(train(LocalTime.of(23, 0), false))
+        ));
+        LastDepartureService service = newPerPathTypeService(lookup);
+
+        List<RouteOption> options = service.calculateOptions(0, 0, 0, 0, null, LocalDate.now());
+
+        assertEquals(5, options.get(0).totalMinutes());
+    }
+
+    /**
      * ODsay는 출발지-목적지가 700m 이내면 경로 자체를 계산하지 않고 에러만 준다(실사용 curl
      * 검증: {"error":{"msg":"출, 도착지가 700m이내입니다.","code":"-98"}}) - result가 없어
      * "경로를 찾지 못했습니다" 취급을 받는다. 이 경우 "운행 종료" 같은 엉뚱한 안내 대신, 좌표
@@ -159,6 +194,25 @@ class LastDepartureServiceTest {
         };
     }
 
+    /**
+     * 경로 종류(SearchPathType)마다 서로 다른 경로를 주는 스텁 - 정렬 순서를 검증하려면
+     * 후보가 둘 이상이어야 하는데, 같은 응답을 주면 중복 제거로 하나만 남기 때문이다.
+     * 지하철 전용은 역 300(5분), 그 외는 역 400(50분) 경로가 나온다.
+     */
+    private LastDepartureService newPerPathTypeService(LastTrainLookup lookup) {
+        OdsayClient odsayClient = new OdsayClient("http://dummy", "dummy") {
+            @Override
+            public OdsayPathResponse searchPath(double sx, double sy, double ex, double ey,
+                                                 com.example.transit.service.client.SearchPathType pathType) {
+                return pathType == com.example.transit.service.client.SearchPathType.SUBWAY_ONLY
+                        ? singleLegResponse(5, 300)
+                        : singleLegResponse(50, 400);
+            }
+        };
+        return new LastDepartureService(odsayClient, new RouteLegExtractor(),
+                LastDepartureCalculator.subwayOnly(lookup), noNightBus(odsayClient));
+    }
+
     private LastDepartureService newTransferService(LastTrainLookup lookup) {
         OdsayClient odsayClient = odsayStub(twoLegResponse());
         return new LastDepartureService(odsayClient, new RouteLegExtractor(),
@@ -187,10 +241,14 @@ class LastDepartureServiceTest {
     }
 
     private OdsayPathResponse singleLegResponse(int rideMinutes) {
+        return singleLegResponse(rideMinutes, 300);
+    }
+
+    private OdsayPathResponse singleLegResponse(int rideMinutes, int stationId) {
         return new OdsayPathResponse(
                 new OdsayPathResponse.Result(List.of(
                         new OdsayPathResponse.Path(1, List.of(
-                                new OdsayPathResponse.SubPath(1, rideMinutes, 300, 1, null, "테스트역",
+                                new OdsayPathResponse.SubPath(1, rideMinutes, stationId, 1, null, "테스트역",
                                         List.of(new OdsayPathResponse.Lane("1호선")))
                         ))
                 ))
