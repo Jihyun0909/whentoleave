@@ -502,9 +502,9 @@ body {
 
 .autocomplete-option {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
     width: 100%;
     padding: 10px 12px;
     border: none;
@@ -522,25 +522,22 @@ body {
 }
 
 .autocomplete-option-name {
+    width: 100%;
     font-size: 14px;
     font-weight: 700;
     color: var(--text);
-    min-width: 0;
-    flex: 1 1 auto;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .autocomplete-option-line {
+    width: 100%;
     font-size: 12px;
     font-weight: 600;
     color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    flex: 0 1 auto;
-    max-width: 45%;
+    white-space: normal;
+    word-break: keep-all;
 }
 
 /* overflow:hidden을 쓰면 안 된다 - 시/분 드롭다운이 이 박스 밖으로 펼쳐지는데 통째로 잘려서 안 보인다. */
