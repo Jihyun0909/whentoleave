@@ -33,6 +33,8 @@ public class LastDepartureViewController {
     private static final int MINUTES_PER_DAY = 24 * 60;
     /** 버스 구간 색 (노선별 색이 있는 지하철과 달리 버스는 한 가지 색으로 통일). */
     private static final String BUS_COLOR = "#3C8A3F";
+    /** 위경도 상 약 30m 이내면 "같은 지점을 두 번 고른 것"으로 본다. */
+    private static final double SAME_POINT_EPSILON_DEGREES = 0.0003;
 
     private final LastDepartureService lastDepartureService;
     private final StationSearchService stationSearchService;
@@ -113,6 +115,16 @@ public class LastDepartureViewController {
         }
 
         model.addAttribute("searched", true);
+
+        if (isSamePoint(origin, dest)) {
+            // 이 상태로 검색을 진행하면 ODsay가 "출,도착지가 700m이내입니다" 에러를 주고
+            // 그게 그대로 "대중교통 운행이 종료되어 안내가 불가능합니다"로 오해를 사는
+            // 문구로 이어진다 - 원인이 전혀 다르므로(같은 지점을 골랐을 뿐) 더 명확하게 안내한다.
+            model.addAttribute("feasible", false);
+            model.addAttribute("reason", "출발지와 도착지가 같습니다. 다른 목적지를 입력해주세요.");
+            return "index";
+        }
+
         List<RouteOption> options =
                 lastDepartureService.calculateOptions(origin.x(), origin.y(), dest.x(), dest.y(),
                         arrivalMode ? targetArrivalTime : null, selectedDate);
@@ -146,6 +158,11 @@ public class LastDepartureViewController {
                 .mapToInt(RouteOption::departureServiceMinutes)
                 .max().orElse(-1));
         return "index";
+    }
+
+    private boolean isSamePoint(StationResolution.Resolved a, StationResolution.Resolved b) {
+        return Math.abs(a.x() - b.x()) < SAME_POINT_EPSILON_DEGREES
+                && Math.abs(a.y() - b.y()) < SAME_POINT_EPSILON_DEGREES;
     }
 
     /**

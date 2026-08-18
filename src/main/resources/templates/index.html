@@ -741,18 +741,26 @@
             var destName = document.getElementById('destName');
             var originX = document.getElementById('originX');
             var originY = document.getElementById('originY');
+            var destX = document.getElementById('destX');
+            var destY = document.getElementById('destY');
             var gpsStatus = document.getElementById('gpsStatus');
-            var temp = originName.value;
+
+            var tempName = originName.value;
             originName.value = destName.value;
-            destName.value = temp;
-            // 도착지엔 좌표 입력칸이 없어서(GPS는 출발지 전용) 좌표를 그대로 들고 넘어갈 수 없다 -
-            // 바뀐 이름으로 다시 찾도록 비운다.
-            if (originX) {
-                originX.value = '';
+            destName.value = tempName;
+
+            // 이름만 바꾸고 좌표를 그대로 두면, 자동완성/GPS로 좌표까지 채워진 상태에서는
+            // 화면엔 바뀐 이름이 뜨지만 실제 검색은 스왑 전 좌표로 수행되는 조용한 오검색
+            // 버그가 생긴다 - 이름과 함께 좌표도 같이 맞바꿔야 한다.
+            if (originX && originY && destX && destY) {
+                var tempX = originX.value;
+                var tempY = originY.value;
+                originX.value = destX.value;
+                originY.value = destY.value;
+                destX.value = tempX;
+                destY.value = tempY;
             }
-            if (originY) {
-                originY.value = '';
-            }
+            // GPS로 채웠던 출발지 위치 안내 문구는 스왑 후엔 더 이상 안 맞으므로 지운다.
             if (gpsStatus) {
                 gpsStatus.textContent = '';
             }
