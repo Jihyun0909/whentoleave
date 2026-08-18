@@ -119,13 +119,6 @@ public class LastDepartureViewController {
         }
 
         model.addAttribute("searched", true);
-        // 검색과 추천 경로 사이에 항상 참고용으로 보여준다 - 대중교통 결과가 어떻든(성공/실패
-        // 무관) 택시와 바로 비교해볼 수 있게. 할증/혼잡도 판단은 지금이 아니라 실제 이 이동이
-        // 일어나는 시각 기준이어야 한다 - 출발 시간 계산 탭이면 목표 도착시간이 그 시각이고,
-        // 막차 탭처럼 별도 목표 시각이 없으면 지금을 그대로 쓴다.
-        LocalTime taxiReferenceTime = arrivalMode && targetArrivalTime != null ? targetArrivalTime : LocalTime.now();
-        model.addAttribute("taxiFareEstimate",
-                taxiFareEstimator.estimate(origin.x(), origin.y(), dest.x(), dest.y(), taxiReferenceTime));
 
         if (isSamePoint(origin, dest)) {
             // 이 상태로 검색을 진행하면 ODsay가 "출,도착지가 700m이내입니다" 에러를 주고
@@ -133,12 +126,15 @@ public class LastDepartureViewController {
             // 문구로 이어진다 - 원인이 전혀 다르므로(같은 지점을 골랐을 뿐) 더 명확하게 안내한다.
             model.addAttribute("feasible", false);
             model.addAttribute("reason", "출발지와 도착지가 같습니다. 다른 목적지를 입력해주세요.");
+            addTaxiEstimate(model, origin, dest, arrivalMode ? targetArrivalTime : LocalTime.now());
             return "index";
         }
 
         List<RouteOption> options =
                 lastDepartureService.calculateOptions(origin.x(), origin.y(), dest.x(), dest.y(),
                         arrivalMode ? targetArrivalTime : null, selectedDate);
+
+        addTaxiEstimate(model, origin, dest, taxiReferenceTime(arrivalMode, targetArrivalTime, options));
 
         if (options.isEmpty()) {
             // 세 가지 모두 실패한 경우, 이유를 보여주기 위해 지하철 기준 결과의 사유를 쓴다.
@@ -169,6 +165,33 @@ public class LastDepartureViewController {
                 .mapToInt(RouteOption::departureServiceMinutes)
                 .max().orElse(-1));
         return "index";
+    }
+
+    /**
+     * 택시 안내는 검색과 추천 경로 사이에 항상 보여준다 - 대중교통 결과가 어떻든(성공/실패
+     * 무관) 택시와 바로 비교해볼 수 있게.
+     */
+    private void addTaxiEstimate(Model model, StationResolution.Resolved origin,
+                                  StationResolution.Resolved dest, LocalTime referenceTime) {
+        model.addAttribute("taxiFareEstimate",
+                taxiFareEstimator.estimate(origin.x(), origin.y(), dest.x(), dest.y(), referenceTime));
+    }
+
+    /**
+     * 할증·혼잡도는 "지금"이 아니라 실제로 그 이동을 하는 시각 기준이어야 한다.
+     * <ul>
+     *   <li>출발 시간 계산 탭: 목표 도착 시각</li>
+     *   <li>막차 탭: 추천 경로의 막차 출발 시각 - 막차는 대개 밤 늦은 시각이라 지금(예: 낮)
+     *       기준으로 계산하면 할증도 안 붙고 혼잡도도 딴판이 된다.</li>
+     * </ul>
+     * 어느 쪽도 정할 수 없으면(경로를 못 찾은 경우) 지금을 쓴다.
+     */
+    private LocalTime taxiReferenceTime(boolean arrivalMode, LocalTime targetArrivalTime,
+                                         List<RouteOption> options) {
+        if (arrivalMode && targetArrivalTime != null) {
+            return targetArrivalTime;
+        }
+        return options.isEmpty() ? LocalTime.now() : options.get(0).departureTime();
     }
 
     private boolean isSamePoint(StationResolution.Resolved a, StationResolution.Resolved b) {
