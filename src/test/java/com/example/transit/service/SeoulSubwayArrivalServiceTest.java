@@ -51,6 +51,7 @@ class SeoulSubwayArrivalServiceTest {
         assertEquals(2, result.size());
 
         RealtimeSubwayArrivalLookup.SubwayArrival first = result.get(0);
+        assertEquals("2호선", first.lineName());
         assertEquals("상행", first.direction());
         assertEquals("성수", first.destinationStationName());
         assertEquals("성수행 - 신설동방면", first.headsign());
@@ -73,6 +74,24 @@ class SeoulSubwayArrivalServiceTest {
         List<RealtimeSubwayArrivalLookup.SubwayArrival> result = service.findArrivals("강남");
 
         assertNull(result.get(0).secondsUntilArrival());
+    }
+
+    /**
+     * 인천/김포/용인 등 서울시 API가 커버하지 않는 노선의 subwayId나, 매핑표에 없는 코드가
+     * 오면 lineName을 null로 준다 - 호출하는 쪽(컨트롤러)이 어느 노선인지 확신 못 하면
+     * 걸러내야(제외) 엉뚱한 노선을 그 역의 도착정보로 잘못 보여주지 않는다.
+     */
+    @Test
+    void 매핑표에_없는_subwayId면_lineName이_null이다() {
+        SeoulSubwayArrivalResponse response = new SeoulSubwayArrivalResponse(null, List.of(
+                new SeoulSubwayArrivalResponse.Arrival("9999", "상행", "알수없음행", "강남",
+                        "97", "알수없음", "전역 도착", "신설동", "0", "0", "2026-08-14 10:00:00")));
+        CountingClient client = new CountingClient("dummy-key", response);
+        SeoulSubwayArrivalService service = new SeoulSubwayArrivalService(client);
+
+        List<RealtimeSubwayArrivalLookup.SubwayArrival> result = service.findArrivals("강남");
+
+        assertNull(result.get(0).lineName());
     }
 
     @Test

@@ -280,15 +280,18 @@ public class LastDepartureViewController {
     }
 
     /**
-     * 같은 역에 방향이 여러 개(상행/하행, 내선/외선, 환승역의 다른 호선)일 수 있어 어느 열차가
-     * 사용자가 탈 방향인지 자동으로 가려낼 근거가 없다 - 그래서 방향(=사실상 노선)은 하나도
-     * 빼지 않고 전부 보여준다. 대신 한 방향에 열차가 여러 대 잡히면 화면이 너무 길어지니
-     * 방향마다 가장 빠른 2대까지만 골라, 실제 승강장 전광판처럼 행선지를 그대로 보여준다.
+     * 환승역은 서울시 API 응답 하나에 여러 호선 열차가 섞여 온다(실측 확인: 충무로역이면
+     * 3호선/4호선 열차가 같이 옴) - 이 구간이 타는 노선(leg.laneName())과 다른 호선 열차를
+     * 섞어서 보여주면 승객이 헷갈린다. 노선을 먼저 걸러낸 뒤, 그 안에서도 방향이 여러 개(상행/
+     * 하행, 내선/외선)일 수 있어 어느 방향인지 가려낼 근거는 없으므로 방향은 다 보여주되,
+     * 방향마다 가장 빠른 2대까지만 골라 실제 승강장 전광판처럼 행선지를 그대로 보여준다.
      */
     private List<RealtimeArrivalView> subwayRealtimeArrivals(TransitLeg leg) {
+        String legLineName = lineColorResolver.shortNameOf(leg.laneName());
         Map<String, List<RealtimeSubwayArrivalLookup.SubwayArrival>> byDirection =
                 subwayArrivalLookup.findArrivals(leg.stationName()).stream()
                         .filter(arrival -> arrival.secondsUntilArrival() != null)
+                        .filter(arrival -> legLineName.equals(arrival.lineName()))
                         .collect(Collectors.groupingBy(RealtimeSubwayArrivalLookup.SubwayArrival::direction));
 
         return byDirection.values().stream()
