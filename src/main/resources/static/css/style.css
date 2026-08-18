@@ -9,6 +9,8 @@
     --accent-soft: #eaf2ff;
     --error: #f04452;
     --error-bg: #fff0f1;
+    --safe: #17953a;
+    --safe-bg: #eafbee;
     --shadow-color: 25, 31, 40;
     --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
     --font-body: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", Roboto, sans-serif;
@@ -933,6 +935,31 @@ body {
     font-variant-numeric: tabular-nums;
     letter-spacing: -1px;
     color: var(--accent);
+}
+
+.route-headline-safe {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin: 6px 0 0;
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: var(--safe-bg);
+    width: fit-content;
+}
+
+.route-headline-safe-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--safe);
+}
+
+.route-headline-safe-time {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--safe);
 }
 
 /* 네이버지도 경로 카드처럼 "총 소요시간"을 크게, 도착/요금은 옆에 작게 */

@@ -6,6 +6,7 @@ import com.example.transit.service.client.OdsayClient;
 import com.example.transit.service.client.dto.OdsayPathResponse;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
@@ -75,6 +76,44 @@ class LastDepartureServiceTest {
     }
 
     /**
+     * "안전 막차" - 환승이 있는 경로에서는 환승마다 여유 버퍼(7분)를 더 요구해서 다시 계산한
+     * 더 이른 출발 시각도 RouteOption에 같이 담겨야 한다.
+     */
+    @Test
+    void 막차_모드에서_환승_경로면_안전_막차_시각도_같이_계산된다() {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                100, List.of(train(LocalTime.of(23, 0), false), train(LocalTime.of(23, 20), false)),
+                200, List.of(train(LocalTime.of(23, 30), false))
+        ));
+        LastDepartureService service = newTransferService(lookup);
+
+        List<RouteOption> options = service.calculateOptions(0, 0, 0, 0, null, LocalDate.now());
+
+        RouteOption option = options.get(0);
+        assertEquals(LocalTime.of(23, 20), option.departureTime());
+        assertTrue(option.hasSafeDeparture());
+        assertEquals(LocalTime.of(23, 0), option.safeDepartureTime());
+    }
+
+    /**
+     * 목표 도착시간 모드(출발 시간 계산 탭)에서는 "안전"이라는 개념을 적용하지 않는다 - 환승이
+     * 있는 경로(safe 계산이 실제로 다른 값을 낼 수 있는 경로)로 확인해서, 단순히 "환승이 없어서
+     * 안 나온 것"이 아니라 모드 자체 때문에 안 나온다는 걸 확인한다.
+     */
+    @Test
+    void 목표_도착시간_모드에서는_안전_막차_시각을_계산하지_않는다() {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                100, List.of(train(LocalTime.of(23, 0), false), train(LocalTime.of(23, 20), false)),
+                200, List.of(train(LocalTime.of(23, 30), false))
+        ));
+        LastDepartureService service = newTransferService(lookup);
+
+        List<RouteOption> options = service.calculateOptions(0, 0, 0, 0, FIXED_TARGET, LocalDate.now());
+
+        assertFalse(options.get(0).hasSafeDeparture());
+    }
+
+    /**
      * ODsay는 출발지-목적지가 700m 이내면 경로 자체를 계산하지 않고 에러만 준다(실사용 curl
      * 검증: {"error":{"msg":"출, 도착지가 700m이내입니다.","code":"-98"}}) - result가 없어
      * "경로를 찾지 못했습니다" 취급을 받는다. 이 경우 "운행 종료" 같은 엉뚱한 안내 대신, 좌표
@@ -118,6 +157,27 @@ class LastDepartureServiceTest {
                 return List.of();
             }
         };
+    }
+
+    private LastDepartureService newTransferService(LastTrainLookup lookup) {
+        OdsayClient odsayClient = odsayStub(twoLegResponse());
+        return new LastDepartureService(odsayClient, new RouteLegExtractor(),
+                LastDepartureCalculator.subwayOnly(lookup), noNightBus(odsayClient));
+    }
+
+    /** 역A(100, 2호선) -[5분]-> 환승도보 3분 -> 역B(200, 4호선) -[5분]->. */
+    private OdsayPathResponse twoLegResponse() {
+        return new OdsayPathResponse(
+                new OdsayPathResponse.Result(List.of(
+                        new OdsayPathResponse.Path(1, List.of(
+                                new OdsayPathResponse.SubPath(1, 5, 100, 2, null, "역A",
+                                        List.of(new OdsayPathResponse.Lane("2호선"))),
+                                new OdsayPathResponse.SubPath(3, 3, null, null, null, null, null),
+                                new OdsayPathResponse.SubPath(1, 5, 200, 2, null, "역B",
+                                        List.of(new OdsayPathResponse.Lane("4호선")))
+                        ))
+                ))
+        );
     }
 
     private LastDepartureService newService(int rideMinutes, LastTrainLookup lookup) {

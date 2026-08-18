@@ -4,6 +4,7 @@ import com.example.transit.domain.DayType;
 import com.example.transit.domain.SubwaySchedule;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
@@ -250,6 +251,72 @@ class LastDepartureCalculatorTest {
         LastDepartureResult result = calculator.calculate(List.of(leg), targetArrivalMinutes);
 
         assertInstanceOf(LastDepartureResult.Infeasible.class, result);
+    }
+
+    /**
+     * "안전 막차" 기능의 핵심 동작. 환승마다 여유 버퍼를 추가로 요구하면, 그만큼 이전 구간의
+     * 마감이 당겨지고 결국 첫 구간 출발 시각도 더 일찍(더 이르게) 나와야 한다.
+     */
+    @Test
+    void 환승_안전_마진을_주면_그만큼_더_일찍_출발하는_시각이_나온다() {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                100, List.of(
+                        lastTrain(LocalTime.of(22, 40), false),
+                        lastTrain(LocalTime.of(23, 0), false),
+                        lastTrain(LocalTime.of(23, 20), false)
+                ),
+                200, List.of(lastTrain(LocalTime.of(23, 30), false))
+        ));
+        LastDepartureCalculator calculator = LastDepartureCalculator.subwayOnly(lookup);
+
+        TransitLeg first = TransitLeg.subway(100, 2, 5, 0, Set.of());
+        TransitLeg second = TransitLeg.subway(200, 2, 5, 3, Set.of());
+
+        // 마진 0(기존과 동일): 200 leg는 23:30 하나뿐 -> 100 leg의 deadline = 23:30-5-3=23:22 -> 23:20 선택
+        LastDepartureResult noMargin = calculator.calculate(List.of(first, second), null, 0, LocalDate.now(), 0);
+        LastDepartureResult.Feasible noMarginFeasible = assertInstanceOf(LastDepartureResult.Feasible.class, noMargin);
+        assertEquals(LocalTime.of(23, 20), noMarginFeasible.departureTime());
+
+        // 마진 7분: deadline = 23:30-5-3-7=23:15 -> 23:20은 못 맞추고 그보다 이른 23:00 선택
+        LastDepartureResult withMargin = calculator.calculate(List.of(first, second), null, 0, LocalDate.now(), 7);
+        LastDepartureResult.Feasible withMarginFeasible = assertInstanceOf(LastDepartureResult.Feasible.class, withMargin);
+        assertEquals(LocalTime.of(23, 0), withMarginFeasible.departureTime());
+    }
+
+    /** 구간이 하나뿐이면(환승이 없으면) 안전 마진을 줘도 적용될 지점이 없어 최단 막차와 똑같다. */
+    @Test
+    void 환승이_없으면_안전_마진을_줘도_결과가_바뀌지_않는다() {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                300, List.of(lastTrain(LocalTime.of(23, 45), false))
+        ));
+        LastDepartureCalculator calculator = LastDepartureCalculator.subwayOnly(lookup);
+
+        TransitLeg leg = TransitLeg.subway(300, 1, 20, 0, Set.of());
+        LastDepartureResult result = calculator.calculate(List.of(leg), null, 0, LocalDate.now(), 7);
+
+        LastDepartureResult.Feasible feasible = assertInstanceOf(LastDepartureResult.Feasible.class, result);
+        assertEquals(LocalTime.of(23, 45), feasible.departureTime());
+    }
+
+    /** 마진을 두면 환승을 아예 못 맞추게 되는 경우 Infeasible이어야 한다. */
+    @Test
+    void 안전_마진_때문에_환승을_못_맞추면_Infeasible을_반환한다() {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                100, List.of(lastTrain(LocalTime.of(23, 18), false)), // deadline(마진 없이 23:22) 안엔 듦
+                200, List.of(lastTrain(LocalTime.of(23, 30), false))
+        ));
+        LastDepartureCalculator calculator = LastDepartureCalculator.subwayOnly(lookup);
+
+        TransitLeg first = TransitLeg.subway(100, 2, 5, 0, Set.of());
+        TransitLeg second = TransitLeg.subway(200, 2, 5, 3, Set.of());
+
+        // 마진 0이면 23:18이 deadline(23:22) 안에 들어 Feasible
+        LastDepartureResult noMargin = calculator.calculate(List.of(first, second), null, 0, LocalDate.now(), 0);
+        assertInstanceOf(LastDepartureResult.Feasible.class, noMargin);
+
+        // 마진 7분이면 deadline이 23:15로 당겨져 23:18은 못 맞춤 -> 더 이른 후보도 없어 Infeasible
+        LastDepartureResult withMargin = calculator.calculate(List.of(first, second), null, 0, LocalDate.now(), 7);
+        assertInstanceOf(LastDepartureResult.Infeasible.class, withMargin);
     }
 
     @Test

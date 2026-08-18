@@ -62,6 +62,20 @@ public class LastDepartureCalculator {
      */
     public LastDepartureResult calculate(List<TransitLeg> legs, Integer targetArrivalMinutes,
                                           int finalWalkMinutes, LocalDate date) {
+        return calculate(legs, targetArrivalMinutes, finalWalkMinutes, date, 0);
+    }
+
+    /**
+     * @param transferSafetyMarginMinutes 환승마다 추가로 확보할 여유시간(분). 0이면 기존과 동일한
+     *                                     "정확히 맞춰 타는" 최단 막차 계산이다. 값을 주면 각 환승
+     *                                     지점(구간과 구간 사이)마다 그만큼 일찍 도착하는 걸 목표로
+     *                                     역산해서, 실제 배차가 시간표와 1~2분 어긋나거나 걸음이
+     *                                     느려도 놓치지 않을 확률을 높인다. 첫 구간 승차역까지 걷는
+     *                                     시간에는 적용하지 않는다 - 그건 환승이 아니라 출발 시각을
+     *                                     스스로 정하는 구간이라 놓칠 위험이 없다.
+     */
+    public LastDepartureResult calculate(List<TransitLeg> legs, Integer targetArrivalMinutes,
+                                          int finalWalkMinutes, LocalDate date, int transferSafetyMarginMinutes) {
         if (legs == null || legs.isEmpty()) {
             throw new IllegalArgumentException("legs must not be empty");
         }
@@ -105,7 +119,7 @@ public class LastDepartureCalculator {
             if (i == 0) {
                 firstLegUsableMinutes = usableMinutes;
             } else {
-                requiredArrivalMinutes = usableMinutes - leg.transferBufferMinutes();
+                requiredArrivalMinutes = usableMinutes - leg.transferBufferMinutes() - transferSafetyMarginMinutes;
             }
         }
 

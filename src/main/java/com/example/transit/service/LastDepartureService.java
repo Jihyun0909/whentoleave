@@ -30,6 +30,12 @@ public class LastDepartureService {
     /** 서울 심야버스 중 가장 이른 첫차가 23시대라, 이보다 이른 도착 목표면 탐색 자체를 건너뛴다. */
     private static final int NIGHT_BUS_EARLIEST_MINUTES = 23 * 60;
     /**
+     * "안전 막차"에서 환승마다 추가로 확보하는 여유시간(분). 5~10분 사이 중간값 - 배차가
+     * 시간표와 1~2분 어긋나거나 걸음이 느려도 놓치지 않을 정도의 여유. 막차 모드에서만
+     * 의미가 있다(목표 도착시간 역산에서는 "안전"이라는 개념 자체가 불분명해서 적용하지 않는다).
+     */
+    private static final int SAFE_TRANSFER_MARGIN_MINUTES = 7;
+    /**
      * 출발지-목적지가 이 거리(m) 이내인데 ODsay가 경로를 못 찾으면(예: ODsay 자체가
      * "출,도착지가 700m이내입니다" 에러를 주는 경우), 대중교통이 필요 없을 만큼 가까운
      * 거리라고 보고 도보 시간을 추정해서 대신 보여준다. ODsay가 도보 전용 경로를 실제로
@@ -105,13 +111,15 @@ public class LastDepartureService {
                 SearchPathType.SUBWAY_ONLY, SearchPathType.ALL, SearchPathType.BUS_ONLY)) {
             Best best = calculateFor(pathType, sx, sy, ex, ey, targetArrivalMinutes, date);
             if (best.result() instanceof LastDepartureResult.Feasible feasible) {
-                options.add(toOption(pathType.label(), feasible, best.fareWon()));
+                options.add(toOption(pathType.label(), feasible, best.fareWon(), targetArrivalMinutes, date));
             }
         }
         // 심야버스는 ODsay 경로탐색에 아예 안 나와서 따로 찾아 붙인다. 지하철/버스가 다 끊긴
         // 시간대에는 이게 유일한 답인 경우가 많아, 막차 앱에서는 빠지면 안 되는 정보다.
+        Integer finalTargetArrivalMinutes = targetArrivalMinutes;
         bestNightBus(sx, sy, ex, ey, targetArrivalMinutes, date)
-                .ifPresent(feasible -> options.add(toOption(NIGHT_BUS_LABEL, feasible, 0)));
+                .ifPresent(feasible -> options.add(
+                        toOption(NIGHT_BUS_LABEL, feasible, 0, finalTargetArrivalMinutes, date)));
 
         return options.stream()
                 .collect(Collectors.toMap(
@@ -193,14 +201,33 @@ public class LastDepartureService {
                 ? Optional.of(feasible) : Optional.empty();
     }
 
-    private RouteOption toOption(String modeLabel, LastDepartureResult.Feasible feasible, int fareWon) {
+    private RouteOption toOption(String modeLabel, LastDepartureResult.Feasible feasible, int fareWon,
+                                  Integer targetArrivalMinutes, LocalDate date) {
         int legsMinutes = feasible.legs().stream()
                 .mapToInt(leg -> leg.rideMinutes() + leg.transferBufferMinutes())
                 .sum();
         boolean hasBus = feasible.legs().stream().anyMatch(TransitLeg::isBus);
+
+        // "안전 막차"는 막차 모드(목표 도착시간 없음)에서만 의미가 있다. 같은 경로(legs)를 그대로
+        // 두고, 환승마다 여유 버퍼를 더 요구하며 다시 역산해서 더 이른 출발 시각을 구한다 -
+        // ODsay 재검색 없이 이미 고른 경로의 시간표만 다시 본다. 환승이 없는 직행 경로는 여유를
+        // 둘 지점 자체가 없어 최단 막차와 똑같은 시각이 나오는데, 그런 경우 굳이 "안전 막차"라는
+        // 이름으로 같은 시각을 또 보여주면 중복일 뿐이라 화면에는 최단 막차만 남긴다.
+        LocalTime safeDepartureTime = null;
+        boolean safeNextDay = false;
+        if (targetArrivalMinutes == null) {
+            LastDepartureResult safeResult = calculator.calculate(
+                    feasible.legs(), null, feasible.finalWalkMinutes(), date, SAFE_TRANSFER_MARGIN_MINUTES);
+            if (safeResult instanceof LastDepartureResult.Feasible safeFeasible
+                    && toServiceMinutes(safeFeasible) != toServiceMinutes(feasible)) {
+                safeDepartureTime = safeFeasible.departureTime();
+                safeNextDay = safeFeasible.nextDay();
+            }
+        }
+
         return new RouteOption(modeLabel, feasible.departureTime(), feasible.nextDay(),
                 feasible.legs(), feasible.finalWalkMinutes(), legsMinutes + feasible.finalWalkMinutes(),
-                hasBus, feasible.isLastTrainDeparture(), fareWon);
+                hasBus, feasible.isLastTrainDeparture(), fareWon, safeDepartureTime, safeNextDay);
     }
 
     private String legSignature(RouteOption option) {

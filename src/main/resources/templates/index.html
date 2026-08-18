@@ -271,11 +271,16 @@
             <div class="route-headline" th:unless="${view.departureAlreadyPassed()}">
                 <p class="route-headline-label">
                     <span th:if="${arrivalMode}" th:text="${#temporals.format(targetArrivalTime, 'HH:mm')} + '까지 도착하려면 이 시각까지 출발'"></span>
-                    <span th:unless="${arrivalMode}">막차로 도착하려면 이 시각까지 출발</span>
+                    <span th:unless="${arrivalMode}" th:text="${view.option().hasSafeDeparture()} ? '최단 막차 - 환승을 정확히 맞춰야 함' : '막차로 도착하려면 이 시각까지 출발'"></span>
                 </p>
                 <p class="route-headline-time">
                     <span th:text="${#temporals.format(view.option().departureTime(), 'HH:mm')}"></span>
                     <span class="badge-nextday" th:if="${view.option().nextDay()}">다음날 새벽</span>
+                </p>
+                <p class="route-headline-safe" th:if="${!arrivalMode and view.option().hasSafeDeparture()}">
+                    <span class="route-headline-safe-label">환승 여유 7분 두는 안전 막차</span>
+                    <span class="route-headline-safe-time" th:text="${#temporals.format(view.option().safeDepartureTime(), 'HH:mm')}"></span>
+                    <span class="badge-nextday" th:if="${view.option().safeNextDay()}">다음날 새벽</span>
                 </p>
             </div>
 
