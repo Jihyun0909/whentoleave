@@ -119,6 +119,10 @@ public class LastDepartureViewController {
         }
 
         model.addAttribute("searched", true);
+        // 검색과 추천 경로 사이에 항상 참고용으로 보여준다 - 대중교통 결과가 어떻든(성공/실패
+        // 무관) 택시와 바로 비교해볼 수 있게.
+        model.addAttribute("taxiFareEstimate",
+                taxiFareEstimator.estimate(origin.x(), origin.y(), dest.x(), dest.y()));
 
         if (isSamePoint(origin, dest)) {
             // 이 상태로 검색을 진행하면 ODsay가 "출,도착지가 700m이내입니다" 에러를 주고
