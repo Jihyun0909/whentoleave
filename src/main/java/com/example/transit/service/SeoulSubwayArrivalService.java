@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * {@link SeoulSubwayApiClient}로 실시간 지하철 도착정보를 조회해 도메인 형태로 변환한다.
@@ -18,6 +19,9 @@ import java.util.Map;
 public class SeoulSubwayArrivalService implements RealtimeSubwayArrivalLookup {
 
     private static final Logger log = LoggerFactory.getLogger(SeoulSubwayArrivalService.class);
+
+    /** "수유(강북구청)"처럼 뒤에 붙는 부역명 괄호 - 서울시 API는 이걸 빼야 인식한다. */
+    private static final Pattern TRAILING_PARENTHETICAL = Pattern.compile("\\s*\\([^)]*\\)\\s*$");
 
     /**
      * 서울시 응답의 subwayId(자체 호선 코드) -> 화면/LineColorResolver와 같은 형식의 짧은
@@ -56,12 +60,23 @@ public class SeoulSubwayArrivalService implements RealtimeSubwayArrivalLookup {
         if (!client.isConfigured() || stationName == null || stationName.isBlank()) {
             return List.of();
         }
+        String queryName = toSeoulStationName(stationName);
         try {
-            return toArrivals(client.findArrivals(stationName));
+            return toArrivals(client.findArrivals(queryName));
         } catch (RuntimeException e) {
-            log.debug("서울시 지하철 실시간 도착정보 조회 실패 station={}", stationName, e);
+            log.debug("서울시 지하철 실시간 도착정보 조회 실패 station={}", queryName, e);
             return List.of();
         }
+    }
+
+    /**
+     * ODsay는 부역명을 괄호로 붙여서 주는데("수유(강북구청)"), 서울시 API는 순수 역명만
+     * 인식해서 괄호째로 넘기면 "해당하는 데이터가 없습니다"로 아무것도 안 나온다(실측 확인:
+     * "수유(강북구청)"은 빈 응답, "수유"는 정상). 실시간 정보가 조용히 사라지던 원인이라
+     * 조회 전에 뒤쪽 괄호를 떼어낸다.
+     */
+    private String toSeoulStationName(String stationName) {
+        return TRAILING_PARENTHETICAL.matcher(stationName.trim()).replaceAll("").trim();
     }
 
     private List<SubwayArrival> toArrivals(SeoulSubwayArrivalResponse response) {

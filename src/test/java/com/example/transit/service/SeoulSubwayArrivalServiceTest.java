@@ -94,6 +94,21 @@ class SeoulSubwayArrivalServiceTest {
         assertNull(result.get(0).lineName());
     }
 
+    /**
+     * 실사용 검증 중 발견한 버그의 회귀 테스트. ODsay는 부역명을 괄호로 붙여 주는데
+     * ("수유(강북구청)") 서울시 API는 순수 역명만 인식해서, 괄호째 넘기면 빈 응답이 와서
+     * 실시간 정보가 조용히 사라졌다(실측: "수유(강북구청)" -> 데이터 없음, "수유" -> 정상).
+     */
+    @Test
+    void 부역명_괄호를_떼고_조회한다() {
+        CountingClient client = new CountingClient("dummy-key", sampleResponse());
+        SeoulSubwayArrivalService service = new SeoulSubwayArrivalService(client);
+
+        service.findArrivals("수유(강북구청)");
+
+        assertEquals("수유", client.lastStationName);
+    }
+
     @Test
     void API_호출이_실패해도_예외_대신_빈_목록을_준다() {
         SeoulSubwayApiClient failing = new SeoulSubwayApiClient("http://dummy", "dummy-key") {
@@ -118,6 +133,7 @@ class SeoulSubwayArrivalServiceTest {
     private static class CountingClient extends SeoulSubwayApiClient {
         private final SeoulSubwayArrivalResponse response;
         private int calls;
+        private String lastStationName;
 
         CountingClient(String apiKey, SeoulSubwayArrivalResponse response) {
             super("http://dummy", apiKey);
@@ -127,6 +143,7 @@ class SeoulSubwayArrivalServiceTest {
         @Override
         public SeoulSubwayArrivalResponse findArrivals(String stationName) {
             calls++;
+            lastStationName = stationName;
             return response;
         }
     }
