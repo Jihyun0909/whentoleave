@@ -147,10 +147,6 @@ public class LastDepartureViewController {
                 model.addAttribute("reason", fallback instanceof LastDepartureResult.Infeasible i
                         ? displayReason(i, arrivalMode)
                         : "가능한 경로를 찾지 못했습니다.");
-                // 대중교통(막차/버스/심야버스)이 전부 안 되는 진짜 실패 상황에서의 마지막
-                // 대안으로 예상 택시요금을 같이 보여준다.
-                model.addAttribute("taxiFareEstimate", taxiFareEstimator.estimate(
-                        origin.x(), origin.y(), dest.x(), dest.y()));
             }
             return "index";
         }
@@ -280,19 +276,40 @@ public class LastDepartureViewController {
     }
 
     /**
+     * ODsay의 wayCode(1:상행, 2:하행)와 서울시 API의 방향 표기("상행"/"하행")가 일치하는 대부분의
+     * 일반 노선에서는 이걸로 실제 타는 방향을 가려낼 수 있다. 2호선처럼 "내선/외선"으로 표기되는
+     * 순환선 등 표기 체계가 다른 노선은 아예 안 걸려서(매칭 결과가 없어서) 방향 전체를 보여주는
+     * 쪽으로 자연히 폴백된다 - subwayRealtimeArrivals 참고.
+     */
+    private static final Map<Integer, String> DIRECTION_TEXT_BY_WAY_CODE = Map.of(1, "상행", 2, "하행");
+
+    /**
      * 환승역은 서울시 API 응답 하나에 여러 호선 열차가 섞여 온다(실측 확인: 충무로역이면
      * 3호선/4호선 열차가 같이 옴) - 이 구간이 타는 노선(leg.laneName())과 다른 호선 열차를
-     * 섞어서 보여주면 승객이 헷갈린다. 노선을 먼저 걸러낸 뒤, 그 안에서도 방향이 여러 개(상행/
-     * 하행, 내선/외선)일 수 있어 어느 방향인지 가려낼 근거는 없으므로 방향은 다 보여주되,
-     * 방향마다 가장 빠른 2대까지만 골라 실제 승강장 전광판처럼 행선지를 그대로 보여준다.
+     * 섞어서 보여주면 승객이 헷갈린다. 노선을 먼저 걸러낸다.
+     * <p>
+     * 노선 안에서도 방향(상행/하행)이 갈리는데, wayCode 기준으로 실제 타는 방향만 골라지면
+     * 그것만 쓰고, 하나도 안 걸리면(순환선처럼 표기 체계가 다르거나 그 방향에 마침 실시간
+     * 열차가 없는 경우) 방향을 가려낼 수 없다고 보고 기존처럼 노선 전체를 보여준다 - 정보가
+     * 아예 안 뜨는 것보단 낫다. 어느 쪽이든 방향마다 가장 빠른 2대까지만 골라 실제 승강장
+     * 전광판처럼 행선지를 그대로 보여준다.
      */
     private List<RealtimeArrivalView> subwayRealtimeArrivals(TransitLeg leg) {
         String legLineName = lineColorResolver.shortNameOf(leg.laneName());
-        Map<String, List<RealtimeSubwayArrivalLookup.SubwayArrival>> byDirection =
+        List<RealtimeSubwayArrivalLookup.SubwayArrival> sameLine =
                 subwayArrivalLookup.findArrivals(leg.stationName()).stream()
                         .filter(arrival -> arrival.secondsUntilArrival() != null)
                         .filter(arrival -> legLineName.equals(arrival.lineName()))
-                        .collect(Collectors.groupingBy(RealtimeSubwayArrivalLookup.SubwayArrival::direction));
+                        .toList();
+
+        String expectedDirection = DIRECTION_TEXT_BY_WAY_CODE.get(leg.wayCode());
+        List<RealtimeSubwayArrivalLookup.SubwayArrival> sameDirection = expectedDirection == null
+                ? List.of()
+                : sameLine.stream().filter(arrival -> expectedDirection.equals(arrival.direction())).toList();
+        List<RealtimeSubwayArrivalLookup.SubwayArrival> candidates = sameDirection.isEmpty() ? sameLine : sameDirection;
+
+        Map<String, List<RealtimeSubwayArrivalLookup.SubwayArrival>> byDirection =
+                candidates.stream().collect(Collectors.groupingBy(RealtimeSubwayArrivalLookup.SubwayArrival::direction));
 
         return byDirection.values().stream()
                 .peek(arrivals -> arrivals.sort(
