@@ -84,7 +84,15 @@ body {
     }
 }
 
+/*
+  검색 패널을 결과 영역보다 위 레이어에 둔다. 시/분 드롭다운이 패널 밖으로 펼쳐지는데,
+  등장 애니메이션(fadeInUp)의 transform 때문에 .main-panel과 .result가 각각 별도의 스택
+  컨텍스트가 되어 드롭다운의 z-index가 패널 안에 갇힌다 - 그래서 드롭다운 아래쪽이 뒤따르는
+  택시/경로 카드에 가려졌다. 두 형제의 순서를 여기서 정해줘야 드롭다운이 온전히 보인다.
+*/
 .main-panel {
+    position: relative;
+    z-index: 2;
     background: var(--card-bg);
     border-radius: 24px;
     padding: 28px 24px 24px;
