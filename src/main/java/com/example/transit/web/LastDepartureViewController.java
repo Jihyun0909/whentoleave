@@ -294,23 +294,22 @@ public class LastDepartureViewController {
 
     /**
      * 정류장 좌표로 TAGO/경기/인천 순서로 조회한다({@link RegionalBusArrivalLookup} 참고). 지하철과
-     * 같은 이유로 노선은 하나도 빼지 않고 전부 보여주되, 한 노선에 여러 대가 잡히면 노선마다
-     * 가장 빠른 2대까지만 보여준다.
+     * 달리 정류장 하나에 수십 개 노선이 같이 잡히는 게 흔하고(간선/지선/광역/공항버스 등이 한
+     * 정류장에 몰림), 그중 환승역처럼 "어느 노선인지 모호"한 경우가 아니라 이 구간에서 탈 노선이
+     * 이미 정해져 있으므로(leg.busNo()) 그 노선만 걸러서 보여준다. 관계없는 노선을 다 보여주면
+     * 실사용 검증 중 확인한 것처럼 화면이 수십 줄로 길어져서 오히려 못 쓰게 된다.
      */
     private List<RealtimeArrivalView> busRealtimeArrivals(TransitLeg leg) {
-        if (leg.stationX() == null || leg.stationY() == null) {
+        if (leg.stationX() == null || leg.stationY() == null || leg.busNo() == null) {
             return List.of();
         }
 
-        Map<String, List<RealtimeBusArrival>> byRoute = busArrivalLookup.findArrivals(leg.stationX(), leg.stationY())
+        return busArrivalLookup.findArrivals(leg.stationX(), leg.stationY())
                 .stream()
                 .filter(arrival -> arrival.secondsUntilArrival() != null)
-                .collect(Collectors.groupingBy(arrival -> String.valueOf(arrival.routeName())));
-
-        return byRoute.values().stream()
-                .peek(arrivals -> arrivals.sort(Comparator.comparing(RealtimeBusArrival::secondsUntilArrival)))
-                .sorted(Comparator.comparingInt(arrivals -> arrivals.get(0).secondsUntilArrival()))
-                .flatMap(arrivals -> arrivals.stream().limit(2))
+                .filter(arrival -> leg.busNo().equals(arrival.routeName()))
+                .sorted(Comparator.comparing(RealtimeBusArrival::secondsUntilArrival))
+                .limit(2)
                 .map(this::toRealtimeArrivalView)
                 .toList();
     }
