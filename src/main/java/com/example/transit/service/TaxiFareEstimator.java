@@ -29,8 +29,12 @@ public class TaxiFareEstimator {
     /** 기본거리 초과 후 이 거리(m)마다 추가요금이 붙는다. */
     private static final double DISTANCE_UNIT_METERS = 131;
     private static final int DISTANCE_UNIT_FARE_WON = 100;
-    /** 직선거리는 실제로 달리는 도로거리보다 짧으므로 20% 더 본다. */
-    private static final double ROAD_DISTANCE_FACTOR = 1.2;
+    /**
+     * 직선거리는 실제로 달리는 도로거리보다 짧다. 처음엔 20%만 더 봤는데 실사용 비교(카카오맵)
+     * 결과 예상 요금이 눈에 띄게 싸게 나와서, 도심 도로망의 우회 정도(한강·간선도로를 따라
+     * 돌아가는 경로가 흔함)에 맞춰 35%로 올렸다.
+     */
+    private static final double ROAD_DISTANCE_FACTOR = 1.35;
     /** 100원 단위로 반올림해서 보여준다 - 어차피 예상치라 원 단위까지 정확한 척할 필요가 없다. */
     private static final int ROUNDING_UNIT_WON = 100;
     /** 출퇴근 혼잡/심야 어느 쪽에도 안 걸리는 평시 평균 주행속도(km/h). */
