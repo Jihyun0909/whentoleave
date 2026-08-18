@@ -112,4 +112,43 @@ class TaxiFareEstimatorTest {
 
         assertFalse(estimate.hasSurcharge());
     }
+
+    /**
+     * 심야(00~05시)는 도로가 한산해서 평시보다 빨리 달린다 - 같은 거리라도 새벽 1시반이
+     * 낮 2시보다 예상 소요시간이 짧아야 한다 (실사용 비교: 카카오맵 기준 이 정도 거리를
+     * 새벽 1시반에 출발하면 약 24분, 이 앱의 평시 추정치는 그보다 훨씬 걸림).
+     */
+    @Test
+    void 심야에는_평시보다_소요시간이_짧다() {
+        TaxiFareEstimator.TaxiFareEstimate lateNight =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, LocalTime.of(1, 30));
+        TaxiFareEstimator.TaxiFareEstimate daytime =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, DAYTIME);
+
+        assertTrue(lateNight.estimatedMinutes() < daytime.estimatedMinutes());
+    }
+
+    /** 출퇴근 혼잡 시간대는 평시보다 더 오래 걸려야 한다. */
+    @Test
+    void 출퇴근_혼잡_시간대는_평시보다_소요시간이_길다() {
+        TaxiFareEstimator.TaxiFareEstimate rushHour =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, LocalTime.of(8, 0));
+        TaxiFareEstimator.TaxiFareEstimate daytime =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, DAYTIME);
+
+        assertTrue(rushHour.estimatedMinutes() > daytime.estimatedMinutes());
+    }
+
+    /**
+     * 기준 시각을 "지금"이 아니라 파라미터로 받아야 한다 - 예를 들어 새벽 1시반 도착을
+     * 목표로 검색하면(현재 시각이 언제든 상관없이) 그 시각 기준 할증/혼잡도가 적용돼야 한다.
+     */
+    @Test
+    void 기준_시각을_그대로_반영한다() {
+        TaxiFareEstimator.TaxiFareEstimate at0130 =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, LocalTime.of(1, 30));
+
+        assertTrue(at0130.hasSurcharge());
+        assertTrue(at0130.surchargeLabel().contains("40%"));
+    }
 }

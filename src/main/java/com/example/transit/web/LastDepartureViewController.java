@@ -120,9 +120,12 @@ public class LastDepartureViewController {
 
         model.addAttribute("searched", true);
         // 검색과 추천 경로 사이에 항상 참고용으로 보여준다 - 대중교통 결과가 어떻든(성공/실패
-        // 무관) 택시와 바로 비교해볼 수 있게.
+        // 무관) 택시와 바로 비교해볼 수 있게. 할증/혼잡도 판단은 지금이 아니라 실제 이 이동이
+        // 일어나는 시각 기준이어야 한다 - 출발 시간 계산 탭이면 목표 도착시간이 그 시각이고,
+        // 막차 탭처럼 별도 목표 시각이 없으면 지금을 그대로 쓴다.
+        LocalTime taxiReferenceTime = arrivalMode && targetArrivalTime != null ? targetArrivalTime : LocalTime.now();
         model.addAttribute("taxiFareEstimate",
-                taxiFareEstimator.estimate(origin.x(), origin.y(), dest.x(), dest.y()));
+                taxiFareEstimator.estimate(origin.x(), origin.y(), dest.x(), dest.y(), taxiReferenceTime));
 
         if (isSamePoint(origin, dest)) {
             // 이 상태로 검색을 진행하면 ODsay가 "출,도착지가 700m이내입니다" 에러를 주고
