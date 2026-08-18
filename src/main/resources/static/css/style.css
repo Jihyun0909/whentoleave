@@ -94,6 +94,14 @@ body {
     margin-bottom: 28px;
 }
 
+.logo-badge {
+    display: block;
+    height: 56px;
+    width: auto;
+    object-fit: contain;
+    margin: 0 auto 16px;
+}
+
 .subtitle {
     color: var(--text-muted);
     font-size: 15px;
