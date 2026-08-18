@@ -82,7 +82,7 @@ public class BusDepartureCacheService implements BusDepartureLookup {
 
     private Optional<BusStopDeparture> resolve(int busId, TransitLeg leg, DayType dayType) {
         Optional<BusStopDeparture> cached =
-                repository.findByBusIdAndStationIdAndDayType(busId, leg.stationId(), dayType);
+                repository.findFirstByBusIdAndStationIdAndDayTypeOrderByIdDesc(busId, leg.stationId(), dayType);
         if (cached.isPresent()) {
             return cached;
         }
@@ -121,7 +121,7 @@ public class BusDepartureCacheService implements BusDepartureLookup {
             // 실패시키면 안 된다(이게 바로 클래스 도입부에 적어둔 원래 500 버그).
             log.debug("busId={} stationId={} dayType={} 캐시 저장 경합 - 이미 저장된 행을 재조회",
                     busId, leg.stationId(), dayType);
-            return repository.findByBusIdAndStationIdAndDayType(busId, leg.stationId(), dayType);
+            return repository.findFirstByBusIdAndStationIdAndDayTypeOrderByIdDesc(busId, leg.stationId(), dayType);
         }
     }
 

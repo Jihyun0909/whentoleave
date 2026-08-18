@@ -237,7 +237,7 @@ class BusDepartureCacheServiceTest {
         private final List<BusStopDeparture> saved = new ArrayList<>();
 
         @Override
-        public Optional<BusStopDeparture> findByBusIdAndStationIdAndDayType(
+        public Optional<BusStopDeparture> findFirstByBusIdAndStationIdAndDayTypeOrderByIdDesc(
                 Integer busId, Integer stationId, DayType dayType) {
             return saved.stream()
                     .filter(d -> d.getBusId().equals(busId) && d.getStationId().equals(stationId)

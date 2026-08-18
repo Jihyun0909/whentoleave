@@ -16,9 +16,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /**
  * (bus_id, station_id, day_type) 유니크 제약 회귀 테스트.
  * <p>
- * 이 제약이 없으면 캐시 미스 경합으로 같은 키에 두 행이 들어갈 수 있고, 그러면
- * {@link BusStopDepartureRepository#findByBusIdAndStationIdAndDayType}(Optional 반환, 즉 최대
- * 한 행을 기대)가 이후 조회에서 {@code NonUniqueResultException}을 던져 500이 난다(실제 발생).
+ * 이 제약이 없으면 캐시 미스 경합으로 같은 키에 두 행이 들어갈 수 있다. 조회 쪽은
+ * {@code findFirstBy...OrderByIdDesc}로 한 행만 집어오게 해뒀지만(제약이 붙기 전에 이미
+ * 중복이 쌓인 DB에서도 500이 나지 않도록), 애초에 중복이 생기지 않게 막는 건 이 제약이다.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
