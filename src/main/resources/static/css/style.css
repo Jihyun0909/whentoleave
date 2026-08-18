@@ -525,6 +525,11 @@ body {
     font-size: 14px;
     font-weight: 700;
     color: var(--text);
+    min-width: 0;
+    flex: 1 1 auto;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .autocomplete-option-line {
@@ -532,6 +537,10 @@ body {
     font-weight: 600;
     color: var(--text-muted);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 0 1 auto;
+    max-width: 45%;
 }
 
 /* overflow:hidden을 쓰면 안 된다 - 시/분 드롭다운이 이 박스 밖으로 펼쳐지는데 통째로 잘려서 안 보인다. */
