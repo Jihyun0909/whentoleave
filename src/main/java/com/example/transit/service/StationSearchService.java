@@ -43,9 +43,8 @@ public class StationSearchService {
         if (!(byStationName instanceof StationResolution.NotFound)) {
             return byStationName;
         }
-        return addressSearchService.resolve(name)
-                .<StationResolution>map(resolved -> resolved)
-                .orElse(byStationName);
+        StationResolution byAddress = addressSearchService.resolve(name);
+        return byAddress instanceof StationResolution.NotFound ? byStationName : byAddress;
     }
 
     private StationResolution searchByStationName(String name) {
