@@ -133,7 +133,8 @@ public class LastDepartureViewController {
         // 미래 시간표 기준 계산이라 실시간 값을 붙이면 오해를 준다).
         boolean showRealtimeArrivals = selectedDate.equals(LocalDate.now());
         model.addAttribute("feasible", true);
-        model.addAttribute("routeOptions", options.stream().map(o -> toView(o, showRealtimeArrivals)).toList());
+        model.addAttribute("routeOptions",
+                options.stream().map(o -> toView(o, showRealtimeArrivals, selectedDate)).toList());
         // "가장 늦게 출발해도 되는 경로"에 배지를 달기 위한 기준값 (동점이면 둘 다 표시된다).
         model.addAttribute("latestDepartureMinutes", options.stream()
                 .mapToInt(RouteOption::departureServiceMinutes)
@@ -216,8 +217,8 @@ public class LastDepartureViewController {
      * 화면에서 쓰기 쉬운 형태로 펼친다 (예상 도착 시각, 이미 지난 시각 여부처럼 "지금"에 의존하는
      * 값은 계산 결과가 아니라 표시 시점의 관심사라 여기서 만든다).
      */
-    private RouteOptionView toView(RouteOption option, boolean showRealtimeArrivals) {
-        boolean alreadyPassed = hasAlreadyPassed(option);
+    private RouteOptionView toView(RouteOption option, boolean showRealtimeArrivals, LocalDate selectedDate) {
+        boolean alreadyPassed = hasAlreadyPassed(option, selectedDate);
         LocalTime earliestArrival = alreadyPassed
                 ? LocalTime.now().plusMinutes(option.totalMinutes()) : null;
 
@@ -458,8 +459,17 @@ public class LastDepartureViewController {
      * 추천 출발 시각이 이미 지난 시각인지 본다 (예: 막차 계산 결과가 23:30인데 확인하는 시점이
      * 이미 23:50인 경우). 새벽 시간대는 "오늘 자정 넘어서"로 이어지는 서비스일 개념이라
      * targetArrivalTime 처리와 같은 방식(새벽 6시 컷오프)으로 "지금"도 확장해서 비교한다.
+     * <p>
+     * 오늘이 아닌 날짜(달력에서 며칠 뒤를 골라 조회한 경우)는 "이미 지났다"는 개념 자체가
+     * 성립하지 않으므로 항상 false다 - 시:분만 비교하면(날짜를 안 보고) 미래 날짜의 계산
+     * 결과가 지금 시각보다 이른 시:분이라는 이유만으로 "이미 지났다"고 오판해서, 실제 계산된
+     * 막차 시각 대신 엉뚱하게 "지금 출발하면"(현재 시각 + 소요시간) 값을 보여주는 버그가 있었다
+     * (예: 오늘 오후에 5일 뒤 막차를 조회했는데 그 결과가 새벽 5시대라 "이미 지남"으로 오판).
      */
-    private boolean hasAlreadyPassed(RouteOption option) {
+    private boolean hasAlreadyPassed(RouteOption option, LocalDate selectedDate) {
+        if (!selectedDate.equals(LocalDate.now())) {
+            return false;
+        }
         LocalTime now = LocalTime.now();
         int nowMinutes = now.getHour() * 60 + now.getMinute();
         int serviceNowMinutes = nowMinutes < EARLY_MORNING_CUTOFF_MINUTES ? nowMinutes + MINUTES_PER_DAY : nowMinutes;
