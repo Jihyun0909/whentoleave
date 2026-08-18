@@ -123,9 +123,15 @@ public class LastDepartureViewController {
                     origin.x(), origin.y(), dest.x(), dest.y(),
                     arrivalMode ? targetArrivalTime : null, selectedDate);
             model.addAttribute("feasible", false);
-            model.addAttribute("reason", fallback instanceof LastDepartureResult.Infeasible i
-                    ? displayReason(i, arrivalMode)
-                    : "가능한 경로를 찾지 못했습니다.");
+            if (fallback instanceof LastDepartureResult.Infeasible infeasible && infeasible.walkOnlyMinutes() != null) {
+                // 대중교통을 탈 필요가 없을 만큼 가까운 거리 - "운행 종료" 같은 엉뚱한 안내
+                // 대신 도보 소요시간을 그대로 보여준다.
+                model.addAttribute("walkOnlyMinutes", infeasible.walkOnlyMinutes());
+            } else {
+                model.addAttribute("reason", fallback instanceof LastDepartureResult.Infeasible i
+                        ? displayReason(i, arrivalMode)
+                        : "가능한 경로를 찾지 못했습니다.");
+            }
             return "index";
         }
 

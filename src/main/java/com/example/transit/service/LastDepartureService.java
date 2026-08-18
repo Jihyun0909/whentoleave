@@ -29,6 +29,18 @@ public class LastDepartureService {
     private static final String NIGHT_BUS_LABEL = "심야버스";
     /** 서울 심야버스 중 가장 이른 첫차가 23시대라, 이보다 이른 도착 목표면 탐색 자체를 건너뛴다. */
     private static final int NIGHT_BUS_EARLIEST_MINUTES = 23 * 60;
+    /**
+     * 출발지-목적지가 이 거리(m) 이내인데 ODsay가 경로를 못 찾으면(예: ODsay 자체가
+     * "출,도착지가 700m이내입니다" 에러를 주는 경우), 대중교통이 필요 없을 만큼 가까운
+     * 거리라고 보고 도보 시간을 추정해서 대신 보여준다. ODsay가 도보 전용 경로를 실제로
+     * 계산해서 줄 때는 그 값을 그대로 쓰고(WalkOnlyRouteException), 이 추정치는 ODsay가
+     * 아예 아무 경로도 안 줄 때만 쓰는 fallback이다.
+     */
+    private static final double WALK_ESTIMATE_DISTANCE_THRESHOLD_METERS = 1000;
+    /** 도보 속도 추정(약 4km/h = 67m/분). */
+    private static final double WALKING_METERS_PER_MINUTE = 67;
+    /** 직선거리(Haversine)는 실제로 걷는 길보다 짧으므로, 도로거리를 어림잡아 20% 더 본다. */
+    private static final double ROAD_DISTANCE_FACTOR = 1.2;
 
     private final OdsayClient odsayClient;
     private final RouteLegExtractor routeLegExtractor;
@@ -124,8 +136,14 @@ public class LastDepartureService {
         try {
             OdsayPathResponse response = odsayClient.searchPath(sx, sy, ex, ey, pathType);
             pathCandidates = routeLegExtractor.extractAll(response, pathType != SearchPathType.SUBWAY_ONLY);
+        } catch (WalkOnlyRouteException e) {
+            return new Best(new LastDepartureResult.Infeasible(e.getMessage(), e.walkMinutes()), 0);
         } catch (NoSubwayRouteFoundException e) {
-            return new Best(new LastDepartureResult.Infeasible(e.getMessage()), 0);
+            // ODsay가 아예 경로를 못 준 이유는 다양하지만(예: "출,도착지가 700m이내입니다"
+            // 에러), 실제로 가까운 거리라면 이유를 따지지 말고 도보 시간을 추정해서 보여주는
+            // 게 사용자에게 더 유용하다 - "운행 종료" 같은 엉뚱한 안내보다 낫다.
+            return new Best(new LastDepartureResult.Infeasible(
+                    e.getMessage(), estimateWalkMinutesIfClose(sx, sy, ex, ey)), 0);
         } catch (RuntimeException e) {
             return new Best(new LastDepartureResult.Infeasible("경로를 찾는 중 문제가 발생했습니다."), 0);
         }
@@ -242,5 +260,26 @@ public class LastDepartureService {
             return OptionalInt.of(targetMinutes + MINUTES_PER_DAY); // 오늘 밤 자정 넘어서
         }
         return OptionalInt.empty(); // 이미 지난 시각
+    }
+
+    /** 가까운 거리가 아니면 null - 그러면 화면은 원래 실패 사유(reason) 문구를 그대로 보여준다. */
+    private Integer estimateWalkMinutesIfClose(double sx, double sy, double ex, double ey) {
+        double meters = distanceMeters(sy, sx, ey, ex);
+        if (meters > WALK_ESTIMATE_DISTANCE_THRESHOLD_METERS) {
+            return null;
+        }
+        return Math.max(1, (int) Math.ceil(meters * ROAD_DISTANCE_FACTOR / WALKING_METERS_PER_MINUTE));
+    }
+
+    /** 두 좌표 사이 거리(m). Haversine. */
+    private double distanceMeters(double lat1, double lon1, double lat2, double lon2) {
+        double earthRadiusMeters = 6_371_000;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return earthRadiusMeters * c;
     }
 }

@@ -151,6 +151,65 @@ class RouteLegExtractorTest {
         assertEquals(9, route.finalWalkMinutes());
     }
 
+    /**
+     * 출발지-목적지가 걸어갈 수 있을 만큼 가까우면 ODsay는 전 구간을 도보(trafficType=3)로만
+     * 준다 - 대중교통 구간이 하나도 없다. 이 경우 "경로 없음"과 구분되는
+     * {@link WalkOnlyRouteException}을 던져서, 호출하는 쪽이 "대중교통 운행 종료" 같은
+     * 엉뚱한 안내 대신 "도보 N분이면 충분해요"를 보여줄 수 있게 해야 한다.
+     */
+    @Test
+    void 전_구간이_도보뿐이면_WalkOnlyRouteException을_던진다() {
+        OdsayPathResponse response = new OdsayPathResponse(
+                new OdsayPathResponse.Result(List.of(
+                        new OdsayPathResponse.Path(1, List.of(
+                                new OdsayPathResponse.SubPath(3, 6, null, null, null, null, null)
+                        ))
+                ))
+        );
+
+        WalkOnlyRouteException e = assertThrows(WalkOnlyRouteException.class, () -> extractor.extract(response));
+        assertEquals(6, e.walkMinutes());
+    }
+
+    /** extractAll에서도 모든 후보가 도보뿐이면(대중교통 후보가 하나도 없으면), 가장 짧은 도보시간을 들고 예외를 던진다. */
+    @Test
+    void extractAll에서_모든_후보가_도보뿐이면_가장_짧은_도보시간으로_예외를_던진다() {
+        OdsayPathResponse response = new OdsayPathResponse(
+                new OdsayPathResponse.Result(List.of(
+                        new OdsayPathResponse.Path(1, List.of(
+                                new OdsayPathResponse.SubPath(3, 9, null, null, null, null, null)
+                        )),
+                        new OdsayPathResponse.Path(1, List.of(
+                                new OdsayPathResponse.SubPath(3, 5, null, null, null, null, null)
+                        ))
+                ))
+        );
+
+        WalkOnlyRouteException e = assertThrows(WalkOnlyRouteException.class, () -> extractor.extractAll(response));
+        assertEquals(5, e.walkMinutes());
+    }
+
+    /** 후보 중 하나라도 실제 대중교통 경로가 있으면, 도보 전용 후보는 조용히 버리고 그걸 쓴다. */
+    @Test
+    void 대중교통_후보가_하나라도_있으면_도보_전용_후보는_무시한다() {
+        OdsayPathResponse response = new OdsayPathResponse(
+                new OdsayPathResponse.Result(List.of(
+                        new OdsayPathResponse.Path(1, List.of(
+                                new OdsayPathResponse.SubPath(3, 5, null, null, null, null, null)
+                        )),
+                        new OdsayPathResponse.Path(1, List.of(
+                                new OdsayPathResponse.SubPath(1, 10, 300, 1, null, "테스트역",
+                                        List.of(new OdsayPathResponse.Lane("1호선")))
+                        ))
+                ))
+        );
+
+        List<RouteLegExtractor.ExtractedRoute> candidates = extractor.extractAll(response);
+
+        assertEquals(1, candidates.size());
+        assertEquals(300, candidates.get(0).legs().get(0).stationId());
+    }
+
     @Test
     void 모든_경로_후보에_버스가_섞여있으면_extractAll도_예외를_던진다() {
         OdsayPathResponse response = new OdsayPathResponse(

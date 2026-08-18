@@ -21,8 +21,15 @@ public sealed interface LastDepartureResult {
     }
 
     /**
-     * @param reason 계산이 불가능한 이유 (예: 막차 정보 없음, 환승 연결 실패)
+     * @param reason         계산이 불가능한 이유 (예: 막차 정보 없음, 환승 연결 실패)
+     * @param walkOnlyMinutes 출발지-목적지가 대중교통 없이 걸어갈 수 있을 만큼 가까워서 계산
+     *                        자체가 성립하지 않는 경우의 도보 소요시간(분). 그 외의 모든 실패
+     *                        사유에서는 null - 화면에서 이 값의 유무로 "도보 몇 분이면 충분해요"
+     *                        안내와 일반 실패 사유 안내를 구분한다.
      */
-    record Infeasible(String reason) implements LastDepartureResult {
+    record Infeasible(String reason, Integer walkOnlyMinutes) implements LastDepartureResult {
+        public Infeasible(String reason) {
+            this(reason, null);
+        }
     }
 }

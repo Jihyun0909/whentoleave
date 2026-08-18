@@ -13,6 +13,8 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -72,18 +74,56 @@ class LastDepartureServiceTest {
         assertFalse(feasible.isLastTrainDeparture());
     }
 
-    private LastDepartureService newService(int rideMinutes, LastTrainLookup lookup) {
-        OdsayClient odsayClient = odsayStub(singleLegResponse(rideMinutes));
-        RouteLegExtractor extractor = new RouteLegExtractor();
-        LastDepartureCalculator calculator = LastDepartureCalculator.subwayOnly(lookup);
-        // 심야버스는 별도 API를 타므로 이 테스트에서는 없는 것으로 둔다.
-        NightBusRouteFinder noNightBus = new NightBusRouteFinder(odsayClient) {
+    /**
+     * ODsay는 출발지-목적지가 700m 이내면 경로 자체를 계산하지 않고 에러만 준다(실사용 curl
+     * 검증: {"error":{"msg":"출, 도착지가 700m이내입니다.","code":"-98"}}) - result가 없어
+     * "경로를 찾지 못했습니다" 취급을 받는다. 이 경우 "운행 종료" 같은 엉뚱한 안내 대신, 좌표
+     * 간 직선거리로 도보 시간을 추정해서 보여줘야 한다.
+     */
+    @Test
+    void 경로를_못_찾아도_거리가_가까우면_도보시간을_추정한다() {
+        OdsayClient odsayClient = odsayStub(new OdsayPathResponse(null));
+        LastDepartureService service = new LastDepartureService(
+                odsayClient, new RouteLegExtractor(), LastDepartureCalculator.subwayOnly(fakeLookup(Map.of())),
+                noNightBus(odsayClient));
+
+        // 약 150m 거리 (실제 curl 검증에 쓴 좌표 - ODsay가 700m 이내로 판단한 지점)
+        LastDepartureResult result = service.calculate(127.0276, 37.4979, 127.0290, 37.4985);
+
+        LastDepartureResult.Infeasible infeasible = assertInstanceOf(LastDepartureResult.Infeasible.class, result);
+        assertNotNull(infeasible.walkOnlyMinutes());
+        assertTrue(infeasible.walkOnlyMinutes() <= 5);
+    }
+
+    /** 거리가 멀면(진짜 경로 정보 부족 등) 도보 추정을 하지 않고 원래 실패 사유만 보여준다. */
+    @Test
+    void 경로를_못_찾고_거리도_멀면_도보시간을_추정하지_않는다() {
+        OdsayClient odsayClient = odsayStub(new OdsayPathResponse(null));
+        LastDepartureService service = new LastDepartureService(
+                odsayClient, new RouteLegExtractor(), LastDepartureCalculator.subwayOnly(fakeLookup(Map.of())),
+                noNightBus(odsayClient));
+
+        // 서울 <-> 부산 정도의 먼 거리
+        LastDepartureResult result = service.calculate(127.0, 37.5, 129.0, 35.1);
+
+        LastDepartureResult.Infeasible infeasible = assertInstanceOf(LastDepartureResult.Infeasible.class, result);
+        assertNull(infeasible.walkOnlyMinutes());
+    }
+
+    /** 심야버스는 별도 API를 타므로 이 테스트들에서는 없는 것으로 둔다. */
+    private NightBusRouteFinder noNightBus(OdsayClient odsayClient) {
+        return new NightBusRouteFinder(odsayClient) {
             @Override
             public List<RouteLegExtractor.ExtractedRoute> find(double sx, double sy, double ex, double ey) {
                 return List.of();
             }
         };
-        return new LastDepartureService(odsayClient, extractor, calculator, noNightBus);
+    }
+
+    private LastDepartureService newService(int rideMinutes, LastTrainLookup lookup) {
+        OdsayClient odsayClient = odsayStub(singleLegResponse(rideMinutes));
+        return new LastDepartureService(odsayClient, new RouteLegExtractor(),
+                LastDepartureCalculator.subwayOnly(lookup), noNightBus(odsayClient));
     }
 
     private OdsayPathResponse singleLegResponse(int rideMinutes) {

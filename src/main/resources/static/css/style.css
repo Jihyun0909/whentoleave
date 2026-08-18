@@ -1327,6 +1327,13 @@ body {
     font-variant-numeric: tabular-nums;
 }
 
+.result-walk-only {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    font-size: 15px;
+    font-weight: 500;
+}
+
 .result-infeasible {
     background: var(--error-bg);
     color: var(--error);

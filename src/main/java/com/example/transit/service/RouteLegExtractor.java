@@ -42,14 +42,25 @@ public class RouteLegExtractor {
         List<OdsayPathResponse.Path> paths = allPaths(response);
 
         List<ExtractedRoute> candidates = new ArrayList<>();
+        Integer walkOnlyMinutes = null;
         for (OdsayPathResponse.Path path : paths) {
             try {
                 candidates.add(extractRoute(path, allowBus));
+            } catch (WalkOnlyRouteException e) {
+                // 이 후보는 도보 전용이라 대중교통 구간이 없다 - 다른 후보 중 실제 대중교통
+                // 경로가 있으면 그걸 쓰고, 끝까지 하나도 없으면(전부 도보 전용) 가장 짧은
+                // 도보시간을 들고 나가서 "도보 N분이면 충분해요"라고 안내한다.
+                if (walkOnlyMinutes == null || e.walkMinutes() < walkOnlyMinutes) {
+                    walkOnlyMinutes = e.walkMinutes();
+                }
             } catch (NoSubwayRouteFoundException ignored) {
                 // 이 경로 후보는 조건에 안 맞거나 정보가 부족함 - 다른 경로 후보로 계속 시도
             }
         }
         if (candidates.isEmpty()) {
+            if (walkOnlyMinutes != null) {
+                throw new WalkOnlyRouteException(walkOnlyMinutes);
+            }
             throw new NoSubwayRouteFoundException("이용 가능한 대중교통 경로를 찾지 못했습니다.");
         }
         return candidates;
@@ -82,6 +93,12 @@ public class RouteLegExtractor {
         }
 
         if (legs.isEmpty()) {
+            // 전 구간이 도보(trafficType=3)뿐이었다는 뜻 - 출발지/도착지가 대중교통을 탈 필요
+            // 없이 걸어갈 수 있을 만큼 가까운 경우다. 이걸 그냥 "대중교통 구간 없음"으로 던지면
+            // 호출하는 쪽에서 "경로 없음"과 구분을 못 해 "운행 종료"라는 엉뚱한 안내가 나간다.
+            if (pendingWalkMinutes > 0) {
+                throw new WalkOnlyRouteException(pendingWalkMinutes);
+            }
             throw new NoSubwayRouteFoundException("경로에 대중교통 구간이 없습니다.");
         }
         // 마지막 구간 뒤에 남은 도보(= 마지막 하차 지점에서 실제 목적지까지 걷는 시간)는
