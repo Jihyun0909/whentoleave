@@ -509,12 +509,13 @@
             minute = v;
         });
 
-        // 열 때 지금 선택된 값이 목록 맨 위에 보이도록 스크롤한다 (안 하면 항상 00부터 보여서
+        // 열 때 지금 선택된 값이 목록 맨 위에 오도록 스크롤한다 (안 하면 항상 00부터 보여서
         // 23시/50분처럼 뒤쪽 값이 선택돼 있어도 한참 스크롤해야 현재 값을 찾을 수 있다).
+        // 위치 계산은 offsetParent가 무엇이든 정확하도록 두 요소의 화면상 위치 차이로 구한다.
         function scrollToSelected(dropdown) {
             var selected = dropdown.querySelector('.time-picker-option.is-selected');
             if (selected) {
-                dropdown.scrollTop = selected.offsetTop - dropdown.clientHeight / 2 + selected.offsetHeight / 2;
+                dropdown.scrollTop += selected.getBoundingClientRect().top - dropdown.getBoundingClientRect().top;
             }
         }
 
