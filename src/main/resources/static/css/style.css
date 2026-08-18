@@ -447,6 +447,59 @@ body {
     display: block;
 }
 
+/* 브라우저 기본 "이 입력란을 작성하세요" 말풍선은 배경색 등을 CSS로 바꿀 수 없어서(브라우저가
+   직접 그리는 UI라 페이지 스타일이 안 먹는다), 같은 자리에 직접 그린 커스텀 툴팁으로 대체한다. */
+.field-tooltip {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 4px;
+    margin-top: 10px;
+    align-items: center;
+    gap: 8px;
+    background: var(--card-bg);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(var(--shadow-color), 0.2);
+    padding: 9px 12px;
+    max-width: 260px;
+    z-index: 25;
+}
+
+.field-tooltip.is-open {
+    display: flex;
+}
+
+.field-tooltip::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: 16px;
+    width: 10px;
+    height: 10px;
+    background: var(--card-bg);
+    transform: rotate(45deg);
+}
+
+.field-tooltip-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    background: #FFC021;
+    color: #4A3300;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.field-tooltip-text {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+}
+
 .autocomplete-option {
     display: flex;
     align-items: center;

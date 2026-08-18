@@ -14,7 +14,7 @@
 <div class="page">
     <div class="main-panel">
         <header class="app-header">
-            <img class="logo-badge" src="/img/logo.png" alt="When To Leave 로고">
+            <img class="logo-badge" src="/img/logo-header.png" alt="When To Leave 로고">
             <p class="subtitle" th:if="${arrivalMode}">목표 도착 시각을 입력하면 몇 시에 출발해야 하는지 알려드릴게요.</p>
             <p class="subtitle" th:unless="${arrivalMode}">출발지/도착지 기준 막차를 이용하려면 몇 시에 출발해야 하는지 알려드릴게요.</p>
         </header>
@@ -60,6 +60,10 @@
                             </svg>
                         </button>
                         <div class="autocomplete-dropdown" id="originSuggest"></div>
+                        <div class="field-tooltip" id="originTooltip" role="alert">
+                            <span class="field-tooltip-icon" aria-hidden="true">!</span>
+                            <span class="field-tooltip-text"></span>
+                        </div>
                     </div>
                     <!-- 항상 비워서 렌더링한다 - 값이 있으면(GPS로 채웠거나 자동완성에서 특정 후보를
                          고른 경우) 검색 버튼을 누르는 순간 JS가 채워주고, 없으면 제출 직전 JS가
@@ -93,6 +97,10 @@
                         <input type="text" id="destName" name="destName" th:value="${destName}" required
                                placeholder="도착지" aria-label="도착지" autocomplete="off">
                         <div class="autocomplete-dropdown" id="destSuggest"></div>
+                        <div class="field-tooltip" id="destTooltip" role="alert">
+                            <span class="field-tooltip-icon" aria-hidden="true">!</span>
+                            <span class="field-tooltip-text"></span>
+                        </div>
                     </div>
                     <!-- 자동완성에서 특정 후보(예: "강남 2호선")를 고르면 여기에 좌표가 채워진다 -
                          안 그러면 이름만 "강남"으로 남아 검색 시 후보를 또 고르라고 나온다. -->
@@ -672,6 +680,47 @@
         originName.addEventListener('input', function () {
             gpsStatus.textContent = '';
         });
+    })();
+
+    // 출발지/도착지가 비어있으면 브라우저 기본 검증 말풍선 대신 이 자리에 커스텀 툴팁을 띄운다.
+    // preventDefault()는 브라우저의 기본 안내 UI(말풍선+자동 포커스)만 막을 뿐, 실제 유효성
+    // 자체는 그대로 무효라 폼 제출은 여전히 막힌다 - 우리가 대신 포커스를 챙겨줘야 한다.
+    (function initValidationTooltip() {
+        var focusedThisRound = false;
+        var searchBtn = document.getElementById('searchBtn');
+        if (searchBtn) {
+            searchBtn.addEventListener('click', function () {
+                focusedThisRound = false;
+            });
+        }
+
+        function setup(inputId, tooltipId, message) {
+            var input = document.getElementById(inputId);
+            var tooltip = document.getElementById(tooltipId);
+            if (!input || !tooltip) {
+                return;
+            }
+            var textEl = tooltip.querySelector('.field-tooltip-text');
+
+            function hide() {
+                tooltip.classList.remove('is-open');
+            }
+
+            input.addEventListener('invalid', function (e) {
+                e.preventDefault();
+                textEl.textContent = message;
+                tooltip.classList.add('is-open');
+                if (!focusedThisRound) {
+                    input.focus();
+                    focusedThisRound = true;
+                }
+            });
+            input.addEventListener('input', hide);
+            input.addEventListener('blur', hide);
+        }
+
+        setup('originName', 'originTooltip', '출발지를 입력하세요.');
+        setup('destName', 'destTooltip', '도착지를 입력하세요.');
     })();
 
     (function initSwapButton() {
