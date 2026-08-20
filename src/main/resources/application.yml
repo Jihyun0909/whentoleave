@@ -38,6 +38,22 @@ seoul-subway:
   base-url: http://swopenapi.seoul.go.kr/api/subway
   api-key: ${SEOUL_SUBWAY_API_KEY:}
 
+seoul-bus:
+  # 서울시 버스 실시간 도착정보. TAGO는 서울 시내버스를 커버하지 않아서(2026-08-18 라이브 확인:
+  # 도시코드 목록 138개에 서울 없음, 서울 좌표 조회 시 0건 또는 경기/인천 소속 광역버스 정류소만
+  # 잡힘) 서울만 별도 API를 쓴다.
+  #
+  # 두 개의 서로 다른 키가 필요하다:
+  #  - arrival-api-key: data.go.kr "서울특별시_버스도착정보조회 서비스" (TAGO와 같은 키 사용 가능,
+  #    단 서비스별로 활용신청이 따로다). Decoding(원본) 키를 넣는다.
+  #  - stop-api-key: 정류소 좌표->정류소ID 매칭용. 좌표 기반 정류소 조회(stationinfo 서비스)는
+  #    활용신청이 또 별개라, 대신 서울 열린데이터광장의 정류소 위치 데이터셋(전체 11,239건)을
+  #    받아서 최근접 매칭한다. 지하철 실시간과 같은 키다.
+  arrival-base-url: http://ws.bus.go.kr/api/rest/arrive/getLowArrInfoByStId
+  arrival-api-key: ${SEOUL_BUS_API_KEY:${TAGO_API_KEY:}}
+  stop-base-url: http://openapi.seoul.go.kr:8088
+  stop-api-key: ${SEOUL_SUBWAY_API_KEY:}
+
 # 아래 3개는 수도권 실시간 버스 도착정보(보조 기능). 전부 키가 비어있으면 조용히 꺼진 채로
 # 동작한다. 키 발급: data.go.kr 활용신청(공공데이터포털) - Decoding(원본) 키를 넣어야 한다
 # (각 클라이언트가 URL 인코딩을 직접 하므로 Encoding 키를 넣으면 이중 인코딩된다).
