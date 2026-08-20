@@ -8,9 +8,27 @@ import java.util.List;
  * ODsay searchPubTransPathT 응답 중 우리가 실제로 쓰는 필드만 매핑한다.
  * SearchPathType=1(지하철 전용)으로 요청하므로 subPath에는 지하철(trafficType=1)과
  * 도보(trafficType=3) 구간만 나오는 것을 전제로 한다.
+ * <p>
+ * 실패해도 HTTP 200에 {@code error} 필드만 담아 주므로(예: 일일 호출 한도 초과 429),
+ * result가 비어있다는 것만으로 "경로가 없다"고 단정하면 안 된다 - 그러면 API 장애가
+ * "대중교통 운행 종료"로 잘못 안내된다(실사용 중 실제로 발생).
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record OdsayPathResponse(Result result) {
+public record OdsayPathResponse(Result result, List<Error> error) {
+
+    /** 테스트/기존 코드용 - 정상 응답만 만들 때. */
+    public OdsayPathResponse(Result result) {
+        this(result, null);
+    }
+
+    public boolean hasError() {
+        return error != null && !error.isEmpty();
+    }
+
+    /** @param code ODsay 오류 코드 (예: "429" 일일 호출 한도 초과) */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Error(String code, String message) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Result(List<Path> path) {

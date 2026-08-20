@@ -73,6 +73,21 @@ class RouteLegExtractorTest {
         assertEquals(false, earlierStops.contains("압구정")); // 도착역 자체는 제외 목록에 없어야 함
     }
 
+    /**
+     * ODsay는 실패해도 HTTP 200에 error 필드만 담아 준다(예: 일일 호출 한도 초과 429).
+     * 이걸 "경로 없음"과 같이 취급하면 API 한도 초과가 "대중교통 운행이 종료되어 안내가
+     * 불가능합니다"로 안내되는데, 기다린다고 해결되는 상황이 아니라 오해를 준다(실사용 중 발생).
+     */
+    @Test
+    void API가_오류를_주면_경로없음과_구분되는_예외를_던진다() {
+        OdsayPathResponse response = new OdsayPathResponse(null,
+                List.of(new OdsayPathResponse.Error("429", "Daily quota exceeded")));
+
+        RouteSearchUnavailableException e = assertThrows(RouteSearchUnavailableException.class,
+                () -> extractor.extractAll(response));
+        assertTrue(e.getMessage().contains("429"));
+    }
+
     @Test
     void 경로가_없으면_예외를_던진다() {
         OdsayPathResponse response = new OdsayPathResponse(new OdsayPathResponse.Result(List.of()));

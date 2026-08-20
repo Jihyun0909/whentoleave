@@ -36,6 +36,12 @@ public class LastDepartureService {
      */
     private static final int SAFE_TRANSFER_MARGIN_MINUTES = 7;
     /**
+     * 경로탐색 API가 조회 자체를 못 해준 경우의 안내 문구. 화면에서 "운행 종료"류 문구로
+     * 바꾸지 않고 그대로 보여줘야 해서(기다린다고 해결되는 상황이 아니다) 상수로 공유한다.
+     */
+    public static final String ROUTE_SEARCH_UNAVAILABLE_REASON =
+            "지금은 경로를 조회할 수 없습니다. 잠시 후 다시 시도해주세요.";
+    /**
      * 출발지-목적지가 이 거리(m) 이내인데 ODsay가 경로를 못 찾으면(예: ODsay 자체가
      * "출,도착지가 700m이내입니다" 에러를 주는 경우), 대중교통이 필요 없을 만큼 가까운
      * 거리라고 보고 도보 시간을 추정해서 대신 보여준다. ODsay가 도보 전용 경로를 실제로
@@ -162,6 +168,10 @@ public class LastDepartureService {
         try {
             OdsayPathResponse response = odsayClient.searchPath(sx, sy, ex, ey, pathType);
             pathCandidates = routeLegExtractor.extractAll(response, pathType != SearchPathType.SUBWAY_ONLY);
+        } catch (RouteSearchUnavailableException e) {
+            // 경로가 없는 게 아니라 조회 자체를 못 한 상황이라, "운행 종료"류 문구로 바뀌지 않게
+            // 사유를 그대로 위로 올린다(displayReason이 이 문구를 알아보고 그대로 보여준다).
+            return new Best(new LastDepartureResult.Infeasible(ROUTE_SEARCH_UNAVAILABLE_REASON), 0);
         } catch (WalkOnlyRouteException e) {
             return new Best(new LastDepartureResult.Infeasible(e.getMessage(), e.walkMinutes()), 0);
         } catch (NoSubwayRouteFoundException e) {

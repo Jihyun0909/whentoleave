@@ -192,6 +192,13 @@ public class RouteLegExtractor {
     }
 
     private List<OdsayPathResponse.Path> allPaths(OdsayPathResponse response) {
+        // 경로가 없어서 result가 빈 것과, API가 오류를 준 것(한도 초과 등)은 사용자에게
+        // 전혀 다른 상황이라 먼저 갈라낸다.
+        if (response != null && response.hasError()) {
+            OdsayPathResponse.Error error = response.error().get(0);
+            throw new RouteSearchUnavailableException(
+                    "경로탐색 API 오류(code=" + error.code() + "): " + error.message());
+        }
         if (response == null || response.result() == null
                 || response.result().path() == null || response.result().path().isEmpty()) {
             throw new NoSubwayRouteFoundException("이동 가능한 대중교통 경로를 찾지 못했습니다.");

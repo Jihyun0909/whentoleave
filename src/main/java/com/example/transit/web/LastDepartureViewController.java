@@ -528,11 +528,15 @@ public class LastDepartureViewController {
      * 시각을 입력함) 그 메시지는 그대로 둔다.
      */
     private String displayReason(LastDepartureResult.Infeasible infeasible, boolean arrivalMode) {
-        boolean targetAlreadyPast = infeasible.reason() != null && infeasible.reason().contains("이미 지난 시각");
-        if (arrivalMode && !targetAlreadyPast) {
+        String reason = infeasible.reason();
+        boolean targetAlreadyPast = reason != null && reason.contains("이미 지난 시각");
+        // 경로탐색 API가 조회 자체를 못 해준 경우(한도 초과 등)를 "운행 종료"로 바꾸면,
+        // 기다린다고 해결되지 않는 상황을 운행 시간 문제로 오해하게 된다 - 그대로 보여준다.
+        boolean searchUnavailable = LastDepartureService.ROUTE_SEARCH_UNAVAILABLE_REASON.equals(reason);
+        if (arrivalMode && !targetAlreadyPast && !searchUnavailable) {
             return "해당 목적지까지 대중교통 운행이 종료되어 안내가 불가능합니다.";
         }
-        return infeasible.reason();
+        return reason;
     }
 
     /**
