@@ -1105,6 +1105,13 @@ body {
     font-weight: 800;
 }
 
+/* 도착 예정이 아니라 상태만 알려주는 칩(운행 종료/출발대기) - 기다릴 차가 있는 것처럼
+   보이면 안 되므로 강조색을 빼고 회색으로 눕힌다. */
+.realtime-chip-status {
+    background: var(--bg);
+    color: var(--text-muted);
+}
+
 /* ── 상세보기 타임라인 ───────────────────────────────────── */
 
 .route-detail {

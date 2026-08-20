@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class RegionalBusArrivalLookupTest {
 
-    private static final RealtimeBusArrival SAMPLE = new RealtimeBusArrival("140", 180, 3, "서울70사1234");
+    private static final RealtimeBusArrival SAMPLE = RealtimeBusArrival.arriving("140", 180, 3, "서울70사1234");
     private static final RealtimeSeoulBusArrivalLookup NO_SEOUL = (x, y) -> List.of();
 
     /**

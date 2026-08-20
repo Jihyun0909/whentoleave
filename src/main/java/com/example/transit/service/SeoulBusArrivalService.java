@@ -58,21 +58,70 @@ public class SeoulBusArrivalService implements RealtimeSeoulBusArrivalLookup {
 
         List<RealtimeBusArrival> arrivals = new ArrayList<>();
         for (SeoulBusArrivalResponse.Item item : response.msgBody().itemList()) {
-            addIfArriving(arrivals, item.rtNm(), item.traTime1(), item.plainNo1());
-            addIfArriving(arrivals, item.rtNm(), item.traTime2(), item.plainNo2());
+            if (item.rtNm() == null) {
+                continue;
+            }
+            boolean added = addIfArriving(arrivals, item.rtNm(), item.traTime1(), item.plainNo1());
+            added |= addIfArriving(arrivals, item.rtNm(), item.traTime2(), item.plainNo2());
+            if (!added) {
+                arrivals.add(RealtimeBusArrival.status(item.rtNm(), statusLabelOf(item)));
+            }
         }
         return arrivals;
     }
 
     /**
-     * 운행종료·출발대기인 버스는 남은 시간이 0으로 오는데, 그걸 그대로 두면 화면에서 "곧 도착"으로
-     * 보여 실제로는 오지 않는 버스를 기다리게 만든다. 실제로 오고 있는(남은 시간이 있는) 것만 담는다.
+     * 운행종료·출발대기인 버스는 남은 시간이 0으로 온다. 그걸 그대로 카운트다운에 넣으면 화면에서
+     * "곧 도착"으로 보여 실제로는 오지 않는 버스를 기다리게 만들므로, 여기서는 담지 않고
+     * 호출하는 쪽이 상태 문구로 대신 보여준다.
+     *
+     * @return 실제로 담았으면 true
      */
-    private void addIfArriving(List<RealtimeBusArrival> arrivals, String routeName,
-                                Integer seconds, String plateNo) {
-        if (routeName == null || seconds == null || seconds <= 0) {
-            return;
+    private boolean addIfArriving(List<RealtimeBusArrival> arrivals, String routeName,
+                                   Integer seconds, String plateNo) {
+        if (seconds == null || seconds <= 0) {
+            return false;
         }
-        arrivals.add(new RealtimeBusArrival(routeName, seconds, null, plateNo));
+        arrivals.add(RealtimeBusArrival.arriving(routeName, seconds, null, plateNo));
+        return true;
+    }
+
+    /**
+     * 오고 있는 버스가 없을 때 그 이유를 문구로 만든다. 사유 자체는 API가 arrmsg로 알려주지만
+     * ("운행종료"/"출발대기") 그것만으로는 "언제쯤 오는지"를 알 수 없어서, 같이 오는 노선
+     * 시간표(첫차/막차/배차간격)를 붙여 실제로 판단할 수 있게 한다.
+     */
+    private String statusLabelOf(SeoulBusArrivalResponse.Item item) {
+        String message = item.arrmsg1() == null ? "" : item.arrmsg1().trim();
+        if (message.contains("운행종료")) {
+            String lastTime = formatTime(item.lastTm());
+            return lastTime == null ? "운행 종료" : "운행 종료 · 막차 " + lastTime;
+        }
+        if (message.contains("출발대기")) {
+            Integer term = intervalMinutes(item.term());
+            return term == null ? "출발대기" : "출발대기 · 배차 " + term + "분";
+        }
+        return message.isEmpty() ? "정보 없음" : message;
+    }
+
+    /** 원본은 "20260820184900"(yyyyMMddHHmmss) 형태라 시:분만 잘라 쓴다. */
+    private String formatTime(String yyyyMMddHHmmss) {
+        if (yyyyMMddHHmmss == null || yyyyMMddHHmmss.length() < 12) {
+            return null;
+        }
+        return yyyyMMddHHmmss.substring(8, 10) + ":" + yyyyMMddHHmmss.substring(10, 12);
+    }
+
+    /** 심야 노선처럼 배차간격이 0으로 오는 경우가 있어(의미 없는 값) 그건 없는 것으로 본다. */
+    private Integer intervalMinutes(String term) {
+        if (term == null || term.isBlank()) {
+            return null;
+        }
+        try {
+            int minutes = Integer.parseInt(term.trim());
+            return minutes > 0 ? minutes : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }

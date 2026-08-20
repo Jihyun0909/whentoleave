@@ -69,7 +69,7 @@ public class TagoBusArrivalService implements RealtimeTagoBusArrivalLookup {
     }
 
     private RealtimeBusArrival toArrival(JsonNode item) {
-        return new RealtimeBusArrival(text(item, "routeno"), integer(item, "arrtime"),
+        return RealtimeBusArrival.arriving(text(item, "routeno"), integer(item, "arrtime"),
                 integer(item, "arrprevstationcnt"), null);
     }
 

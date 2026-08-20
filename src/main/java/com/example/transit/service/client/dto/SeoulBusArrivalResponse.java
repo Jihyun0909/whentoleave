@@ -29,6 +29,9 @@ public record SeoulBusArrivalResponse(MsgHeader msgHeader, MsgBody msgBody) {
      * 한 노선의 도착정보. 첫 번째/두 번째 도착 예정 버스가 같은 항목에 1/2 접미사로 들어있다.
      *
      * @param rtNm      노선 번호 (예: "148")
+     * @param firstTm   이 노선의 첫차 시각 ("20260820040100" - yyyyMMddHHmmss)
+     * @param lastTm    이 노선의 막차 시각. 오고 있는 버스가 없을 때 "막차 몇 시였는지" 안내에 쓴다.
+     * @param term      배차간격(분). 심야 노선 등은 0으로 오기도 한다.
      * @param traTime1  첫 번째 버스 도착까지 남은 시간(초). 운행종료/출발대기면 0이 온다.
      * @param arrmsg1   첫 번째 버스 도착 안내 문구 (예: "2분25초후[1번째 전]", "곧 도착", "운행종료")
      * @param plainNo1  첫 번째 버스 차량번호
@@ -36,6 +39,7 @@ public record SeoulBusArrivalResponse(MsgHeader msgHeader, MsgBody msgBody) {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Item(String rtNm, String arsId, String stNm,
+                        String firstTm, String lastTm, String term,
                         Integer traTime1, String arrmsg1, String plainNo1, String isLast1,
                         Integer traTime2, String arrmsg2, String plainNo2, String isLast2) {
     }

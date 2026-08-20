@@ -78,7 +78,7 @@ public class GyeonggiBusArrivalService implements RealtimeGyeonggiBusArrivalLook
         if (predictMinutes == null || predictMinutes < 0) {
             return;
         }
-        result.add(new RealtimeBusArrival(routeName, predictMinutes * 60, locationNo, plateNo));
+        result.add(RealtimeBusArrival.arriving(routeName, predictMinutes * 60, locationNo, plateNo));
     }
 
     private String text(JsonNode node, String field) {

@@ -362,12 +362,26 @@ public class LastDepartureViewController {
             return List.of();
         }
 
-        return busArrivalLookup.findArrivals(leg.stationX(), leg.stationY())
+        List<RealtimeBusArrival> mine = busArrivalLookup.findArrivals(leg.stationX(), leg.stationY())
                 .stream()
-                .filter(arrival -> arrival.secondsUntilArrival() != null)
                 .filter(arrival -> leg.busNo().equals(arrival.routeName()))
+                .toList();
+
+        // 오고 있는 버스가 있으면 그것만 (가까운 순 2대까지) 보여준다. 하나도 없으면 왜 없는지를
+        // (운행 종료인지 출발대기인지) 알려주는 게 아무것도 안 띄우는 것보다 낫다 - 실사용에서
+        // "실시간이 왜 안 뜨지?"로 오해를 샀던 부분이다.
+        List<RealtimeArrivalView> arriving = mine.stream()
+                .filter(RealtimeBusArrival::isArriving)
                 .sorted(Comparator.comparing(RealtimeBusArrival::secondsUntilArrival))
                 .limit(2)
+                .map(this::toRealtimeArrivalView)
+                .toList();
+        if (!arriving.isEmpty()) {
+            return arriving;
+        }
+        return mine.stream()
+                .filter(arrival -> arrival.statusLabel() != null)
+                .limit(1)
                 .map(this::toRealtimeArrivalView)
                 .toList();
     }
@@ -379,8 +393,13 @@ public class LastDepartureViewController {
     }
 
     private RealtimeArrivalView toRealtimeArrivalView(RealtimeBusArrival arrival) {
-        int seconds = arrival.secondsUntilArrival();
         String label = arrival.routeName() != null ? arrival.routeName() + "번" : "버스";
+        if (!arrival.isArriving()) {
+            // 카운트다운할 값이 없으므로 secondsUntilArrival을 null로 둔다 - 화면 JS는 이 값이
+            // 있는 칩만 매초 줄이므로, 상태 문구는 그대로 남는다.
+            return new RealtimeArrivalView(label, arrival.statusLabel(), null, false);
+        }
+        int seconds = arrival.secondsUntilArrival();
         return new RealtimeArrivalView(label, etaLabel(seconds), seconds, false);
     }
 
@@ -473,12 +492,19 @@ public class LastDepartureViewController {
      * @param headsign            "OO행 - OO방면" 형태의 종착지 설명 (실제 승강장 전광판과 같은 표기라
      *                            사용자가 자기 방향을 스스로 알아볼 수 있다)
      * @param etaLabel            초기 렌더링용 "분:초" 또는 "곧 도착" - 이후 화면 JS가 secondsUntilArrival을
-     *                            이어받아 매초 직접 카운트다운하며 이 텍스트를 갱신한다.
-     * @param secondsUntilArrival 도착까지 남은 시간(초). 화면 JS 카운트다운의 시작값.
+     *                            이어받아 매초 직접 카운트다운하며 이 텍스트를 갱신한다. 오고 있는 차가
+     *                            없는 버스에서는 대신 상태 문구가 들어간다("운행 종료 · 막차 18:49" 등).
+     * @param secondsUntilArrival 도착까지 남은 시간(초). 화면 JS 카운트다운의 시작값이며, 카운트다운할
+     *                            대상이 아니면(상태 문구) null이다 - 화면 JS는 이 값이 있는 칩만 줄인다.
      * @param isLastTrain         이 열차가 막차인지
      */
-    public record RealtimeArrivalView(String headsign, String etaLabel, int secondsUntilArrival,
+    public record RealtimeArrivalView(String headsign, String etaLabel, Integer secondsUntilArrival,
                                        boolean isLastTrain) {
+
+        /** 카운트다운이 아니라 상태만 알려주는 칩인지 (화면에서 다르게 스타일링한다). */
+        public boolean isStatusOnly() {
+            return secondsUntilArrival == null;
+        }
     }
 
     /** 후보 선택 라디오가 넘기는 "경도,위도". 형식이 어긋나면 무시하고 이름으로 다시 찾는다. */

@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -33,20 +34,55 @@ class SeoulBusArrivalServiceTest {
     }
 
     /**
-     * 운행종료·출발대기 버스는 남은 시간이 0으로 온다. 그대로 두면 화면에서 "곧 도착"으로 보여
-     * 오지도 않는 버스를 기다리게 되므로 빼야 한다.
+     * 운행종료·출발대기 버스는 남은 시간이 0으로 온다. 그대로 카운트다운에 넣으면 화면에서
+     * "곧 도착"으로 보여 오지도 않는 버스를 기다리게 되므로, 도착 예정이 아니라 상태로 분류한다.
      */
     @Test
-    void 남은_시간이_0인_버스는_제외한다() {
+    void 남은_시간이_0인_버스는_도착예정이_아니라_상태로_분류한다() {
         SeoulBusArrivalService service = serviceWith(okResponse(
-                item("6102", 0, null, 0, null),
                 item("120", 93, "서울70사1111", 0, null)));
 
         List<RealtimeBusArrival> result = service.findArrivals(STOP_X, STOP_Y);
 
         assertEquals(1, result.size());
-        assertEquals("120", result.get(0).routeName());
+        assertTrue(result.get(0).isArriving());
         assertEquals(93, result.get(0).secondsUntilArrival());
+    }
+
+    /** 운행 시간이 끝난 노선은 막차 시각까지 같이 알려줘야 판단이 된다. */
+    @Test
+    void 운행종료면_막차_시각을_함께_알려준다() {
+        SeoulBusArrivalService service = serviceWith(okResponse(
+                item("8101", 0, null, 0, null, "운행종료", "20260820081000", "10")));
+
+        List<RealtimeBusArrival> result = service.findArrivals(STOP_X, STOP_Y);
+
+        assertEquals(1, result.size());
+        assertFalse(result.get(0).isArriving());
+        assertEquals("운행 종료 · 막차 08:10", result.get(0).statusLabel());
+    }
+
+    /** 운행 시간인데 아직 출발 전이면 배차간격을 같이 알려준다. */
+    @Test
+    void 출발대기면_배차간격을_함께_알려준다() {
+        SeoulBusArrivalService service = serviceWith(okResponse(
+                item("6102", 0, null, 0, null, "출발대기", "20260820184900", "40")));
+
+        List<RealtimeBusArrival> result = service.findArrivals(STOP_X, STOP_Y);
+
+        assertEquals(1, result.size());
+        assertEquals("출발대기 · 배차 40분", result.get(0).statusLabel());
+    }
+
+    /** 심야 노선처럼 배차간격이 0(의미 없는 값)이면 그 부분은 빼고 상태만 알려준다. */
+    @Test
+    void 배차간격이_0이면_상태만_알려준다() {
+        SeoulBusArrivalService service = serviceWith(okResponse(
+                item("새벽A148", 0, null, 0, null, "출발대기", "20260821034700", "0")));
+
+        List<RealtimeBusArrival> result = service.findArrivals(STOP_X, STOP_Y);
+
+        assertEquals("출발대기", result.get(0).statusLabel());
     }
 
     /** headerCd "4"(결과 없음)는 실패가 아니라 빈 목록이다. */
@@ -134,7 +170,14 @@ class SeoulBusArrivalServiceTest {
 
     private SeoulBusArrivalResponse.Item item(String routeName, int seconds1, String plate1,
                                                int seconds2, String plate2) {
+        return item(routeName, seconds1, plate1, seconds2, plate2, "곧 도착", "20260820224400", "8");
+    }
+
+    private SeoulBusArrivalResponse.Item item(String routeName, int seconds1, String plate1,
+                                               int seconds2, String plate2,
+                                               String arrmsg1, String lastTm, String term) {
         return new SeoulBusArrivalResponse.Item(routeName, "09013", "수유역.강북구청",
-                seconds1, null, plate1, "0", seconds2, null, plate2, "0");
+                "20260820040100", lastTm, term,
+                seconds1, arrmsg1, plate1, "0", seconds2, arrmsg1, plate2, "0");
     }
 }

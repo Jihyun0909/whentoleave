@@ -368,7 +368,7 @@
                                     <div class="realtime-arrivals" th:if="${!row.realtimeArrivals().isEmpty()}">
                                         <span class="realtime-label">실시간</span>
                                         <span class="realtime-chip" th:each="rt : ${row.realtimeArrivals()}"
-                                              th:classappend="${rt.isLastTrain()} ? ' realtime-chip-last' : ''"
+                                              th:classappend="${rt.isLastTrain()} ? ' realtime-chip-last' : (${rt.isStatusOnly()} ? ' realtime-chip-status' : '')"
                                               th:attr="data-seconds=${rt.secondsUntilArrival()}">
                                             <span class="realtime-chip-headsign" th:text="${rt.headsign()}"></span>
                                             <b class="realtime-chip-eta" th:text="${rt.etaLabel()}"></b>
