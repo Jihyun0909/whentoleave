@@ -141,6 +141,25 @@ class RouteLegExtractorTest {
         assertEquals(1, extractor.extract(response).get(0).wayCode());
     }
 
+    /**
+     * 실사용 중 발견한 버그의 회귀 테스트(2026-08-25, 수유->창동->광운대). 4호선 진접선 연장
+     * 구간(진접·오남·별내별가람)은 TAGO에서 본선과 다른 ID 접두사를 써서, 수유역의 종착역
+     * 목록에는 "불암산(당고개)"까지만 잡히고 "진접"은 절대 안 잡힌다. 그래서 headsign이
+     * "진접역 방면"으로 온 상행 열차가 하행으로 잘못 떨어졌었다(실사용 확인: 사당행/오이도행
+     * 반대 방향 열차가 실시간 정보에 뜸).
+     */
+    @Test
+    void 진접선_연장구간_headsign도_불암산_당고개와_같은_상행으로_인식한다() {
+        RouteLegExtractor extractor = extractor(
+                Map.of("수유", new StationFixture("MTRS14414", "4호선")),
+                Map.of("MTRS14414:U", Set.of("불암산(당고개)"),
+                        "MTRS14414:D", Set.of("사당", "남태령", "서울역")));
+        GoogleRoutesResponse response = response(route(
+                subwayStepWithHeadsign(5, "수유", "4호선", "진접역 방면")));
+
+        assertEquals(1, extractor.extract(response).get(0).wayCode());
+    }
+
     /** 반대 방향(하행)도 그대로 하행으로 남아야 한다 - 위 수정이 무조건 상행으로 만들면 안 된다. */
     @Test
     void 하행_방면_headsign은_하행으로_남는다() {

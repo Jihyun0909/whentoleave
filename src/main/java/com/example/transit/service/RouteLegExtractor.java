@@ -4,6 +4,8 @@ import com.example.transit.service.client.TagoBusRouteDetailApiClient;
 import com.example.transit.service.client.TagoSubwayApiClient;
 import com.example.transit.service.client.dto.GoogleRoutesResponse;
 import com.example.transit.service.client.dto.TagoBusArrivalResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 
@@ -35,6 +37,8 @@ import java.util.stream.StreamSupport;
  */
 @Component
 public class RouteLegExtractor {
+
+    private static final Logger log = LoggerFactory.getLogger(RouteLegExtractor.class);
 
     /**
      * 방향(상/하행) 판별과 단축운행 종착역 판별에 쓸 기준 요일유형. 실제 시간표 조회가 아니라
@@ -174,6 +178,8 @@ public class RouteLegExtractor {
                 .orElseThrow(() -> new NoSubwayRouteFoundException(
                         "지하철역 정보를 찾지 못했습니다: " + departureStop.name() + "(" + lineNameShort + ")"));
         int wayCode = resolveWayCode(boarding.id(), details.headsign());
+        log.debug("subwayLeg station={} lineNameShort={} headsign={} -> wayCode={}",
+                departureStop.name(), lineNameShort, details.headsign(), wayCode);
         Set<String> earlierStopNames = resolveEarlierStopNames(
                 boarding.id(), wayCode, arrivalStop == null ? null : arrivalStop.name(), lineNameShort);
 
@@ -321,7 +327,19 @@ public class RouteLegExtractor {
                 .anyMatch(alias -> normalizedHeadsign.contains(alias) || alias.contains(normalizedHeadsign));
     }
 
-    /** "불암산(당고개)" -> ["불암산(당고개)", "불암산", "당고개"] (빈 문자열은 제외). */
+    /**
+     * 4호선 진접선 연장 구간(진접·오남·별내별가람)은 TAGO에서 본선(수유·쌍문·창동 등, ID가
+     * "MTRS14"로 시작)과 완전히 다른 ID 체계("MTRNU4" 접두사)를 쓴다(2026-08-25 라이브 확인 -
+     * {@code GetKwrdFndSubwaySttnList}로 직접 조회해 접두사가 다름을 확인했다). 그래서 수유역
+     * 등에서 종착역 목록을 조회해도 "진접"은 절대 안 잡히고 "불암산(당고개)"까지만 잡힌다 -
+     * 실제로는 당고개보다 더 북쪽으로 이어지는 같은 노선인데(공식 노선도상 이견 없는 사실),
+     * TAGO 데이터 구조상 여기서 끊겨 보이는 것뿐이다. "불암산"/"당고개"가 인정된 종착역이면
+     * 이 확장 구간 역명들도 같은 방향으로 취급한다.
+     */
+    private static final Set<String> DANGOGAE_EXTENSION_ALIASES =
+            Set.of("당고개", "불암산", "진접", "오남", "별내별가람");
+
+    /** "불암산(당고개)" -> ["불암산(당고개)", "불암산", "당고개", ...연장구간 역명들] (빈 문자열은 제외). */
     private List<String> terminusAliases(String terminus) {
         List<String> aliases = new ArrayList<>();
         aliases.add(terminus);
@@ -331,7 +349,10 @@ public class RouteLegExtractor {
             aliases.add(terminus.substring(0, open).trim());
             aliases.add(terminus.substring(open + 1, close).trim());
         }
-        return aliases.stream().filter(alias -> !alias.isBlank()).toList();
+        if (aliases.stream().anyMatch(DANGOGAE_EXTENSION_ALIASES::contains)) {
+            aliases.addAll(DANGOGAE_EXTENSION_ALIASES);
+        }
+        return aliases.stream().filter(alias -> !alias.isBlank()).distinct().toList();
     }
 
     private TransitLeg busLeg(GoogleRoutesResponse.TransitDetails details, int rideMinutes, int pendingWalkMinutes,
