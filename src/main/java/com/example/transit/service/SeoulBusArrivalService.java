@@ -7,9 +7,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 /**
  * 서울시 실시간 버스 도착정보를 조회해 지역 공통 형태({@link RealtimeBusArrival})로 바꾼다.
@@ -62,19 +62,26 @@ public class SeoulBusArrivalService implements RealtimeSeoulBusArrivalLookup {
             return List.of();
         }
 
-        List<RealtimeBusArrival> arrivals = new ArrayList<>();
-        java.util.Set<String> seenRouteIds = new java.util.HashSet<>();
+        Map<String, SeoulBusArrivalResponse.Item> bestByKey = new LinkedHashMap<>();
         for (SeoulBusArrivalResponse.Item item : response.msgBody().itemList()) {
             if (item.rtNm() == null) {
                 continue;
             }
             // 순환 노선은 같은 정류장을 한 바퀴 안에 두 번 지나는 항목이 따로 온다(Item 참고) -
-            // busRouteId가 같으면 노선 순서상 먼저 오는 항목(응답이 staOrd 오름차순이라 처음
-            // 만나는 쪽)만 쓰고, 뒤에 오는 바퀴는 무시한다. 둘 다 합치면 서로 다른 바퀴 지점의
-            // 버스를 "곧 오는 버스 두 대"처럼 섞어서 보여주게 된다.
-            if (item.busRouteId() != null && !seenRouteIds.add(item.busRouteId())) {
-                continue;
-            }
+            // busRouteId가 같으면 노선 번호만으로는 구분이 안 되니 이걸로 묶어서 그중 하나만
+            // 써야 한다("곧 오는 버스 두 대"처럼 서로 다른 바퀴 지점의 버스를 섞어 보여주면
+            // 안 된다). 처음엔 응답이 staOrd 오름차순이라 먼저 나오는 쪽이 항상 더 가깝다고
+            // 가정했는데, 실제로는 그렇지 않다(2026-08-25 실사용 중 발견: 1218번이 앞쪽 바퀴
+            // 지점에서는 아직 배차 전(출발대기)인데 뒤쪽 바퀴 지점에는 이미 다음 버스가 18분
+            // 거리로 오고 있는 경우가 있었다 - 카카오맵엔 도착정보가 뜨는데 우리는 "출발대기"만
+            // 보여준 원인). 그래서 순서가 아니라 "실제로 오고 있는 버스가 있는 쪽"을 우선하고,
+            // 둘 다 있으면 더 가까운 쪽을 남긴다.
+            String key = item.busRouteId() != null ? item.busRouteId() : item.rtNm();
+            bestByKey.merge(key, item, this::preferSoonerArrival);
+        }
+
+        List<RealtimeBusArrival> arrivals = new ArrayList<>();
+        for (SeoulBusArrivalResponse.Item item : bestByKey.values()) {
             boolean added = addIfArriving(arrivals, item.rtNm(), item.traTime1(), item.plainNo1(), item.isArrive1());
             added |= addIfArriving(arrivals, item.rtNm(), item.traTime2(), item.plainNo2(), item.isArrive2());
             if (!added) {
@@ -82,6 +89,30 @@ public class SeoulBusArrivalService implements RealtimeSeoulBusArrivalLookup {
             }
         }
         return arrivals;
+    }
+
+    /** 같은 노선(busRouteId)의 두 바퀴 지점 항목 중, 실제로 오고 있는 버스가 있는 쪽 - 있으면 더 가까운 쪽을 남긴다. */
+    private SeoulBusArrivalResponse.Item preferSoonerArrival(SeoulBusArrivalResponse.Item a,
+                                                               SeoulBusArrivalResponse.Item b) {
+        int aSoonest = soonestArrivalSeconds(a);
+        int bSoonest = soonestArrivalSeconds(b);
+        return aSoonest <= bSoonest ? a : b;
+    }
+
+    /** 이 항목에서 실제로 오고 있는 차편 중 가장 빠른 남은 시간(초). 오는 차가 없으면 Integer.MAX_VALUE. */
+    private int soonestArrivalSeconds(SeoulBusArrivalResponse.Item item) {
+        int best = Integer.MAX_VALUE;
+        if (isUsableArrival(item.traTime1(), item.isArrive1())) {
+            best = Math.min(best, Math.max(item.traTime1(), 0));
+        }
+        if (isUsableArrival(item.traTime2(), item.isArrive2())) {
+            best = Math.min(best, Math.max(item.traTime2(), 0));
+        }
+        return best;
+    }
+
+    private boolean isUsableArrival(Integer seconds, String isArrive) {
+        return seconds != null && (seconds > 0 || "1".equals(isArrive));
     }
 
     /**

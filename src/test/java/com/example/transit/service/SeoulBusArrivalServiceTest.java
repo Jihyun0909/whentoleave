@@ -124,6 +124,26 @@ class SeoulBusArrivalServiceTest {
         assertEquals(1085, result.get(0).secondsUntilArrival());
     }
 
+    /**
+     * 실사용 중 발견한 또 다른 버그(2026-08-25, 1218번/강북구청사거리): 순환 노선의 두 바퀴 지점
+     * 중 "먼저 나오는 항목"이 항상 더 가까운 게 아니다 - 앞쪽 바퀴 지점엔 아직 배차된 차가 없어
+     * "출발대기"인데, 뒤쪽 바퀴 지점엔 이미 다음 버스가 오고 있는 경우가 있었다(카카오맵엔
+     * 도착정보가 뜨는데 우리는 "출발대기"만 보여준 원인). 순서가 아니라 실제로 오는 차가 있는
+     * 쪽을 우선해야 한다.
+     */
+    @Test
+    void 먼저_나오는_항목이_출발대기여도_뒤쪽_항목에_오는_차가_있으면_그걸_쓴다() {
+        SeoulBusArrivalService service = serviceWith(okResponse(
+                item("1218", "100100177", 0, null, 0, null, "출발대기", "20260826004400", "11"),
+                item("1218", "100100177", 1124, "서울74사1564", 0, null, "18분44초후", "20260826004400", "11")));
+
+        List<RealtimeBusArrival> result = service.findArrivals(STOP_X, STOP_Y);
+
+        assertEquals(1, result.size());
+        assertTrue(result.get(0).isArriving());
+        assertEquals(1124, result.get(0).secondsUntilArrival());
+    }
+
     /** headerCd "4"(결과 없음)는 실패가 아니라 빈 목록이다. */
     @Test
     void 결과가_없으면_빈_목록을_준다() {

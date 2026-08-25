@@ -222,6 +222,38 @@ class RouteLegExtractorTest {
         assertEquals("성북청소년센터", candidates.get(0).legs().get(0).stationName());
     }
 
+    /**
+     * 위 테스트의 회귀가 하차 정류장에서도 재발했다(2026-08-25 실사용 중 재확인) - 처음엔 승차
+     * 정류장 이름만 카탈로그로 보정하고 하차 정류장은 그대로 Google 이름을 썼다. 같은 물리적
+     * 정류장이 "하차"로 나올 때도 최신 이름을 써야 한다.
+     */
+    @Test
+    void 하차_정류장명도_google_대신_자체_카탈로그_이름을_우선한다() throws Exception {
+        SeoulBusStopApiClient stopClient = new SeoulBusStopApiClient("http://dummy", "dummy") {
+            @Override
+            public tools.jackson.databind.JsonNode findStops(int startIndex, int endIndex) {
+                String json = """
+                        { "busStopLocationXyInfo": { "list_total_count": 1, "row": [
+                          { "STOPS_NO": "107000099", "STOPS_NM": "성북청소년센터",
+                            "XCRD": "127.0", "YCRD": "37.0", "NODE_ID": "08189" }
+                        ] } }
+                        """;
+                return new tools.jackson.databind.ObjectMapper().readTree(json);
+            }
+        };
+        RouteLegExtractor extractor = new RouteLegExtractor(
+                new TagoSubwayApiClient("http://dummy", "dummy"),
+                new TagoBusRouteDetailApiClient("http://dummy", "dummy"),
+                new TagoCityCodeResolver(null),
+                new SeoulBusStopCatalog(stopClient));
+        GoogleRoutesResponse response = response(route(
+                transitStep(10, "출발정류장", "장위3동주민센터", "146", "BUS")));
+
+        List<RouteLegExtractor.ExtractedRoute> candidates = extractor.extractAll(response, true);
+
+        assertEquals("성북청소년센터", candidates.get(0).legs().get(0).endStationName());
+    }
+
     /** 서울 카탈로그에 근처 정류소가 없으면(예: 서울 밖) Google 이름을 그대로 쓴다. */
     @Test
     void 근처에_카탈로그_정류소가_없으면_google_이름을_그대로_쓴다() {

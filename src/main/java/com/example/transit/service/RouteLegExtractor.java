@@ -396,15 +396,17 @@ public class RouteLegExtractor {
         double stopX = departureStop.location().latLng().longitude();
         double stopY = departureStop.location().latLng().latitude();
         int distanceMeters = stepDistanceMeters == null ? 0 : stepDistanceMeters;
-        String endName = arrivalStop == null ? null : arrivalStop.name();
         // Google의 정류장명이 실제 개명을 못 따라가는 경우가 있다(2026-08-25 실사용 피드백 -
         // "장위3동주민센터"가 "성북청소년센터"로 바뀐 지 한참인데 Google은 옛 이름을 줌). 매칭
         // 자체는 이름이 아니라 좌표로 하므로 기능엔 영향 없지만, 표시용 이름은 우리가 실시간
         // 조회에도 쓰는 서울 열린데이터광장 정류소 목록(더 최신인 경우가 많다)이 있으면 그걸
         // 우선한다. 서울 밖 좌표거나 근처에 없으면 자연히 Google 이름으로 남는다.
+        // 승차 정류장뿐 아니라 하차 정류장에도 같은 보정이 필요하다(2026-08-25 실사용 중 재확인 -
+        // 처음엔 승차 쪽만 고쳐서 같은 정류장이 "하차"로 나올 땐 여전히 옛 이름이 보였다).
         String boardingStopName = seoulBusStopCatalog.findNearest(stopX, stopY)
                 .map(SeoulBusStopCatalog.SeoulBusStop::name)
                 .orElse(departureStop.name());
+        String endName = endStopName(arrivalStop);
 
         Optional<String> cityCode = tagoCityCodeResolver.resolve(stopX, stopY);
         if (cityCode.isEmpty()) {
@@ -426,6 +428,21 @@ public class RouteLegExtractor {
         return TransitLeg.bus(stationId, rideMinutes, pendingWalkMinutes,
                 boardingStopName, endName, busNo, List.of(routeId.get()), busNo, distanceMeters, stopX, stopY,
                 cityCode.get());
+    }
+
+    /** 하차 정류장 표시명 - boardingStopName과 같은 이유로 좌표 매칭이 되면 그 이름을 우선한다. */
+    private String endStopName(GoogleRoutesResponse.Stop arrivalStop) {
+        if (arrivalStop == null) {
+            return null;
+        }
+        if (arrivalStop.location() == null || arrivalStop.location().latLng() == null) {
+            return arrivalStop.name();
+        }
+        double endX = arrivalStop.location().latLng().longitude();
+        double endY = arrivalStop.location().latLng().latitude();
+        return seoulBusStopCatalog.findNearest(endX, endY)
+                .map(SeoulBusStopCatalog.SeoulBusStop::name)
+                .orElse(arrivalStop.name());
     }
 
     /** 노선번호(부분 검색)로 TAGO routeId를 찾는다 - routeno가 정확히 일치하는 항목만 인정한다. */
