@@ -1,8 +1,10 @@
 package com.example.transit.service;
 
 /**
- * @param laneName 화면 표시용 노선명. ODsay는 "수도권 4호선"/"수도권 수인.분당선"처럼 주는데,
- *                 이 앱은 수도권 전용이라 접두어가 정보를 더하지 않고 자리만 차지해서 떼고 저장한다.
+ * @param laneName 화면 표시용 부가 설명(후보를 서로 구분하는 용도). 예전 ODsay는 "수도권 4호선"
+ *                 같은 실제 노선명을 줬지만, VWorld(현재 지오코더)는 장소검색이라 노선 정보가
+ *                 아예 없다 - 대신 주소(도로명 우선, 없으면 지번)를 넣어 후보를 구분한다
+ *                 (예: 홍대입구역처럼 이름은 같지만 서로 다른 역사인 경우).
  */
 public record StationCandidate(String stationName, String laneName, double x, double y) {
 

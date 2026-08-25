@@ -81,11 +81,28 @@ public class StationCandidateResolver {
 
     private StationCandidate toCandidate(VWorldSearchResponse.Item item) {
         try {
-            return new StationCandidate(item.title(), null,
+            return new StationCandidate(item.title(), addressLine(item),
                     Double.parseDouble(item.point().x()), Double.parseDouble(item.point().y()));
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    /**
+     * 후보 구분용 부가 설명. VWorld는 역 후보 사이에 노선(호선) 정보를 안 주므로(장소검색이라
+     * "지하철역" 카테고리까지만 나온다 - 2026-08-25 실사용 중 발견, 홍대입구역이 2호선/공항철도
+     * 승강장으로 서로 다른 역사인데도 구분할 표시가 없어 후보 두 개가 똑같이 보였다), 대신
+     * 주소로 구분한다(도로명 우선, 없으면 지번). {@link StationSuggestionService#addressLine}과
+     * 동일 패턴.
+     */
+    private static String addressLine(VWorldSearchResponse.Item item) {
+        if (item.address() == null) {
+            return null;
+        }
+        if (item.address().road() != null && !item.address().road().isBlank()) {
+            return item.address().road();
+        }
+        return item.address().parcel();
     }
 
     private boolean isSubwayStation(String category) {

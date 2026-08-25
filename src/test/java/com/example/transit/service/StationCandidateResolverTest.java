@@ -120,6 +120,28 @@ class StationCandidateResolverTest {
         assertEquals(37.554648, resolved.y());
     }
 
+    /**
+     * 실사용 중 발견: 홍대입구역처럼 이름은 같지만 실제로는 서로 다른 역사(2호선 vs 공항철도)인
+     * 후보가 있을 때, VWorld는 노선(호선) 정보를 아예 안 줘서 화면에 구분할 표시가 없었다.
+     * 주소(도로명 우선, 없으면 지번)를 laneName 자리에 채워 후보를 구분할 수 있게 한다.
+     */
+    @Test
+    void 후보의_laneName은_도로명_주소로_채워진다() {
+        List<VWorldSearchResponse.Item> hongdae = List.of(
+                itemWithAddress("홍대입구역", SUBWAY_CATEGORY, 126.9236742999797, 37.556890400006665,
+                        "", "서울특별시 마포구 동교동 155-55"),
+                itemWithAddress("홍대입구역", SUBWAY_CATEGORY, 126.9270129631858, 37.557326282527306,
+                        "서울특별시 마포구 양화로 188", "서울특별시 마포구 동교동 190-66 철")
+        );
+
+        StationResolution result = resolver.resolve("홍대입구", hongdae);
+
+        StationResolution.Ambiguous ambiguous = assertInstanceOf(StationResolution.Ambiguous.class, result);
+        assertEquals(2, ambiguous.candidates().size());
+        assertEquals("서울특별시 마포구 동교동 155-55", ambiguous.candidates().get(0).laneName()); // road 없으면 parcel
+        assertEquals("서울특별시 마포구 양화로 188", ambiguous.candidates().get(1).laneName()); // road 있으면 road
+    }
+
     @Test
     void 일치하는_역이_없으면_NotFound를_반환한다() {
         StationResolution result = resolver.resolve("존재하지않는역이름", gangnamSearchResult);
@@ -147,6 +169,13 @@ class StationCandidateResolverTest {
 
     private VWorldSearchResponse.Item item(String title, String category, double x, double y) {
         return new VWorldSearchResponse.Item("id-" + title + "-" + x, title, category, null,
+                new VWorldSearchResponse.Point(String.valueOf(x), String.valueOf(y)));
+    }
+
+    private VWorldSearchResponse.Item itemWithAddress(String title, String category, double x, double y,
+                                                        String road, String parcel) {
+        VWorldSearchResponse.Address address = new VWorldSearchResponse.Address(null, null, road, parcel);
+        return new VWorldSearchResponse.Item("id-" + title + "-" + x, title, category, address,
                 new VWorldSearchResponse.Point(String.valueOf(x), String.valueOf(y)));
     }
 }

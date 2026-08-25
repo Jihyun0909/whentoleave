@@ -88,7 +88,7 @@ public class StationSuggestionService {
 
     private StationCandidate toStationCandidate(VWorldSearchResponse.Item item) {
         try {
-            return new StationCandidate(item.title(), null,
+            return new StationCandidate(item.title(), addressLine(item),
                     Double.parseDouble(item.point().x()), Double.parseDouble(item.point().y()));
         } catch (NumberFormatException e) {
             return null;
