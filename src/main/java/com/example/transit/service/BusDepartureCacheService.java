@@ -36,6 +36,11 @@ import java.util.stream.StreamSupport;
  * 수 있는 구조는 유지한다 - 이 경우 후보 차편은 모든 노선의 합집합이고, 막차는 그중 가장 늦은
  * 노선 기준이 된다.
  * <p>
+ * <b>서울 버스는 TAGO를 아예 못 쓴다:</b> TAGO가 서울 시내버스를 커버하지 않아 {@code busIds}가
+ * 항상 비어 있으므로(RouteLegExtractor 참고), 이 경우 {@link SeoulBusRouteScheduleCatalog}(정적
+ * 시드)로 대체한다. 노선 전체(기점) 기준 첫차/막차라 승차 정류장 offset은 못 구하지만, 없는 것보다
+ * 이르게(안전하게) 추정되는 값이라도 있는 게 낫다.
+ * <p>
  * 노선 하나당 API를 두 번(상세+경유정류소) 호출해야 해서, 구간당 조회하는 노선 수를
  * {@link #MAX_LANES_PER_LEG}개로 제한하고, (노선, 정류장, 요일유형)별로 캐싱한다
  * (SubwayScheduleCacheService와 같은 lazy cache-aside 방식).
@@ -68,14 +73,20 @@ public class BusDepartureCacheService implements BusDepartureLookup {
 
     private final BusStopDepartureRepository repository;
     private final TagoBusRouteDetailApiClient tagoClient;
+    private final SeoulBusRouteScheduleCatalog seoulBusRouteScheduleCatalog;
 
-    public BusDepartureCacheService(BusStopDepartureRepository repository, TagoBusRouteDetailApiClient tagoClient) {
+    public BusDepartureCacheService(BusStopDepartureRepository repository, TagoBusRouteDetailApiClient tagoClient,
+                                     SeoulBusRouteScheduleCatalog seoulBusRouteScheduleCatalog) {
         this.repository = repository;
         this.tagoClient = tagoClient;
+        this.seoulBusRouteScheduleCatalog = seoulBusRouteScheduleCatalog;
     }
 
     @Override
     public List<Integer> departureServiceMinutes(TransitLeg leg, LocalDate date) {
+        if (leg.busIds().isEmpty()) {
+            return seoulFallbackDepartureMinutes(leg);
+        }
         DayType dayType = DayType.from(date);
         List<Integer> all = new ArrayList<>();
 
@@ -84,6 +95,14 @@ public class BusDepartureCacheService implements BusDepartureLookup {
                     .ifPresent(departure -> all.addAll(toDepartureMinutes(departure)));
         }
         return all;
+    }
+
+    /** TAGO routeId를 못 구한 경우(주로 서울) 노선번호로 정적 시드에서 찾는다. */
+    private List<Integer> seoulFallbackDepartureMinutes(TransitLeg leg) {
+        return seoulBusRouteScheduleCatalog.find(leg.busNo())
+                .map(schedule -> toDepartureMinutes(schedule.firstTime(), false,
+                        schedule.lastTime(), schedule.lastTimeNextDay(), schedule.intervalMinutes()))
+                .orElse(List.of());
     }
 
     private Optional<BusStopDeparture> resolve(String routeId, TransitLeg leg, DayType dayType) {
@@ -175,11 +194,17 @@ public class BusDepartureCacheService implements BusDepartureLookup {
         return null;
     }
 
-    /** 막차부터 배차간격만큼 거슬러 올라가며 첫차까지의 차편들을 만든다. */
     private List<Integer> toDepartureMinutes(BusStopDeparture departure) {
-        int last = toServiceMinutes(departure.getLastTime(), departure.isLastTimeNextDay());
-        int first = toServiceMinutes(departure.getFirstTime(), departure.isFirstTimeNextDay());
-        int interval = Math.max(1, departure.getIntervalMinutes());
+        return toDepartureMinutes(departure.getFirstTime(), departure.isFirstTimeNextDay(),
+                departure.getLastTime(), departure.isLastTimeNextDay(), departure.getIntervalMinutes());
+    }
+
+    /** 막차부터 배차간격만큼 거슬러 올라가며 첫차까지의 차편들을 만든다. */
+    private List<Integer> toDepartureMinutes(LocalTime firstTime, boolean firstTimeNextDay,
+                                              LocalTime lastTime, boolean lastTimeNextDay, int intervalMinutes) {
+        int last = toServiceMinutes(lastTime, lastTimeNextDay);
+        int first = toServiceMinutes(firstTime, firstTimeNextDay);
+        int interval = Math.max(1, intervalMinutes);
 
         List<Integer> minutes = new ArrayList<>();
         for (int t = last; t >= first && minutes.size() < MAX_DEPARTURES_PER_LANE; t -= interval) {

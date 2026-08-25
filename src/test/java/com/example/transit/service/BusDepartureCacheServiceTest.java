@@ -144,7 +144,8 @@ class BusDepartureCacheServiceTest {
                 throw new IllegalStateException("API 실패");
             }
         };
-        BusDepartureCacheService service = new BusDepartureCacheService(new InMemoryRepository(), failing);
+        BusDepartureCacheService service =
+                new BusDepartureCacheService(new InMemoryRepository(), failing, new SeoulBusRouteScheduleCatalog());
 
         assertTrue(service.departureServiceMinutes(busLeg(0, 0), TODAY).isEmpty());
     }
@@ -152,7 +153,8 @@ class BusDepartureCacheServiceTest {
     @Test
     void 같은_노선_정류장은_두번째부터_캐시에서_읽어_API를_다시_호출하지_않는다() throws Exception {
         CountingClient client = new CountingClient(routeDetailJson("0500", "2300", 10, 10, 10), routeStopsJson(0));
-        BusDepartureCacheService service = new BusDepartureCacheService(new InMemoryRepository(), client);
+        BusDepartureCacheService service =
+                new BusDepartureCacheService(new InMemoryRepository(), client, new SeoulBusRouteScheduleCatalog());
 
         service.departureServiceMinutes(busLeg(0, 0), TODAY);
         service.departureServiceMinutes(busLeg(0, 0), TODAY);
@@ -186,12 +188,45 @@ class BusDepartureCacheServiceTest {
                 return stops;
             }
         };
-        BusDepartureCacheService service = new BusDepartureCacheService(repository, client);
+        BusDepartureCacheService service =
+                new BusDepartureCacheService(repository, client, new SeoulBusRouteScheduleCatalog());
 
         List<Integer> minutes = service.departureServiceMinutes(busLeg(0, 0), TODAY);
 
         assertFalse(minutes.isEmpty());
         assertEquals(22 * 60 + 50, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
+    }
+
+    /**
+     * TAGO가 서울 버스를 못 찾으면(busIds가 빔) RouteLegExtractor가 cityCode도 null로 남기고
+     * busNo만 채워서 넘긴다 - 이 경우 SeoulBusRouteScheduleCatalog 정적 시드로 대체돼야 한다.
+     * "146"은 실제 시드 파일 기준 04:05~23:00, 배차간격 12분이다.
+     */
+    @Test
+    void TAGO에서_못_찾은_서울_버스는_정적_시드로_대체한다() {
+        BusDepartureCacheService service =
+                new BusDepartureCacheService(new InMemoryRepository(),
+                        new TagoBusRouteDetailApiClient("http://dummy", "dummy"),
+                        new SeoulBusRouteScheduleCatalog());
+        TransitLeg leg = TransitLeg.bus("COORD:127.0,37.0", 10, 0, "정류장", "하차정류장", "146",
+                List.of(), "146", 0, null, null, null);
+
+        List<Integer> minutes = service.departureServiceMinutes(leg, TODAY);
+
+        assertFalse(minutes.isEmpty());
+        assertEquals(23 * 60, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
+    }
+
+    @Test
+    void 서울_시드에도_없는_노선번호는_빈_목록을_반환한다() {
+        BusDepartureCacheService service =
+                new BusDepartureCacheService(new InMemoryRepository(),
+                        new TagoBusRouteDetailApiClient("http://dummy", "dummy"),
+                        new SeoulBusRouteScheduleCatalog());
+        TransitLeg leg = TransitLeg.bus("COORD:127.0,37.0", 10, 0, "정류장", "하차정류장", "존재안함",
+                List.of(), "존재안함", 0, null, null, null);
+
+        assertTrue(service.departureServiceMinutes(leg, TODAY).isEmpty());
     }
 
     private TransitLeg busLeg(int distanceMeters, int rideMinutes) {
@@ -248,7 +283,7 @@ class BusDepartureCacheServiceTest {
                 return stops.get(routeId);
             }
         };
-        return new BusDepartureCacheService(new InMemoryRepository(), client);
+        return new BusDepartureCacheService(new InMemoryRepository(), client, new SeoulBusRouteScheduleCatalog());
     }
 
     private static class CountingClient extends TagoBusRouteDetailApiClient {
