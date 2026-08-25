@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -24,7 +25,8 @@ import java.util.stream.StreamSupport;
  *   <li>지하철: 역명+노선명으로 TAGO 역을 찾고({@link #resolveSubwayStation}), Google의
  *       headsign(방면 텍스트)으로 상/하행을 추정한다({@link #resolveWayCode}) - 이 추정은
  *       순환선(2호선의 "외선순환"/"내선순환"처럼 종착역명이 아닌 노선 텍스트)에서는 못 맞히고
- *       하행으로 기본 처리되는 알려진 한계가 있다.</li>
+ *       하행으로 기본 처리되는 알려진 한계가 있다. 단축운행 필터링용 종착역 목록({@code earlierStopNames})도
+ *       Google이 안 주는 정보라 TAGO 시간표에서 별도로 재구성한다({@link #resolveEarlierStopNames}).</li>
  *   <li>버스: 정류장 좌표 → TAGO cityCode({@link TagoCityCodeResolver}) → 노선번호로 routeId 검색
  *       → 그 노선의 경유정류소 목록에서 가장 가까운 정류소를 찾는다. cityCode를 못 구하면(서울 등
  *       TAGO 미커버 지역) 경로 자체는 만들되 배차정보(busIds)는 비워둔다 - NightBusRouteFinder와
@@ -34,7 +36,11 @@ import java.util.stream.StreamSupport;
 @Component
 public class RouteLegExtractor {
 
-    /** 방향(상/하행) 판별에 쓸 기준 요일유형. 실제 시간표 조회가 아니라 종착역명만 보는 용도라 평일로 고정한다. */
+    /**
+     * 방향(상/하행) 판별과 단축운행 종착역 판별에 쓸 기준 요일유형. 실제 시간표 조회가 아니라
+     * "이 역에서 이 방향으로 어떤 종착역들이 존재하는가"만 보는 용도라 평일로 고정한다 -
+     * 노선 토폴로지(어느 역이 어느 종착역으로 가는 열차를 갖는지)는 요일별로 거의 안 바뀐다.
+     */
     private static final String DIRECTION_CHECK_DAILY_TYPE = "01";
 
     private final TagoSubwayApiClient tagoSubwayApiClient;
@@ -153,30 +159,86 @@ public class RouteLegExtractor {
             throw new NoSubwayRouteFoundException("지하철 구간에 역 정보가 없습니다.");
         }
 
-        String subwayStationId = resolveSubwayStation(departureStop.name(), lineNameShort)
+        StationMatch boarding = resolveSubwayStation(departureStop.name(), lineNameShort)
                 .orElseThrow(() -> new NoSubwayRouteFoundException(
                         "지하철역 정보를 찾지 못했습니다: " + departureStop.name() + "(" + lineNameShort + ")"));
-        int wayCode = resolveWayCode(subwayStationId, details.headsign());
+        int wayCode = resolveWayCode(boarding.id(), details.headsign());
+        Set<String> earlierStopNames = resolveEarlierStopNames(
+                boarding.id(), wayCode, arrivalStop == null ? null : arrivalStop.name(), lineNameShort);
 
-        return TransitLeg.subway(subwayStationId, wayCode, rideMinutes, pendingWalkMinutes,
-                Set.of(), departureStop.name(), arrivalStop == null ? null : arrivalStop.name(), lineNameShort);
+        return TransitLeg.subway(boarding.id(), wayCode, rideMinutes, pendingWalkMinutes,
+                earlierStopNames, departureStop.name(), arrivalStop == null ? null : arrivalStop.name(), lineNameShort);
     }
 
-    /** 역명(부분 검색 결과)에서 노선명이 일치하는 항목의 TAGO subwayStationId를 찾는다. */
-    private Optional<String> resolveSubwayStation(String stationName, String googleLineNameShort) {
+    private record StationMatch(String id, String tagoName) {
+    }
+
+    /** 역명(부분 검색 결과)에서 노선명이 일치하는 항목의 TAGO subwayStationId/역명을 찾는다. */
+    private Optional<StationMatch> resolveSubwayStation(String stationName, String googleLineNameShort) {
         try {
             TagoBusArrivalResponse response = tagoSubwayApiClient.findStations(stationName);
             for (JsonNode item : items(response)) {
                 String routeName = text(item, "subwayRouteName");
                 String id = text(item, "subwayStationId");
+                String tagoName = text(item, "subwayStationName");
                 if (id != null && lineMatches(routeName, googleLineNameShort)) {
-                    return Optional.of(id);
+                    return Optional.of(new StationMatch(id, tagoName));
                 }
             }
         } catch (RuntimeException e) {
             // 조회 실패 - 이 구간은 못 만드는 걸로 처리(호출부에서 NoSubwayRouteFoundException으로 감쌈)
         }
         return Optional.empty();
+    }
+
+    /**
+     * 이 구간의 도착역보다 "앞서" 끊기는(단축운행) 열차의 종착역 이름 집합을 구한다.
+     * <p>
+     * Google Routes는 ODsay의 passStopList 같은 구간별 정차역 순서를 안 준다. 대신 TAGO
+     * 시간표에서 같은 방향으로 실제 운행되는 열차들의 종착역 이름 집합(TERMINI)을 승차역과
+     * 도착역 각각에서 구해 비교하는 방식으로 대체한다: 도착역에 도달하려면 그 역을 지나야
+     * 하므로, 도착역을 지나 더 운행하는 열차의 종착역만 도착역 TERMINI에 나타난다. 승차역
+     * TERMINI 중 도착역 TERMINI에는 없는 이름은 도착역 전에 끊기는 단축운행 종착역이다.
+     * <p>
+     * 도착역의 TAGO 역을 못 찾으면(역명 불일치 등) 안전하게 빈 Set을 반환한다 - 걸러내는
+     * 근거가 불확실할 땐 아무것도 안 거르는 게 "탈 수 있는데 못 탄다"고 하는 것보다 낫다.
+     */
+    private Set<String> resolveEarlierStopNames(String boardingStationId, int wayCode,
+                                                 String arrivalStopName, String lineNameShort) {
+        if (arrivalStopName == null) {
+            return Set.of();
+        }
+        Optional<StationMatch> alight = resolveSubwayStation(arrivalStopName, lineNameShort);
+        if (alight.isEmpty()) {
+            return Set.of();
+        }
+        String upDownTypeCode = wayCode == 1 ? "U" : "D";
+        Set<String> earlier = new HashSet<>(terminiOf(boardingStationId, upDownTypeCode));
+        earlier.removeAll(terminiOf(alight.get().id(), upDownTypeCode));
+        // 도착역 자신이 종착역인 열차는 도착역 TERMINI(그 역에서 "출발"하는 열차 기준)에는
+        // 안 잡히지만 도착역까지는 정상적으로 데려다주므로, 걸러야 할 이름에서 명시적으로 뺀다.
+        if (alight.get().tagoName() != null) {
+            earlier.remove(alight.get().tagoName());
+        }
+        return earlier;
+    }
+
+    /** subwayStationId·방향의 시간표에서 실제 쓰이는 종착역 이름 집합(중복 제거). */
+    private Set<String> terminiOf(String subwayStationId, String upDownTypeCode) {
+        try {
+            TagoBusArrivalResponse response =
+                    tagoSubwayApiClient.fetchSchedule(subwayStationId, upDownTypeCode, DIRECTION_CHECK_DAILY_TYPE);
+            Set<String> names = new HashSet<>();
+            for (JsonNode item : items(response)) {
+                String endName = text(item, "endSubwayStationNm");
+                if (endName != null && !endName.isBlank()) {
+                    names.add(endName);
+                }
+            }
+            return names;
+        } catch (RuntimeException e) {
+            return Set.of();
+        }
     }
 
     /** "2호선"/"2호"/"신분당선"/"신분당"처럼 표기가 갈리는 노선명을 "선/호선" 접미사를 떼고 비교한다. */
@@ -222,19 +284,7 @@ public class RouteLegExtractor {
     }
 
     private boolean directionMatches(String subwayStationId, String upDownTypeCode, String normalizedHeadsign) {
-        try {
-            TagoBusArrivalResponse response =
-                    tagoSubwayApiClient.fetchSchedule(subwayStationId, upDownTypeCode, DIRECTION_CHECK_DAILY_TYPE);
-            for (JsonNode item : items(response)) {
-                String endName = text(item, "endSubwayStationNm");
-                if (endName != null && !endName.isBlank() && normalizedHeadsign.contains(endName)) {
-                    return true;
-                }
-            }
-        } catch (RuntimeException e) {
-            // 판별 실패 - 기본값(하행)으로 처리
-        }
-        return false;
+        return terminiOf(subwayStationId, upDownTypeCode).stream().anyMatch(normalizedHeadsign::contains);
     }
 
     private TransitLeg busLeg(GoogleRoutesResponse.TransitDetails details, int rideMinutes, int pendingWalkMinutes,

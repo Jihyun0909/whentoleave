@@ -54,16 +54,50 @@ class RouteLegExtractorTest {
     }
 
     /**
-     * Google Routes는 ODsay의 passStopList(구간별 정차역 순서)에 대응하는 정보를 안 준다 -
-     * 그래서 earlierStopNames는 항상 빈 Set이다. 이건 회귀다: LastDepartureCalculator의
-     * "단축운행으로 도착역 전에 끊기는 막차 후보 제외" 필터링이 실질적으로 항상 무력화된다
-     * (빈 Set이면 아무것도 안 거른다). 후속 과제로 남겨두고, 여기서는 이 degraded 동작을
-     * 명시적으로 고정해둔다.
+     * Google Routes는 ODsay의 passStopList(구간별 정차역 순서)에 대응하는 정보를 안 준다.
+     * 대신 TAGO 시간표에서 승차역/도착역 각각의 "이 방향으로 실제 존재하는 종착역 이름 집합"을
+     * 구해서 차집합으로 단축운행 종착역을 재구성한다({@link RouteLegExtractor#resolveEarlierStopNames}).
+     * <p>
+     * 승차역(가)에서는 "나"(단축운행, 도착역 전에 끊김)와 "라"(도착역을 지나 더 감) 두 종착역이
+     * 있고, 도착역(다)에서 같은 방향으로 조회하면 "라"만 남는다(도착역을 지나야 갈 수 있는
+     * 종착역만 도착역 자신의 시간표에도 나타나므로) - 그 차집합인 "나"만 걸러야 할 이름이다.
      */
     @Test
-    void earlierStopNames는_항상_비어있다_Google에는_대응_정보가_없음() {
-        RouteLegExtractor extractor = extractor(Map.of("테스트역", new StationFixture("331", "1호선")));
-        GoogleRoutesResponse response = response(route(subwayStep(12, "테스트역", "1호선")));
+    void 단축운행_종착역을_승차역과_도착역의_종착역_집합_차이로_걸러낸다() {
+        RouteLegExtractor extractor = extractor(
+                Map.of("가", new StationFixture("100", "1호선"), "다", new StationFixture("300", "1호선")),
+                Map.of("100:D", Set.of("나", "라"), "300:D", Set.of("라")));
+        GoogleRoutesResponse response = response(route(subwayStep(12, "가", "다", "1호선")));
+
+        List<TransitLeg> legs = extractor.extract(response);
+
+        assertEquals(Set.of("나"), legs.get(0).earlierStopNames());
+    }
+
+    /**
+     * 도착역 자체가 어떤 열차의 종착역이면(더 안 가고 딱 거기서 끝나는 열차), 그 열차는 도착역
+     * "출발" 시간표에는 안 잡히지만(더 갈 데가 없으니) 도착역까지는 정상적으로 데려다준다.
+     * 승차역 TERMINI에만 있고 도착역 TERMINI에는 없다는 이유로 잘못 걸러지면 안 된다.
+     */
+    @Test
+    void 도착역_자신이_종착역인_열차는_걸러내지_않는다() {
+        RouteLegExtractor extractor = extractor(
+                Map.of("가", new StationFixture("100", "1호선"), "다", new StationFixture("300", "1호선", "다")),
+                Map.of("100:D", Set.of("다")));
+        GoogleRoutesResponse response = response(route(subwayStep(12, "가", "다", "1호선")));
+
+        List<TransitLeg> legs = extractor.extract(response);
+
+        assertTrue(legs.get(0).earlierStopNames().isEmpty());
+    }
+
+    /** 도착역의 TAGO 역을 못 찾으면(역명 불일치 등) 걸러내는 근거가 불확실하므로 안전하게 아무것도 안 거른다. */
+    @Test
+    void 도착역을_TAGO에서_못_찾으면_아무것도_거르지_않는다() {
+        RouteLegExtractor extractor = extractor(
+                Map.of("가", new StationFixture("100", "1호선")),
+                Map.of("100:D", Set.of("나", "라")));
+        GoogleRoutesResponse response = response(route(subwayStep(12, "가", "다", "1호선")));
 
         List<TransitLeg> legs = extractor.extract(response);
 
@@ -185,22 +219,36 @@ class RouteLegExtractorTest {
 
     // ---------- 픽스처 빌더 ----------
 
-    private record StationFixture(String stationId, String lineNameShort) {
+    private record StationFixture(String stationId, String lineNameShort, String tagoName) {
+        private StationFixture(String stationId, String lineNameShort) {
+            this(stationId, lineNameShort, "테스트역");
+        }
     }
 
     private RouteLegExtractor extractor(Map<String, StationFixture> stationsByName) {
+        return extractor(stationsByName, Map.of());
+    }
+
+    /**
+     * @param stationsByName                   Google 역명 -> TAGO 역 매칭 결과
+     * @param terminiByStationIdAndDirection    "{stationId}:{U|D}" -> 그 역·방향의 실제 종착역 이름 집합
+     *                                          (단축운행 필터링용 TERMINI 조회 스텁, {@link RouteLegExtractor#terminiOf})
+     */
+    private RouteLegExtractor extractor(Map<String, StationFixture> stationsByName,
+                                         Map<String, Set<String>> terminiByStationIdAndDirection) {
         TagoSubwayApiClient subwayClient = new TagoSubwayApiClient("http://dummy", "dummy") {
             @Override
             public TagoBusArrivalResponse findStations(String stationName) {
                 StationFixture fixture = stationsByName.get(stationName);
                 return fixture == null ? emptyResponse()
-                        : stationResponse(fixture.stationId(), fixture.lineNameShort());
+                        : stationResponse(fixture.stationId(), fixture.lineNameShort(), fixture.tagoName());
             }
 
             @Override
             public TagoBusArrivalResponse fetchSchedule(String subwayStationId, String upDownTypeCode,
                                                           String dailyTypeCode) {
-                return emptyResponse();
+                Set<String> termini = terminiByStationIdAndDirection.get(subwayStationId + ":" + upDownTypeCode);
+                return termini == null ? emptyResponse() : terminiResponse(termini);
             }
         };
         TagoBusRouteDetailApiClient busClient = new TagoBusRouteDetailApiClient("http://dummy", "dummy");
@@ -220,33 +268,57 @@ class RouteLegExtractorTest {
     }
 
     private GoogleRoutesResponse.Step subwayStep(int rideMinutes, String departureStopName, String lineNameShort) {
-        return transitStep(rideMinutes, departureStopName, lineNameShort, "SUBWAY");
+        return transitStep(rideMinutes, departureStopName, null, lineNameShort, "SUBWAY");
+    }
+
+    private GoogleRoutesResponse.Step subwayStep(int rideMinutes, String departureStopName, String arrivalStopName,
+                                                   String lineNameShort) {
+        return transitStep(rideMinutes, departureStopName, arrivalStopName, lineNameShort, "SUBWAY");
     }
 
     private GoogleRoutesResponse.Step busStep(int rideMinutes, String departureStopName, String lineNameShort) {
-        return transitStep(rideMinutes, departureStopName, lineNameShort, "BUS");
+        return transitStep(rideMinutes, departureStopName, null, lineNameShort, "BUS");
     }
 
-    private GoogleRoutesResponse.Step transitStep(int rideMinutes, String departureStopName, String lineNameShort,
-                                                    String vehicleType) {
+    private GoogleRoutesResponse.Step transitStep(int rideMinutes, String departureStopName, String arrivalStopName,
+                                                    String lineNameShort, String vehicleType) {
         GoogleRoutesResponse.TransitLine line =
                 new GoogleRoutesResponse.TransitLine(lineNameShort, lineNameShort, new GoogleRoutesResponse.Vehicle(vehicleType));
         GoogleRoutesResponse.Stop departureStop =
                 new GoogleRoutesResponse.Stop(departureStopName, new GoogleRoutesResponse.Location(
                         new GoogleRoutesResponse.LatLng(37.0, 127.0)));
-        GoogleRoutesResponse.StopDetails stopDetails = new GoogleRoutesResponse.StopDetails(departureStop, null, null, null);
+        GoogleRoutesResponse.Stop arrivalStop = arrivalStopName == null ? null
+                : new GoogleRoutesResponse.Stop(arrivalStopName, new GoogleRoutesResponse.Location(
+                        new GoogleRoutesResponse.LatLng(37.0, 127.0)));
+        GoogleRoutesResponse.StopDetails stopDetails = new GoogleRoutesResponse.StopDetails(departureStop, arrivalStop, null, null);
         GoogleRoutesResponse.TransitDetails details = new GoogleRoutesResponse.TransitDetails(stopDetails, null, null, line, null);
         return new GoogleRoutesResponse.Step("TRANSIT", 0, (rideMinutes * 60) + "s", details);
     }
 
-    private TagoBusArrivalResponse stationResponse(String stationId, String lineName) {
+    private TagoBusArrivalResponse stationResponse(String stationId, String lineName, String tagoName) {
         try {
             String json = """
                     { "response": { "header": { "resultCode": "00", "resultMsg": "NORMAL SERVICE." },
                       "body": { "items": { "item":
-                        { "subwayStationId": "%s", "subwayStationName": "테스트역", "subwayRouteName": "%s" }
+                        { "subwayStationId": "%s", "subwayStationName": "%s", "subwayRouteName": "%s" }
                       } } } }
-                    """.formatted(stationId, lineName);
+                    """.formatted(stationId, tagoName, lineName);
+            return mapper.readValue(json, TagoBusArrivalResponse.class);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /** {@link RouteLegExtractor#terminiOf}가 읽는 endSubwayStationNm 목록 응답. */
+    private TagoBusArrivalResponse terminiResponse(Set<String> endStationNames) {
+        try {
+            String items = endStationNames.stream()
+                    .map(name -> "{ \"endSubwayStationNm\": \"%s\" }".formatted(name))
+                    .collect(java.util.stream.Collectors.joining(","));
+            String json = """
+                    { "response": { "header": { "resultCode": "00", "resultMsg": "NORMAL SERVICE." },
+                      "body": { "items": { "item": [ %s ] } } } }
+                    """.formatted(items);
             return mapper.readValue(json, TagoBusArrivalResponse.class);
         } catch (Exception e) {
             throw new RuntimeException(e);
