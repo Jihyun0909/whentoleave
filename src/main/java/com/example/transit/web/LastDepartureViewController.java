@@ -559,8 +559,16 @@ public class LastDepartureViewController {
         // 경로탐색 API가 조회 자체를 못 해준 경우(한도 초과 등)를 "운행 종료"로 바꾸면,
         // 기다린다고 해결되지 않는 상황을 운행 시간 문제로 오해하게 된다 - 그대로 보여준다.
         boolean searchUnavailable = LastDepartureService.ROUTE_SEARCH_UNAVAILABLE_REASON.equals(reason);
-        if (arrivalMode && !targetAlreadyPast && !searchUnavailable) {
+        // TAGO가 이 역/노선의 시간표 자체를 안 주는 경우(운행이 끊긴 게 아니라 데이터가 없는 것 -
+        // 2026-08-25 실사용 중 발견: 1호선 코레일 구간 역들(창동·광운대·월계·석계 등, TAGO ID가
+        // "MTRKR"로 시작)이 TAGO GetSubwaySttnAcctoSchdulList에서 상행/하행 둘 다 0건으로 온다).
+        // 이것도 "운행 종료"로 바꾸면 "밤이 늦어 못 간다"고 오해하게 되므로 원인을 구분해서 보여준다.
+        boolean noTimetableData = reason != null && reason.contains("운행 정보를 찾을 수 없습니다");
+        if (arrivalMode && !targetAlreadyPast && !searchUnavailable && !noTimetableData) {
             return "해당 목적지까지 대중교통 운행이 종료되어 안내가 불가능합니다.";
+        }
+        if (noTimetableData) {
+            return "이 경로 일부 구간의 시간표 정보를 확인할 수 없어 안내가 어렵습니다. 다른 경로나 택시를 이용해주세요.";
         }
         return reason;
     }

@@ -43,6 +43,13 @@ public class RouteLegExtractor {
      */
     private static final String DIRECTION_CHECK_DAILY_TYPE = "01";
 
+    /**
+     * 실사용 피드백(2026-08-25): Google이 주는 도보 소요시간이 실제보다 짧게 느껴진다 -
+     * 신호 대기, 계단, 환승 통로처럼 Google 도보 경로 계산이 못 반영하는 여유를 걷는 구간마다
+     * 고정으로 더한다. 걷는 구간이 아예 없으면(같은 승강장 환승 등) 더하지 않는다.
+     */
+    private static final int WALK_BUFFER_MINUTES = 2;
+
     private final TagoSubwayApiClient tagoSubwayApiClient;
     private final TagoBusRouteDetailApiClient tagoBusRouteDetailApiClient;
     private final TagoCityCodeResolver tagoCityCodeResolver;
@@ -125,10 +132,10 @@ public class RouteLegExtractor {
 
             String vehicleType = step.transitDetails().transitLine().vehicle().type();
             if ("SUBWAY".equals(vehicleType)) {
-                legs.add(subwayLeg(step.transitDetails(), minutesOf(step), pendingWalkMinutes));
+                legs.add(subwayLeg(step.transitDetails(), minutesOf(step), bufferedWalk(pendingWalkMinutes)));
                 pendingWalkMinutes = 0;
             } else if ("BUS".equals(vehicleType) && allowBus) {
-                legs.add(busLeg(step.transitDetails(), minutesOf(step), pendingWalkMinutes, step.distanceMeters()));
+                legs.add(busLeg(step.transitDetails(), minutesOf(step), bufferedWalk(pendingWalkMinutes), step.distanceMeters()));
                 pendingWalkMinutes = 0;
             } else if ("BUS".equals(vehicleType)) {
                 throw new NoSubwayRouteFoundException("버스가 포함된 경로입니다.");
@@ -142,13 +149,17 @@ public class RouteLegExtractor {
             // 있을 만큼 가까운 경우다. 이걸 그냥 "대중교통 구간 없음"으로 던지면 호출하는 쪽에서
             // "경로 없음"과 구분을 못 해 "운행 종료"라는 엉뚱한 안내가 나간다.
             if (pendingWalkMinutes > 0) {
-                throw new WalkOnlyRouteException(pendingWalkMinutes);
+                throw new WalkOnlyRouteException(bufferedWalk(pendingWalkMinutes));
             }
             throw new NoSubwayRouteFoundException("경로에 대중교통 구간이 없습니다.");
         }
         // 요금(fareWon)은 이번 마이그레이션에서 field mask에 안 넣어서 항상 0이다 - 화면 표시용
         // 참고정보라 계산 로직에는 영향 없다. 필요해지면 routes.travelAdvisory.transitFare를 추가하면 된다.
-        return new ExtractedRoute(legs, pendingWalkMinutes);
+        return new ExtractedRoute(legs, bufferedWalk(pendingWalkMinutes));
+    }
+
+    private int bufferedWalk(int rawWalkMinutes) {
+        return rawWalkMinutes > 0 ? rawWalkMinutes + WALK_BUFFER_MINUTES : 0;
     }
 
     private TransitLeg subwayLeg(GoogleRoutesResponse.TransitDetails details, int rideMinutes, int pendingWalkMinutes) {

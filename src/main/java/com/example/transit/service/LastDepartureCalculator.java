@@ -88,6 +88,8 @@ public class LastDepartureCalculator {
 
             List<Integer> reachableMinutes = departureCandidates(leg, date);
             if (reachableMinutes.isEmpty()) {
+                log.debug("leg[{}] stationId={} wayCode={} isBus={} 운행 정보 없음 - Infeasible",
+                        i, leg.stationId(), leg.wayCode(), leg.isBus());
                 return new LastDepartureResult.Infeasible(
                         (leg.isBus() ? "버스 " : "역 ") + leg.stationId() + "의 운행 정보를 찾을 수 없습니다.");
             }

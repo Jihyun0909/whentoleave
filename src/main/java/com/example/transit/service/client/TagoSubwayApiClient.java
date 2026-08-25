@@ -35,6 +35,15 @@ import java.nio.charset.StandardCharsets;
  * <p>
  * data.go.kr 발급키는 "Encoding"/"Decoding" 두 형태로 나오는데, 이 클라이언트는 키를 직접
  * URL 인코딩하므로 <b>Decoding(원본) 키</b>를 넣어야 한다.
+ * <p>
+ * <b>알려진 커버리지 공백(2026-08-25 실사용 중 발견):</b> 1호선의 코레일(KORAIL) 운영 구간
+ * 역들(TAGO subwayStationId가 "MTRKR"로 시작 - 창동·광운대·월계·석계 등, 라이브로 확인)은
+ * {@code GetSubwaySttnAcctoSchdulList}가 상행/하행 둘 다 정상 응답(resultCode 00)이지만 결과
+ * 0건을 준다. 서울교통공사(MTRS 접두사) 구간과 달리 TAGO가 이 구간의 시간표 자체를 안 갖고
+ * 있는 것으로 보인다 - TAGO가 서울 버스를 아예 안 커버하는 것과 같은 종류의 데이터 공백이다.
+ * 호출하는 쪽({@code SubwayScheduleCacheService})은 빈 목록을 그대로 받아 "이 구간 운행
+ * 정보를 찾을 수 없음"으로 처리하고, 화면에는 "운행 종료"가 아니라 "시간표 정보를 확인할 수
+ * 없다"는 구분된 안내가 나가야 한다({@code LastDepartureViewController#displayReason} 참고).
  */
 @Component
 public class TagoSubwayApiClient {

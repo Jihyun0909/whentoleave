@@ -28,7 +28,8 @@ class RouteLegExtractorTest {
     /**
      * 수유(4호선, id=414) -> 환승 -> 동대문역사문화공원(2호선, id=205) -> 왕십리.
      * startName/lane으로 화면 표시용 역이름/노선이름도 같이 뽑히는지, 도보시간이 버퍼로
-     * 잘 누적되는지 확인한다.
+     * 잘 누적되는지 확인한다. Google 원시 도보시간(1분/3분)에 WALK_BUFFER_MINUTES(2분)가
+     * 더해져서 3분/5분으로 들어간다 - 실사용 피드백(2026-08-25)으로 추가된 여유시간.
      */
     @Test
     void 지하철_구간과_환승_버퍼를_추출한다() {
@@ -47,10 +48,10 @@ class RouteLegExtractorTest {
         List<TransitLeg> legs = extractor.extract(response);
 
         assertEquals(2, legs.size());
-        // 출발 전 도보 1분이 버퍼로 잡힘(계산에선 안 쓰임)
-        assertEquals(TransitLeg.subway("414", 2, 17, 1, Set.of(), "수유", null, "수도권4호선"), legs.get(0));
-        // 환승 도보 3분이 버퍼로 들어감
-        assertEquals(TransitLeg.subway("205", 2, 5, 3, Set.of(), "동대문역사문화공원", null, "수도권2호선"), legs.get(1));
+        // 출발 전 도보 1분 + 버퍼 2분 = 3분(계산에선 안 쓰임)
+        assertEquals(TransitLeg.subway("414", 2, 17, 3, Set.of(), "수유", null, "수도권4호선"), legs.get(0));
+        // 환승 도보 3분 + 버퍼 2분 = 5분
+        assertEquals(TransitLeg.subway("205", 2, 5, 5, Set.of(), "동대문역사문화공원", null, "수도권2호선"), legs.get(1));
     }
 
     /**
@@ -184,7 +185,7 @@ class RouteLegExtractorTest {
         assertEquals(1, candidates.size());
         RouteLegExtractor.ExtractedRoute route = candidates.get(0);
         assertEquals(1, route.legs().size());
-        assertEquals(9, route.finalWalkMinutes());
+        assertEquals(11, route.finalWalkMinutes()); // 원시 9분 + 버퍼 2분
     }
 
     /**
@@ -199,7 +200,7 @@ class RouteLegExtractorTest {
         GoogleRoutesResponse response = response(route(walkStep(6)));
 
         WalkOnlyRouteException e = assertThrows(WalkOnlyRouteException.class, () -> extractor.extract(response));
-        assertEquals(6, e.walkMinutes());
+        assertEquals(8, e.walkMinutes()); // 원시 6분 + 버퍼 2분
     }
 
     /** extractAll에서도 모든 후보가 도보뿐이면(대중교통 후보가 하나도 없으면), 가장 짧은 도보시간을 들고 예외를 던진다. */
@@ -209,7 +210,7 @@ class RouteLegExtractorTest {
         GoogleRoutesResponse response = response(route(walkStep(9)), route(walkStep(5)));
 
         WalkOnlyRouteException e = assertThrows(WalkOnlyRouteException.class, () -> extractor.extractAll(response));
-        assertEquals(5, e.walkMinutes());
+        assertEquals(7, e.walkMinutes()); // 원시 5분(더 짧은 쪽) + 버퍼 2분
     }
 
     /** 후보 중 하나라도 실제 대중교통 경로가 있으면, 도보 전용 후보는 조용히 버리고 그걸 쓴다. */
