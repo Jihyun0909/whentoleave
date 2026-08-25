@@ -136,26 +136,21 @@ public class LastDepartureService {
                         (first, duplicate) -> first,
                         LinkedHashMap::new))
                 .values().stream()
-                .sorted(recommendationOrder(targetArrivalMinutes))
+                .sorted(recommendationOrder())
                 .toList();
     }
 
     /**
-     * 목표 도착시간이 있으면 "그 시각에 가장 가깝게 도착하는" 경로를 맨 위로 올린다 - 훨씬
-     * 일찍 도착해서 하염없이 기다리게 되는 경로보다, 목표 시각에 딱 맞춰 도착하는 쪽이
-     * 이 모드에서 원하는 답이기 때문이다(도착 시각이 목표를 넘는 경로는 애초에 계산 단계에서
-     * 걸러져 여기까지 오지 않는다). 막차 모드처럼 목표 시각이 없으면 기존대로 소요시간이
-     * 짧은 순으로 둔다.
+     * 소요시간이 짧은 경로를 맨 위로 올린다. 목표 도착시간 모드는 예전에 "목표 시각에 가장
+     * 가깝게 도착하는" 경로를 우선했는데(도착 시각이 목표를 넘는 경로는 계산 단계에서 이미
+     * 걸러지므로, 남은 후보 중 딱 맞춰 도착하는 쪽을 고른다는 의도였다), 이러면 환승이 많고
+     * 오래 걸리는 경로가 "딱 맞춰 도착한다"는 이유만으로 직행·단시간 경로보다 위로 올라오는
+     * 문제가 있었다(실사용 중 발견: 번동->광운대에서 버스 1218 직행 19분보다 2번 환승하는
+     * 43분짜리 경로가 "가장 빠름"으로 추천됨 - 환승이 많을수록 실시간 지연/놓침 위험도 커서
+     * 오히려 더 나쁜 선택이었다). 소요시간 기준으로 통일한다.
      */
-    private Comparator<RouteOption> recommendationOrder(Integer targetArrivalMinutes) {
-        if (targetArrivalMinutes == null) {
-            return Comparator.comparingInt(RouteOption::totalMinutes);
-        }
-        return Comparator.comparingInt(option -> targetArrivalMinutes - arrivalServiceMinutes(option));
-    }
-
-    private int arrivalServiceMinutes(RouteOption option) {
-        return option.departureServiceMinutes() + option.totalMinutes();
+    private Comparator<RouteOption> recommendationOrder() {
+        return Comparator.comparingInt(RouteOption::totalMinutes);
     }
 
     /** 목표 도착시간 계산이 실패한 이유를 화면에 보여주기 위해, 지하철 기준 결과를 한 번 더 구한다. */
