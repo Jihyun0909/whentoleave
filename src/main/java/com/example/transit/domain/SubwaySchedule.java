@@ -41,7 +41,13 @@ public class SubwaySchedule {
     @Column(name = "day_type", nullable = false, length = 10)
     private DayType dayType;
 
-    @Column(name = "end_station_name", nullable = false, length = 50)
+    /**
+     * TAGO가 이 필드를 비워서 주는 행이 실제로 있다(2026-08-25 실사용 중 발견 - 이른 새벽
+     * 첫차류로 보이는 일부 항목). ODsay는 항상 채워서 줬으므로 원래 not-null이었는데, 그
+     * 가정이 TAGO에는 안 맞아 nullable로 바꿨다 - 표시용/earlierStopNames 비교용일 뿐 막차
+     * 시각 계산 자체에는 안 쓰이므로 비어 있어도 안전하다.
+     */
+    @Column(name = "end_station_name", length = 50)
     private String endStationName;
 
     @Column(name = "departure_time", nullable = false)

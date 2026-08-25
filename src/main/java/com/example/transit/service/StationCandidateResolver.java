@@ -3,6 +3,7 @@ package com.example.transit.service;
 import com.example.transit.service.client.dto.VWorldSearchResponse;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -25,6 +26,14 @@ public class StationCandidateResolver {
 
     private static final String SUBWAY_CATEGORY_MARKER = "지하철역";
     private static final Pattern TRAILING_PARENTHETICAL = Pattern.compile("\\s*\\([^)]*\\)\\s*$");
+    /**
+     * 이 정도 위경도 차이(약 10m) 이내면 VWorld가 같은 POI를 중복으로 준 것으로 보고 하나로
+     * 합친다. AddressSearchService의 300m 기준(다른 동/호 등 실제로 다른 지점을 합침)과는
+     * 목적이 다르다 - 여기서는 진짜 서로 다른 위치(강남역처럼 출입구가 여러 곳인 환승역 등,
+     * 보통 수십~수백 m 떨어짐)까지 합치면 안 되고, 부동소수점 수준으로 거의 같은 좌표만 걸러야
+     * 한다 - 실제 약 180m 떨어진 강남역 두 출입구는 계속 Ambiguous로 남아야 한다.
+     */
+    private static final double CLUSTER_EPSILON_DEGREES = 0.0001;
 
     public StationResolution resolve(String queryName, List<VWorldSearchResponse.Item> items) {
         List<StationCandidate> exactMatches = findExactMatches(queryName, items);
@@ -41,15 +50,33 @@ public class StationCandidateResolver {
 
     private List<StationCandidate> findExactMatches(String queryName, List<VWorldSearchResponse.Item> items) {
         String normalizedQuery = normalize(queryName);
-        return (items == null ? List.<VWorldSearchResponse.Item>of() : items)
+        List<StationCandidate> candidates = (items == null ? List.<VWorldSearchResponse.Item>of() : items)
                 .stream()
                 .filter(item -> isSubwayStation(item.category()))
                 .filter(item -> normalizedQuery.equals(normalize(item.title())))
                 .filter(item -> item.point() != null && item.point().x() != null && item.point().y() != null)
                 .map(this::toCandidate)
                 .filter(java.util.Objects::nonNull)
-                .distinct()
                 .toList();
+        return dedupeByLocation(candidates);
+    }
+
+    /**
+     * VWorld가 같은 역을 좌표만 미세하게(소수점 7자리류) 다른 여러 항목으로 중복해서 주는
+     * 경우가 있다(2026-08-25 실사용 중 발견 - "압구정로데오역"). 위치가 사실상 같으면 먼저
+     * 나온 것만 남긴다.
+     */
+    private List<StationCandidate> dedupeByLocation(List<StationCandidate> candidates) {
+        List<StationCandidate> distinct = new ArrayList<>();
+        for (StationCandidate candidate : candidates) {
+            boolean nearExisting = distinct.stream().anyMatch(existing ->
+                    Math.abs(existing.x() - candidate.x()) < CLUSTER_EPSILON_DEGREES
+                            && Math.abs(existing.y() - candidate.y()) < CLUSTER_EPSILON_DEGREES);
+            if (!nearExisting) {
+                distinct.add(candidate);
+            }
+        }
+        return distinct;
     }
 
     private StationCandidate toCandidate(VWorldSearchResponse.Item item) {

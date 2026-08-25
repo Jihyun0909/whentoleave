@@ -44,6 +44,23 @@ class StationCandidateResolverTest {
         assertEquals(2, ambiguous.candidates().size());
     }
 
+    /**
+     * 실사용 중 발견: VWorld가 같은 역을 좌표만 소수점 7자리류로 미세하게 다른 두 항목으로
+     * 중복해서 준다("압구정로데오역", 2026-08-25 확인) - 진짜 서로 다른 위치(강남역 같은 여러
+     * 출입구)까지 합치면 안 되므로 부동소수점 수준의 차이만 걸러야 한다.
+     */
+    @Test
+    void 좌표만_소수점_수준으로_다른_중복_POI는_하나로_합쳐진다() {
+        List<VWorldSearchResponse.Item> nearDuplicate = List.of(
+                item("압구정로데오역", SUBWAY_CATEGORY, 127.04051289947552, 37.52729370032126),
+                item("압구정로데오역", SUBWAY_CATEGORY, 127.04051288378069, 37.52729367592067)
+        );
+
+        StationResolution result = resolver.resolve("압구정로데오", nearDuplicate);
+
+        assertInstanceOf(StationResolution.Resolved.class, result);
+    }
+
     @Test
     void 정확히_하나만_일치하면_Resolved를_반환한다() {
         List<VWorldSearchResponse.Item> single = List.of(

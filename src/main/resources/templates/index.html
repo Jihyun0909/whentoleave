@@ -223,7 +223,7 @@
                         <input type="radio" name="originPoint" required
                                th:checked="${i.first}"
                                th:value="${c.x()} + ',' + ${c.y()}">
-                        <span th:text="${c.stationName()} + ' (' + ${c.laneName()} + ')'"></span>
+                        <span th:text="${c.laneName() != null and !c.laneName().isEmpty()} ? ${c.stationName()} + ' (' + ${c.laneName()} + ')' : ${c.stationName()}"></span>
                     </label>
                 </li>
             </ul>
@@ -237,7 +237,7 @@
                         <input type="radio" name="destPoint" required
                                th:checked="${i.first}"
                                th:value="${c.x()} + ',' + ${c.y()}">
-                        <span th:text="${c.stationName()} + ' (' + ${c.laneName()} + ')'"></span>
+                        <span th:text="${c.laneName() != null and !c.laneName().isEmpty()} ? ${c.stationName()} + ' (' + ${c.laneName()} + ')' : ${c.stationName()}"></span>
                     </label>
                 </li>
             </ul>
