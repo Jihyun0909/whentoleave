@@ -3,15 +3,23 @@ package com.example.transit.service;
 import com.example.transit.domain.DayType;
 import com.example.transit.domain.SubwaySchedule;
 import com.example.transit.repository.SubwayScheduleRepository;
+import com.example.transit.service.client.SeoulSubwayLastTrainApiClient;
 import com.example.transit.service.client.TagoSubwayApiClient;
+import com.example.transit.service.client.dto.SeoulSubwayLastTrainResponse;
 import com.example.transit.service.client.dto.TagoBusArrivalResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.StreamSupport;
 
 /**
@@ -31,19 +39,34 @@ import java.util.stream.StreamSupport;
  * <p>
  * 주의: 지금은 동시 요청 시 캐시 미스가 겹치면 TAGO를 중복 호출할 수 있다(캐시 스탬피드) -
  * ODsay 시절과 동일한 알려진 한계로, 별도 확장 기능에서 락으로 해결할 예정이다.
+ * <p>
+ * <b>TAGO 데이터 공백 보완(2026-08-25 실사용 중 발견):</b> TAGO가 시간표를 아예 안 주는
+ * 서울교통공사 운영 구간 역이 꽤 있다(사당·종합운동장·창동·낙성대·신촌·신도림·잠실·
+ * 동대문역사문화공원 등, 실제 조회로 확인). TAGO가 빈 목록을 주면 서울교통공사 자체 API
+ * ({@link SeoulSubwayLastTrainApiClient})로 한 번 더 시도한다 - 코레일 위탁 구간(4호선
+ * 진접선 등)은 이 보완도 안 통하는 알려진 한계다.
  */
 @Service
 public class SubwayScheduleCacheService implements LastTrainLookup {
 
+    private static final Logger log = LoggerFactory.getLogger(SubwayScheduleCacheService.class);
+
     private static final String WAY_CODE_UP = "U";
     private static final String WAY_CODE_DOWN = "D";
+    /** 막차부터 거슬러 올라가며 받을 최대 행 수 - TAGO 쪽(SCHEDULE_MAX_ROWS)과 동일 기준. */
+    private static final int SEOUL_FALLBACK_MAX_ROWS = 300;
+    /** TAGO subwayStationId 뒷자리의 역번호(예: "MTRS12226" -> "226")를 뽑아낸다. */
+    private static final Pattern TRAILING_STATION_NUMBER = Pattern.compile("(\\d{3})$");
 
     private final SubwayScheduleRepository repository;
     private final TagoSubwayApiClient tagoSubwayApiClient;
+    private final SeoulSubwayLastTrainApiClient seoulSubwayLastTrainApiClient;
 
-    public SubwayScheduleCacheService(SubwayScheduleRepository repository, TagoSubwayApiClient tagoSubwayApiClient) {
+    public SubwayScheduleCacheService(SubwayScheduleRepository repository, TagoSubwayApiClient tagoSubwayApiClient,
+                                       SeoulSubwayLastTrainApiClient seoulSubwayLastTrainApiClient) {
         this.repository = repository;
         this.tagoSubwayApiClient = tagoSubwayApiClient;
+        this.seoulSubwayLastTrainApiClient = seoulSubwayLastTrainApiClient;
     }
 
     @Override
@@ -62,11 +85,15 @@ public class SubwayScheduleCacheService implements LastTrainLookup {
         TagoBusArrivalResponse response = tagoSubwayApiClient.fetchSchedule(
                 stationId, toUpDownTypeCode(wayCode), toDailyTypeCode(dayType));
 
-        List<SubwaySchedule> entries = new ArrayList<>();
-        for (JsonNode item : items(response)) {
-            entries.add(repository.save(toEntity(stationId, wayCode, dayType, item)));
+        List<JsonNode> tagoItems = items(response);
+        if (!tagoItems.isEmpty()) {
+            List<SubwaySchedule> entries = new ArrayList<>();
+            for (JsonNode item : tagoItems) {
+                entries.add(repository.save(toEntity(stationId, wayCode, dayType, item)));
+            }
+            return entries;
         }
-        return entries;
+        return fetchAndCacheFromSeoul(stationId, wayCode, dayType);
     }
 
     private SubwaySchedule toEntity(String stationId, int wayCode, DayType dayType, JsonNode item) {
@@ -78,6 +105,83 @@ public class SubwayScheduleCacheService implements LastTrainLookup {
                 parsedTime.nextDay(),
                 null
         );
+    }
+
+    /** TAGO가 빈 목록을 준 역만 서울교통공사 자체 API로 재시도한다. */
+    private List<SubwaySchedule> fetchAndCacheFromSeoul(String stationId, int wayCode, DayType dayType) {
+        Optional<String> stationCode = seoulStationCodeOf(stationId);
+        if (stationCode.isEmpty() || !seoulSubwayLastTrainApiClient.isConfigured()) {
+            return List.of();
+        }
+        try {
+            SeoulSubwayLastTrainResponse response = seoulSubwayLastTrainApiClient.findSchedule(
+                    stationCode.get(), toWeekTag(dayType), String.valueOf(wayCode), SEOUL_FALLBACK_MAX_ROWS);
+            List<SeoulSubwayLastTrainResponse.Row> rows = response == null || response.body() == null
+                    || response.body().rows() == null ? List.of() : response.body().rows();
+            List<SubwaySchedule> entries = new ArrayList<>();
+            for (SeoulSubwayLastTrainResponse.Row row : rows) {
+                toEntity(stationId, wayCode, dayType, row).ifPresent(entity -> entries.add(repository.save(entity)));
+            }
+            return entries;
+        } catch (RuntimeException e) {
+            log.debug("서울교통공사 막차시간표 폴백 실패 stationId={} wayCode={}", stationId, wayCode, e);
+            return List.of();
+        }
+    }
+
+    private Optional<SubwaySchedule> toEntity(String stationId, int wayCode, DayType dayType,
+                                               SeoulSubwayLastTrainResponse.Row row) {
+        if (row.leftTime() == null) {
+            return Optional.empty();
+        }
+        ParsedSeoulTime parsedTime = parseSeoulLeftTime(row.leftTime());
+        if (parsedTime == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new SubwaySchedule(
+                stationId, wayCode, dayType,
+                row.subwayEnd(),
+                parsedTime.time(),
+                parsedTime.nextDay(),
+                null
+        ));
+    }
+
+    /** "MTRS12226" -> "0226". 코레일 위탁 구간(MTRKR류 접두사) 등 이 대응이 안 맞는 경우는 못 찾은 걸로 본다. */
+    private Optional<String> seoulStationCodeOf(String tagoStationId) {
+        if (tagoStationId == null) {
+            return Optional.empty();
+        }
+        Matcher matcher = TRAILING_STATION_NUMBER.matcher(tagoStationId);
+        return matcher.find() ? Optional.of("0" + matcher.group(1)) : Optional.empty();
+    }
+
+    private String toWeekTag(DayType dayType) {
+        return switch (dayType) {
+            case WEEKDAY -> "1";
+            case SATURDAY -> "2";
+            case HOLIDAY -> "3";
+        };
+    }
+
+    /** "24:56:30"처럼 24시를 넘는 표기(ODsay와 동일 컨벤션, TAGO의 "HHMMSS" 포맷과는 다르다). */
+    private ParsedSeoulTime parseSeoulLeftTime(String raw) {
+        String[] parts = raw.split(":");
+        if (parts.length < 2) {
+            return null;
+        }
+        try {
+            int hour = Integer.parseInt(parts[0]);
+            int minute = Integer.parseInt(parts[1]);
+            int second = parts.length >= 3 ? Integer.parseInt(parts[2]) : 0;
+            boolean nextDay = hour >= 24;
+            return new ParsedSeoulTime(LocalTime.of(nextDay ? hour - 24 : hour, minute, second), nextDay);
+        } catch (NumberFormatException | java.time.DateTimeException e) {
+            return null;
+        }
+    }
+
+    private record ParsedSeoulTime(LocalTime time, boolean nextDay) {
     }
 
     private String toUpDownTypeCode(int wayCode) {

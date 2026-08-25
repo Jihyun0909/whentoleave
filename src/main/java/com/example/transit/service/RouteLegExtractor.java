@@ -12,8 +12,10 @@ import tools.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.StreamSupport;
 
 /**
@@ -58,6 +60,18 @@ public class RouteLegExtractor {
     private final TagoBusRouteDetailApiClient tagoBusRouteDetailApiClient;
     private final TagoCityCodeResolver tagoCityCodeResolver;
     private final SeoulBusStopCatalog seoulBusStopCatalog;
+
+    /**
+     * 역명/노선명 -> TAGO 역 매칭, (역ID+방향) -> 종착역 집합 캐시. 실사용 중 발견: 환승이 많은
+     * 긴 경로는 Google이 후보 경로를 수십 개 주는데, 대부분 같은 역들을 반복해서 지나간다.
+     * 캐싱 없이 후보마다 매번 TAGO를 새로 조회하면(구간당 최대 5번 - 역 찾기 2번, 방향판별 1번,
+     * 단축운행 판별 2번) 200ms 요청간격 제한(TagoRateLimiter)과 겹쳐 검색 하나가 수십 초씩
+     * 걸렸다(수유->신림 검색에서 TAGO 호출 146번, 소요 약 60초 확인). 역-노선 매칭과 노선
+     * 토폴로지(어느 역이 어느 종착역을 갖는지)는 하루 안에 안 바뀌는 정적 정보라 무기한 캐싱해도
+     * 안전하다 - 실제 열차 시간표(SubwayScheduleCacheService)와는 다른 층이라 혼동하면 안 된다.
+     */
+    private final Map<String, Optional<StationMatch>> stationMatchCache = new ConcurrentHashMap<>();
+    private final Map<String, Set<String>> terminiCache = new ConcurrentHashMap<>();
 
     public RouteLegExtractor(TagoSubwayApiClient tagoSubwayApiClient,
                               TagoBusRouteDetailApiClient tagoBusRouteDetailApiClient,
@@ -195,6 +209,12 @@ public class RouteLegExtractor {
 
     /** 역명(부분 검색 결과)에서 노선명이 일치하는 항목의 TAGO subwayStationId/역명을 찾는다. */
     private Optional<StationMatch> resolveSubwayStation(String stationName, String googleLineNameShort) {
+        return stationMatchCache.computeIfAbsent(
+                stationName + "|" + googleLineNameShort,
+                key -> resolveSubwayStationUncached(stationName, googleLineNameShort));
+    }
+
+    private Optional<StationMatch> resolveSubwayStationUncached(String stationName, String googleLineNameShort) {
         try {
             TagoBusArrivalResponse response = tagoSubwayApiClient.findStations(stationName);
             for (JsonNode item : items(response)) {
@@ -245,6 +265,12 @@ public class RouteLegExtractor {
 
     /** subwayStationId·방향의 시간표에서 실제 쓰이는 종착역 이름 집합(중복 제거). */
     private Set<String> terminiOf(String subwayStationId, String upDownTypeCode) {
+        return terminiCache.computeIfAbsent(
+                subwayStationId + ":" + upDownTypeCode,
+                key -> terminiOfUncached(subwayStationId, upDownTypeCode));
+    }
+
+    private Set<String> terminiOfUncached(String subwayStationId, String upDownTypeCode) {
         try {
             TagoBusArrivalResponse response =
                     tagoSubwayApiClient.fetchSchedule(subwayStationId, upDownTypeCode, DIRECTION_CHECK_DAILY_TYPE);
