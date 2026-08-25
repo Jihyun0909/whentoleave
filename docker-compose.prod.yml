@@ -7,7 +7,7 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/transit
       DB_USERNAME: transit
       DB_PASSWORD: ${DB_PASSWORD}
-      ODSAY_API_KEY: ${ODSAY_API_KEY}
+      GOOGLE_ROUTES_API_KEY: ${GOOGLE_ROUTES_API_KEY}
       VWORLD_API_KEY: ${VWORLD_API_KEY}
       SEOUL_SUBWAY_API_KEY: ${SEOUL_SUBWAY_API_KEY}
       TAGO_API_KEY: ${TAGO_API_KEY}
