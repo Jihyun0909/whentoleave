@@ -38,15 +38,20 @@ public record SeoulBusArrivalResponse(MsgHeader msgHeader, MsgBody msgBody) {
      * @param firstTm    이 노선의 첫차 시각 ("20260820040100" - yyyyMMddHHmmss)
      * @param lastTm     이 노선의 막차 시각. 오고 있는 버스가 없을 때 "막차 몇 시였는지" 안내에 쓴다.
      * @param term       배차간격(분). 심야 노선 등은 0으로 오기도 한다.
-     * @param traTime1   첫 번째 버스 도착까지 남은 시간(초). 운행종료/출발대기면 0이 온다.
+     * @param traTime1   첫 번째 버스 도착까지 남은 시간(초). 운행종료/출발대기면 0이 온다 - 단,
+     *                   진짜로 정류소에 진입 중인 버스도 GPS 갱신 시점에 따라 0으로 올 수 있다
+     *                   (2026-08-25 실사용 중 발견: "곧 도착"인데 화면에서 사라진다는 신고).
+     *                   이 경우는 isArrive1로 구분해야 한다.
      * @param arrmsg1    첫 번째 버스 도착 안내 문구 (예: "2분25초후[1번째 전]", "곧 도착", "운행종료")
      * @param plainNo1   첫 번째 버스 차량번호
      * @param isLast1    첫 번째 버스가 막차인지 ("1"이면 막차)
+     * @param isArrive1  첫 번째 버스가 정류소 도착임박 상태인지("1"이면 임박) - traTime1이 0이어도
+     *                   이 값이 "1"이면 "출발대기"가 아니라 "곧 도착"으로 봐야 한다.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Item(String rtNm, String busRouteId, String arsId, String stNm,
                         String firstTm, String lastTm, String term,
-                        Integer traTime1, String arrmsg1, String plainNo1, String isLast1,
-                        Integer traTime2, String arrmsg2, String plainNo2, String isLast2) {
+                        Integer traTime1, String arrmsg1, String plainNo1, String isLast1, String isArrive1,
+                        Integer traTime2, String arrmsg2, String plainNo2, String isLast2, String isArrive2) {
     }
 }
