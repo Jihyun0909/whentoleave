@@ -307,8 +307,19 @@ public class LastDepartureViewController {
                 segmentsOf(option), timelineOf(option, legDisplays));
     }
 
-    /** 버스 구간별 실시간 도착정보 + 예상 대기시간을 한 번만 계산해 타임라인/구간막대/총소요시간이 같은 값을 쓰게 한다. */
-    private record LegDisplay(List<RealtimeArrivalView> arrivals, int waitMinutes, boolean waitFromRealtime) {
+    /**
+     * 버스 구간별 실시간 도착정보 + 예상 대기시간을 한 번만 계산해 타임라인/구간막대/총소요시간이
+     * 같은 값을 쓰게 한다.
+     *
+     * @param waitSeconds 실시간 기반 대기(waitFromRealtime=true)일 때만 원본 초 단위 값을 들고
+     *                    있는다 - 화면 JS가 옆의 실시간 칩과 똑같이 매초 카운트다운해서 "예상
+     *                    대기 약 N분" 문구를 갱신하는 데 쓴다(실사용 중 발견: 이 문구는 페이지
+     *                    렌더 시점 값에 고정돼 있어서, 시간이 지나면 옆 칩의 실시간 카운트다운과
+     *                    어긋나 보였다 - 배차간격 추정치는 애초에 특정 차편의 실시간이 아니라
+     *                    카운트다운할 대상이 없으므로 null).
+     */
+    private record LegDisplay(List<RealtimeArrivalView> arrivals, int waitMinutes, boolean waitFromRealtime,
+                               Integer waitSeconds) {
     }
 
     private List<LegDisplay> legDisplaysOf(RouteOption option, boolean showRealtimeArrivals) {
@@ -317,19 +328,20 @@ public class LastDepartureViewController {
             List<RealtimeArrivalView> arrivals = reachableArrivals(
                     realtimeArrivalsFor(leg, showRealtimeArrivals), leg.transferBufferMinutes());
             if (!leg.isBus()) {
-                result.add(new LegDisplay(arrivals, 0, false));
+                result.add(new LegDisplay(arrivals, 0, false, null));
                 continue;
             }
             Optional<RealtimeArrivalView> soonest = arrivals.stream().filter(v -> !v.isStatusOnly()).findFirst();
             if (soonest.isPresent()) {
-                int minutes = Math.max(1, (soonest.get().secondsUntilArrival() + 59) / 60);
-                result.add(new LegDisplay(arrivals, minutes, true));
+                int seconds = soonest.get().secondsUntilArrival();
+                int minutes = Math.max(1, (seconds + 59) / 60);
+                result.add(new LegDisplay(arrivals, minutes, true, seconds));
                 continue;
             }
             int estimated = seoulBusRouteScheduleCatalog.find(leg.busNo())
                     .map(schedule -> Math.max(1, (schedule.intervalMinutes() + 1) / 2))
                     .orElse(0);
-            result.add(new LegDisplay(arrivals, estimated, false));
+            result.add(new LegDisplay(arrivals, estimated, false, null));
         }
         return result;
     }
@@ -519,13 +531,13 @@ public class LastDepartureViewController {
                 cursor += leg.transferBufferMinutes();
             }
             if (display.waitMinutes() > 0) {
-                rows.add(RouteTimelineRow.wait(display.waitMinutes(), display.waitFromRealtime()));
+                rows.add(RouteTimelineRow.wait(display.waitMinutes(), display.waitFromRealtime(), display.waitSeconds()));
                 cursor += display.waitMinutes();
             }
             LocalTime boardTime = toLocalTime(cursor);
             cursor += leg.rideMinutes();
             rows.add(new RouteTimelineRow("RIDE", boardTime, toLocalTime(cursor), leg.rideMinutes(),
-                    leg.stationName(), leg.endStationName(), lineLabelOf(leg), colorOf(leg), display.arrivals()));
+                    leg.stationName(), leg.endStationName(), lineLabelOf(leg), colorOf(leg), display.arrivals(), null));
         }
         if (option.finalWalkMinutes() > 0) {
             rows.add(RouteTimelineRow.walk(option.finalWalkMinutes()));
@@ -619,23 +631,28 @@ public class LastDepartureViewController {
      * @param label             PLACE의 "출발"/"도착", WAIT은 실시간 기반이면 "실시간", 배차간격
      *                          추정이면 "예상"
      * @param realtimeArrivals  RIDE 중 첫 승차 행에만 붙는 실시간 지하철 도착정보 (그 외에는 빈 목록)
+     * @param waitSeconds       WAIT 행이 실시간 기반일 때만 원본 초 단위 값(화면 JS 카운트다운용).
+     *                          그 외 행 타입이나 배차간격 추정 WAIT 행은 null.
      */
     public record RouteTimelineRow(String type, LocalTime time, LocalTime endTime, int minutes,
                                     String fromName, String toName, String lineLabel, String color,
-                                    List<RealtimeArrivalView> realtimeArrivals) {
+                                    List<RealtimeArrivalView> realtimeArrivals, Integer waitSeconds) {
 
         static RouteTimelineRow place(LocalTime time, String label) {
-            return new RouteTimelineRow("PLACE", time, null, 0, label, null, null, null, List.of());
+            return new RouteTimelineRow("PLACE", time, null, 0, label, null, null, null, List.of(), null);
         }
 
         static RouteTimelineRow walk(int minutes) {
-            return new RouteTimelineRow("WALK", null, null, minutes, null, null, null, null, List.of());
+            return new RouteTimelineRow("WALK", null, null, minutes, null, null, null, null, List.of(), null);
         }
 
-        /** @param fromRealtime true면 실시간 도착정보 기준, false면 배차간격 절반 추정치 */
-        static RouteTimelineRow wait(int minutes, boolean fromRealtime) {
+        /**
+         * @param fromRealtime true면 실시간 도착정보 기준, false면 배차간격 절반 추정치
+         * @param waitSeconds  실시간 기반일 때 원본 초 단위 값(카운트다운용), 아니면 null
+         */
+        static RouteTimelineRow wait(int minutes, boolean fromRealtime, Integer waitSeconds) {
             return new RouteTimelineRow("WAIT", null, null, minutes,
-                    fromRealtime ? "실시간" : "예상", null, null, null, List.of());
+                    fromRealtime ? "실시간" : "예상", null, null, null, List.of(), waitSeconds);
         }
     }
 

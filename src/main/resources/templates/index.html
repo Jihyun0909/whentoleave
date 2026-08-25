@@ -358,7 +358,13 @@
                                 <span class="route-timeline-time"></span>
                                 <span class="route-timeline-rail"></span>
                                 <span class="route-timeline-body">
-                                    <span class="route-timeline-wait"
+                                    <!-- waitSeconds가 있으면(실시간 기반) 화면 JS가 옆 실시간 칩과 똑같이
+                                         매초 카운트다운해서 이 문구를 갱신한다 - 정적으로 두면 시간이
+                                         지날수록 옆 칩(실시간)과 이 문구(렌더 시점 값 고정)가 어긋나 보인다. -->
+                                    <span class="route-timeline-wait" th:if="${row.waitSeconds() != null}"
+                                          th:attr="data-wait-seconds=${row.waitSeconds()},data-wait-label=${row.fromName()}"
+                                          th:text="${row.fromName()} + ' 대기 약 ' + ${row.minutes()} + '분'"></span>
+                                    <span class="route-timeline-wait" th:if="${row.waitSeconds() == null}"
                                           th:text="${row.fromName()} + ' 대기 약 ' + ${row.minutes()} + '분'"></span>
                                 </span>
                             </th:block>
@@ -857,6 +863,30 @@
                 if (etaEl) {
                     etaEl.textContent = format(seconds);
                 }
+            });
+        }, 1000);
+    })();
+
+    // "예상 대기" 문구도 옆 실시간 칩과 같은 기준(waitSeconds)으로 매초 다시 계산해서 갱신한다 -
+    // 그대로 두면 페이지 렌더 시점 값에 고정돼, 시간이 지날수록 옆 칩(실시간)과 어긋나 보인다
+    // (실사용 중 발견: "대기 약 15분"인데 옆 칩은 "12:14"). 서버와 같은 올림 계산(초를 분으로
+    // 올림, 최소 1분)을 그대로 써서 두 값이 항상 일치하게 한다.
+    (function initWaitCountdown() {
+        var waits = document.querySelectorAll('.route-timeline-wait[data-wait-seconds]');
+        if (!waits.length) {
+            return;
+        }
+
+        setInterval(function () {
+            waits.forEach(function (el) {
+                var seconds = Number(el.dataset.waitSeconds);
+                if (!Number.isFinite(seconds) || seconds <= 0) {
+                    return;
+                }
+                seconds -= 1;
+                el.dataset.waitSeconds = String(seconds);
+                var minutes = Math.max(1, Math.ceil(seconds / 60));
+                el.textContent = el.dataset.waitLabel + ' 대기 약 ' + minutes + '분';
             });
         }, 1000);
     })();
