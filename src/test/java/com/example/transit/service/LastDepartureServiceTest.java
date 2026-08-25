@@ -2,9 +2,13 @@ package com.example.transit.service;
 
 import com.example.transit.domain.DayType;
 import com.example.transit.domain.SubwaySchedule;
-import com.example.transit.service.client.OdsayClient;
-import com.example.transit.service.client.dto.OdsayPathResponse;
+import com.example.transit.service.client.GoogleRoutesClient;
+import com.example.transit.service.client.TagoBusRouteDetailApiClient;
+import com.example.transit.service.client.TagoSubwayApiClient;
+import com.example.transit.service.client.dto.GoogleRoutesResponse;
+import com.example.transit.service.client.dto.TagoBusArrivalResponse;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -23,15 +27,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * isLastTrainDeparture가 true로 표시되는지 확인한다. 목표 시각은 항상 23:59로 고정해서
  * (하루 중 가장 늦은 시각이라 "이미 지난 시각" 분기를 절대 안 타므로) 테스트 실행 시각과
  * 무관하게 결정적으로 동작하게 한다.
+ * <p>
+ * Google Routes 응답은 순수 record라 직접 생성자로 조립하고, TAGO 응답(JsonNode 기반)만
+ * ObjectMapper로 만든다. 역 이름→TAGO stationId 해석은 모든 테스트에서 "테스트역"을 그대로
+ * stationId로 반환하는 스텁을 쓴다 - LastTrainLookup 페이크가 wayCode를 안 쓰므로 방향 판별
+ * 정확도는 이 테스트들과 무관하다.
  */
 class LastDepartureServiceTest {
 
     private static final LocalTime FIXED_TARGET = LocalTime.of(23, 59);
+    private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void 목표시각이_사실상_제약이_안되면_막차와_같은_결과에_플래그를_붙인다() {
+    void 목표시각이_사실상_제약이_안되면_막차와_같은_결과에_플래그를_붙인다() throws Exception {
         LastTrainLookup lookup = fakeLookup(Map.of(
-                300, List.of(
+                "300", List.of(
                         train(LocalTime.of(22, 0), false),
                         train(LocalTime.of(23, 30), false)
                 )
@@ -46,9 +56,9 @@ class LastDepartureServiceTest {
     }
 
     @Test
-    void 목표시각이_실제로_제약이_되면_플래그를_붙이지_않는다() {
+    void 목표시각이_실제로_제약이_되면_플래그를_붙이지_않는다() throws Exception {
         LastTrainLookup lookup = fakeLookup(Map.of(
-                300, List.of(
+                "300", List.of(
                         train(LocalTime.of(22, 0), false),
                         train(LocalTime.of(23, 30), false)
                 )
@@ -63,9 +73,9 @@ class LastDepartureServiceTest {
     }
 
     @Test
-    void 막차_모드에서는_플래그가_항상_false다() {
+    void 막차_모드에서는_플래그가_항상_false다() throws Exception {
         LastTrainLookup lookup = fakeLookup(Map.of(
-                300, List.of(train(LocalTime.of(23, 30), false))
+                "300", List.of(train(LocalTime.of(23, 30), false))
         ));
         LastDepartureService service = newService(5, lookup);
 
@@ -80,10 +90,10 @@ class LastDepartureServiceTest {
      * 더 이른 출발 시각도 RouteOption에 같이 담겨야 한다.
      */
     @Test
-    void 막차_모드에서_환승_경로면_안전_막차_시각도_같이_계산된다() {
+    void 막차_모드에서_환승_경로면_안전_막차_시각도_같이_계산된다() throws Exception {
         LastTrainLookup lookup = fakeLookup(Map.of(
-                100, List.of(train(LocalTime.of(23, 0), false), train(LocalTime.of(23, 20), false)),
-                200, List.of(train(LocalTime.of(23, 30), false))
+                "100", List.of(train(LocalTime.of(23, 0), false), train(LocalTime.of(23, 20), false)),
+                "200", List.of(train(LocalTime.of(23, 30), false))
         ));
         LastDepartureService service = newTransferService(lookup);
 
@@ -101,10 +111,10 @@ class LastDepartureServiceTest {
      * 안 나온 것"이 아니라 모드 자체 때문에 안 나온다는 걸 확인한다.
      */
     @Test
-    void 목표_도착시간_모드에서는_안전_막차_시각을_계산하지_않는다() {
+    void 목표_도착시간_모드에서는_안전_막차_시각을_계산하지_않는다() throws Exception {
         LastTrainLookup lookup = fakeLookup(Map.of(
-                100, List.of(train(LocalTime.of(23, 0), false), train(LocalTime.of(23, 20), false)),
-                200, List.of(train(LocalTime.of(23, 30), false))
+                "100", List.of(train(LocalTime.of(23, 0), false), train(LocalTime.of(23, 20), false)),
+                "200", List.of(train(LocalTime.of(23, 30), false))
         ));
         LastDepartureService service = newTransferService(lookup);
 
@@ -120,10 +130,10 @@ class LastDepartureServiceTest {
      * 목표까지 9분)가 위로 와야 한다.
      */
     @Test
-    void 목표_도착시간_모드에서는_목표에_가장_가깝게_도착하는_경로가_맨_위다() {
+    void 목표_도착시간_모드에서는_목표에_가장_가깝게_도착하는_경로가_맨_위다() throws Exception {
         LastTrainLookup lookup = fakeLookup(Map.of(
-                300, List.of(train(LocalTime.of(23, 30), false)),
-                400, List.of(train(LocalTime.of(23, 0), false))
+                "300", List.of(train(LocalTime.of(23, 30), false)),
+                "400", List.of(train(LocalTime.of(23, 0), false))
         ));
         LastDepartureService service = newPerPathTypeService(lookup);
 
@@ -136,10 +146,10 @@ class LastDepartureServiceTest {
 
     /** 막차 모드(목표 시각 없음)에서는 기존대로 소요시간이 짧은 순이어야 한다. */
     @Test
-    void 막차_모드에서는_소요시간이_짧은_경로가_맨_위다() {
+    void 막차_모드에서는_소요시간이_짧은_경로가_맨_위다() throws Exception {
         LastTrainLookup lookup = fakeLookup(Map.of(
-                300, List.of(train(LocalTime.of(23, 30), false)),
-                400, List.of(train(LocalTime.of(23, 0), false))
+                "300", List.of(train(LocalTime.of(23, 30), false)),
+                "400", List.of(train(LocalTime.of(23, 0), false))
         ));
         LastDepartureService service = newPerPathTypeService(lookup);
 
@@ -149,19 +159,18 @@ class LastDepartureServiceTest {
     }
 
     /**
-     * ODsay는 출발지-목적지가 700m 이내면 경로 자체를 계산하지 않고 에러만 준다(실사용 curl
-     * 검증: {"error":{"msg":"출, 도착지가 700m이내입니다.","code":"-98"}}) - result가 없어
-     * "경로를 찾지 못했습니다" 취급을 받는다. 이 경우 "운행 종료" 같은 엉뚱한 안내 대신, 좌표
-     * 간 직선거리로 도보 시간을 추정해서 보여줘야 한다.
+     * 경로탐색 결과 자체가 비어 있고(예: 출발지-목적지가 너무 가까워 Google이 대중교통 경로를
+     * 안 주는 경우) 거리가 가까우면, "운행 종료" 같은 엉뚱한 안내 대신 좌표 간 직선거리로
+     * 도보 시간을 추정해서 보여줘야 한다.
      */
     @Test
     void 경로를_못_찾아도_거리가_가까우면_도보시간을_추정한다() {
-        OdsayClient odsayClient = odsayStub(new OdsayPathResponse(null));
+        GoogleRoutesClient googleClient = googleStub(new GoogleRoutesResponse(List.of()));
         LastDepartureService service = new LastDepartureService(
-                odsayClient, new RouteLegExtractor(), LastDepartureCalculator.subwayOnly(fakeLookup(Map.of())),
-                noNightBus(odsayClient));
+                googleClient, newExtractor(), LastDepartureCalculator.subwayOnly(fakeLookup(Map.of())),
+                noNightBus());
 
-        // 약 150m 거리 (실제 curl 검증에 쓴 좌표 - ODsay가 700m 이내로 판단한 지점)
+        // 약 150m 거리
         LastDepartureResult result = service.calculate(127.0276, 37.4979, 127.0290, 37.4985);
 
         LastDepartureResult.Infeasible infeasible = assertInstanceOf(LastDepartureResult.Infeasible.class, result);
@@ -172,10 +181,10 @@ class LastDepartureServiceTest {
     /** 거리가 멀면(진짜 경로 정보 부족 등) 도보 추정을 하지 않고 원래 실패 사유만 보여준다. */
     @Test
     void 경로를_못_찾고_거리도_멀면_도보시간을_추정하지_않는다() {
-        OdsayClient odsayClient = odsayStub(new OdsayPathResponse(null));
+        GoogleRoutesClient googleClient = googleStub(new GoogleRoutesResponse(List.of()));
         LastDepartureService service = new LastDepartureService(
-                odsayClient, new RouteLegExtractor(), LastDepartureCalculator.subwayOnly(fakeLookup(Map.of())),
-                noNightBus(odsayClient));
+                googleClient, newExtractor(), LastDepartureCalculator.subwayOnly(fakeLookup(Map.of())),
+                noNightBus());
 
         // 서울 <-> 부산 정도의 먼 거리
         LastDepartureResult result = service.calculate(127.0, 37.5, 129.0, 35.1);
@@ -185,13 +194,39 @@ class LastDepartureServiceTest {
     }
 
     /** 심야버스는 별도 API를 타므로 이 테스트들에서는 없는 것으로 둔다. */
-    private NightBusRouteFinder noNightBus(OdsayClient odsayClient) {
-        return new NightBusRouteFinder(odsayClient) {
+    private NightBusRouteFinder noNightBus() {
+        return new NightBusRouteFinder(null) {
             @Override
             public List<RouteLegExtractor.ExtractedRoute> find(double sx, double sy, double ex, double ey) {
                 return List.of();
             }
         };
+    }
+
+    /** 역명→TAGO stationId 해석용 RouteLegExtractor. 항상 "테스트역"류 이름을 그대로 stationId로 돌려준다. */
+    private RouteLegExtractor newExtractor() {
+        TagoSubwayApiClient subwayClient = new TagoSubwayApiClient("http://dummy", "dummy") {
+            @Override
+            public TagoBusArrivalResponse findStations(String stationName) {
+                return stationResponse(stationIdFor(stationName), "1호선");
+            }
+
+            @Override
+            public TagoBusArrivalResponse fetchSchedule(String subwayStationId, String upDownTypeCode,
+                                                          String dailyTypeCode) {
+                return emptyResponse();
+            }
+        };
+        TagoBusRouteDetailApiClient busClient = new TagoBusRouteDetailApiClient("http://dummy", "dummy");
+        TagoCityCodeResolver cityCodeResolver = new TagoCityCodeResolver(null);
+        return new RouteLegExtractor(subwayClient, busClient, cityCodeResolver);
+    }
+
+    /** 테스트에서 쓰는 역명은 전부 "역이름(stationId)" 형태로 지어서, 이름만 보고 원하는 stationId를 돌려준다. */
+    private String stationIdFor(String stationName) {
+        int start = stationName.indexOf('(');
+        int end = stationName.indexOf(')');
+        return start >= 0 && end > start ? stationName.substring(start + 1, end) : stationName;
     }
 
     /**
@@ -200,76 +235,111 @@ class LastDepartureServiceTest {
      * 지하철 전용은 역 300(5분), 그 외는 역 400(50분) 경로가 나온다.
      */
     private LastDepartureService newPerPathTypeService(LastTrainLookup lookup) {
-        OdsayClient odsayClient = new OdsayClient("http://dummy", "dummy") {
+        GoogleRoutesClient googleClient = new GoogleRoutesClient("http://dummy", "dummy") {
             @Override
-            public OdsayPathResponse searchPath(double sx, double sy, double ex, double ey,
-                                                 com.example.transit.service.client.SearchPathType pathType) {
-                return pathType == com.example.transit.service.client.SearchPathType.SUBWAY_ONLY
-                        ? singleLegResponse(5, 300)
-                        : singleLegResponse(50, 400);
+            public GoogleRoutesResponse computeTransitRoutes(double sx, double sy, double ex, double ey,
+                                                               List<String> allowedTravelModes) {
+                return allowedTravelModes != null && allowedTravelModes.contains("SUBWAY")
+                        ? singleLegResponse(5, "역(300)")
+                        : singleLegResponse(50, "역(400)");
             }
         };
-        return new LastDepartureService(odsayClient, new RouteLegExtractor(),
-                LastDepartureCalculator.subwayOnly(lookup), noNightBus(odsayClient));
+        return new LastDepartureService(googleClient, newExtractor(),
+                LastDepartureCalculator.subwayOnly(lookup), noNightBus());
     }
 
     private LastDepartureService newTransferService(LastTrainLookup lookup) {
-        OdsayClient odsayClient = odsayStub(twoLegResponse());
-        return new LastDepartureService(odsayClient, new RouteLegExtractor(),
-                LastDepartureCalculator.subwayOnly(lookup), noNightBus(odsayClient));
+        GoogleRoutesClient googleClient = googleStub(twoLegResponse());
+        return new LastDepartureService(googleClient, newExtractor(),
+                LastDepartureCalculator.subwayOnly(lookup), noNightBus());
     }
 
     /** 역A(100, 2호선) -[5분]-> 환승도보 3분 -> 역B(200, 4호선) -[5분]->. */
-    private OdsayPathResponse twoLegResponse() {
-        return new OdsayPathResponse(
-                new OdsayPathResponse.Result(List.of(
-                        new OdsayPathResponse.Path(1, List.of(
-                                new OdsayPathResponse.SubPath(1, 5, 100, 2, null, "역A",
-                                        List.of(new OdsayPathResponse.Lane("2호선"))),
-                                new OdsayPathResponse.SubPath(3, 3, null, null, null, null, null),
-                                new OdsayPathResponse.SubPath(1, 5, 200, 2, null, "역B",
-                                        List.of(new OdsayPathResponse.Lane("4호선")))
-                        ))
-                ))
-        );
+    private GoogleRoutesResponse twoLegResponse() {
+        GoogleRoutesResponse.Step first = transitStep(5, "역A(100)", "2호선");
+        GoogleRoutesResponse.Step walk = walkStep(3);
+        GoogleRoutesResponse.Step second = transitStep(5, "역B(200)", "4호선");
+        GoogleRoutesResponse.Leg leg = new GoogleRoutesResponse.Leg(List.of(first, walk, second), 0, "0s");
+        return new GoogleRoutesResponse(List.of(new GoogleRoutesResponse.Route(List.of(leg))));
     }
 
     private LastDepartureService newService(int rideMinutes, LastTrainLookup lookup) {
-        OdsayClient odsayClient = odsayStub(singleLegResponse(rideMinutes));
-        return new LastDepartureService(odsayClient, new RouteLegExtractor(),
-                LastDepartureCalculator.subwayOnly(lookup), noNightBus(odsayClient));
+        GoogleRoutesClient googleClient = googleStub(singleLegResponse(rideMinutes));
+        return new LastDepartureService(googleClient, newExtractor(),
+                LastDepartureCalculator.subwayOnly(lookup), noNightBus());
     }
 
-    private OdsayPathResponse singleLegResponse(int rideMinutes) {
-        return singleLegResponse(rideMinutes, 300);
+    private GoogleRoutesResponse singleLegResponse(int rideMinutes) {
+        return singleLegResponse(rideMinutes, "역(300)");
     }
 
-    private OdsayPathResponse singleLegResponse(int rideMinutes, int stationId) {
-        return new OdsayPathResponse(
-                new OdsayPathResponse.Result(List.of(
-                        new OdsayPathResponse.Path(1, List.of(
-                                new OdsayPathResponse.SubPath(1, rideMinutes, stationId, 1, null, "테스트역",
-                                        List.of(new OdsayPathResponse.Lane("1호선")))
-                        ))
-                ))
-        );
+    private GoogleRoutesResponse singleLegResponse(int rideMinutes, String stationName) {
+        GoogleRoutesResponse.Step step = transitStep(rideMinutes, stationName, "1호선");
+        GoogleRoutesResponse.Leg leg = new GoogleRoutesResponse.Leg(List.of(step), 0, "0s");
+        return new GoogleRoutesResponse(List.of(new GoogleRoutesResponse.Route(List.of(leg))));
     }
 
-    private OdsayClient odsayStub(OdsayPathResponse response) {
-        return new OdsayClient("http://dummy", "dummy") {
+    private GoogleRoutesResponse.Step transitStep(int rideMinutes, String departureStopName, String lineNameShort) {
+        GoogleRoutesResponse.TransitLine line =
+                new GoogleRoutesResponse.TransitLine(lineNameShort, lineNameShort, new GoogleRoutesResponse.Vehicle("SUBWAY"));
+        GoogleRoutesResponse.Stop departureStop = new GoogleRoutesResponse.Stop(departureStopName, null);
+        GoogleRoutesResponse.StopDetails stopDetails = new GoogleRoutesResponse.StopDetails(departureStop, null, null, null);
+        GoogleRoutesResponse.TransitDetails details = new GoogleRoutesResponse.TransitDetails(stopDetails, null, null, line, null);
+        return new GoogleRoutesResponse.Step("TRANSIT", 0, (rideMinutes * 60) + "s", details);
+    }
+
+    private GoogleRoutesResponse.Step walkStep(int minutes) {
+        return new GoogleRoutesResponse.Step("WALK", 0, (minutes * 60) + "s", null);
+    }
+
+    private GoogleRoutesClient googleStub(GoogleRoutesResponse response) {
+        return new GoogleRoutesClient("http://dummy", "dummy") {
             @Override
-            public OdsayPathResponse searchPath(double sx, double sy, double ex, double ey,
-                                                 com.example.transit.service.client.SearchPathType pathType) {
+            public GoogleRoutesResponse computeTransitRoutes(double sx, double sy, double ex, double ey,
+                                                               List<String> allowedTravelModes) {
                 return response;
             }
         };
     }
 
-    private LastTrainLookup fakeLookup(Map<Integer, List<SubwaySchedule>> byStation) {
+    /**
+     * 이 테스트들은 laneName 값 자체를 검증하지 않으므로, 실제로 어떤 노선명이 오든 매칭되게
+     * 흔한 노선명(1/2/4호선)을 전부 같은 stationId로 돌려준다 - 그러지 않으면 twoLegResponse()가
+     * 쓰는 "2호선"/"4호선"이 fixedLineName과 안 맞아 지하철역 해석이 조용히 실패한다.
+     */
+    private TagoBusArrivalResponse stationResponse(String stationId, String lineName) {
+        try {
+            String json = """
+                    { "response": { "header": { "resultCode": "00", "resultMsg": "NORMAL SERVICE." },
+                      "body": { "items": { "item": [
+                        { "subwayStationId": "%s", "subwayStationName": "테스트역", "subwayRouteName": "%s" },
+                        { "subwayStationId": "%s", "subwayStationName": "테스트역", "subwayRouteName": "1호선" },
+                        { "subwayStationId": "%s", "subwayStationName": "테스트역", "subwayRouteName": "2호선" },
+                        { "subwayStationId": "%s", "subwayStationName": "테스트역", "subwayRouteName": "4호선" }
+                      ] } } } }
+                    """.formatted(stationId, lineName, stationId, stationId, stationId);
+            return mapper.readValue(json, TagoBusArrivalResponse.class);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private TagoBusArrivalResponse emptyResponse() {
+        try {
+            return mapper.readValue("""
+                    { "response": { "header": { "resultCode": "00", "resultMsg": "NORMAL SERVICE." },
+                      "body": { "items": {} } } }
+                    """, TagoBusArrivalResponse.class);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private LastTrainLookup fakeLookup(Map<String, List<SubwaySchedule>> byStation) {
         return (stationId, wayCode, date) -> byStation.getOrDefault(stationId, List.of());
     }
 
     private SubwaySchedule train(LocalTime time, boolean nextDay) {
-        return new SubwaySchedule(300, 1, DayType.WEEKDAY, "종착역", time, nextDay, 2);
+        return new SubwaySchedule("300", 1, DayType.WEEKDAY, "종착역", time, nextDay, 2);
     }
 }

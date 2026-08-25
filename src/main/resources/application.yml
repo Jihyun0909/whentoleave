@@ -21,10 +21,11 @@ spring:
             enabled: true
             paths: /**
 
-odsay:
-  base-url: https://api.odsay.com/v1/api
-  # 실제 키는 커밋하지 않는다. IntelliJ Run Configuration의 환경변수(ODSAY_API_KEY)로 주입.
-  api-key: ${ODSAY_API_KEY:}
+google-routes:
+  # 대중교통 경로탐색(환승 조합)용. Google Cloud Console에서 Routes API 활성화 후 발급.
+  # 실제 키는 커밋하지 않는다. IntelliJ Run Configuration의 환경변수(GOOGLE_ROUTES_API_KEY)로 주입.
+  base-url: https://routes.googleapis.com/directions/v2:computeRoutes
+  api-key: ${GOOGLE_ROUTES_API_KEY:}
 
 vworld:
   # 주소 -> 좌표 지오코딩(VWorld, 국토교통부)용. 실제 키는 커밋하지 않는다.
@@ -62,6 +63,12 @@ tago:
   base-url: http://apis.data.go.kr/1613000/ArvlInfoInqireService
   # 좌표기반 근접 정류소 조회(정류소정보조회 서비스). 실제 오퍼레이션 경로는 추정값 - 확인 필요.
   station-base-url: http://apis.data.go.kr/1613000/BusSttnInfoInqireService/getCrdntPrxmtSttnList
+  # 버스 노선정보(첫차/막차/배차간격 + 경유정류소 목록). 2026-08-20 라이브 테스트로 확인:
+  # getRouteNoList/getRouteInfoIem/getRouteAcctoThrghSttnList 전부 정상 응답(TagoBusRouteDetailApiClient 참고).
+  route-info-base-url: http://apis.data.go.kr/1613000/BusRouteInfoInqireService
+  # 지하철 역 검색 + 역별 시간표. 2026-08-20 라이브 테스트로 확인: 다른 TAGO 서비스와 달리
+  # base-url 끝에 "Service"가 안 붙고, 오퍼레이션명이 대문자 Get으로 시작한다(TagoSubwayApiClient 참고).
+  subway-base-url: https://apis.data.go.kr/1613000/SubwayInfo
   api-key: ${TAGO_API_KEY:}
 
 gyeonggi-bus:

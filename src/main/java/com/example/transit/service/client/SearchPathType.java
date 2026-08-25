@@ -1,6 +1,6 @@
 package com.example.transit.service.client;
 
-/** ODsay searchPubTransPathT의 SearchPathType 파라미터. */
+/** 경로탐색 모드(지하철 전용/버스 전용/전체). LastDepartureService가 Google Routes의 allowedTravelModes로 매핑한다. */
 public enum SearchPathType {
 
     ALL(0, "지하철+버스"),

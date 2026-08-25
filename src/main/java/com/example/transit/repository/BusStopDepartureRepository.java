@@ -15,6 +15,6 @@ public interface BusStopDepartureRepository extends JpaRepository<BusStopDepartu
      * 이렇게 두면 중복 정리 전이라도 서비스가 멈추지 않는다.
      */
     Optional<BusStopDeparture> findFirstByBusIdAndStationIdAndDayTypeOrderByIdDesc(
-            Integer busId, Integer stationId, DayType dayType
+            String busId, String stationId, DayType dayType
     );
 }

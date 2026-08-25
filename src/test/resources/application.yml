@@ -22,8 +22,8 @@ spring:
     show-sql: false
 
 # 실제 호출은 테스트에서 전부 페이크로 막지만, 값이 비어 있으면 설정 주입이 실패하므로 더미를 둔다.
-odsay:
-  base-url: http://localhost/odsay-not-used-in-tests
+google-routes:
+  base-url: http://localhost/google-routes-not-used-in-tests
   api-key: test-key
 
 vworld:
@@ -36,6 +36,8 @@ seoul-subway:
 tago:
   base-url: http://localhost/tago-not-used-in-tests
   station-base-url: http://localhost/tago-station-not-used-in-tests
+  route-info-base-url: http://localhost/tago-route-info-not-used-in-tests
+  subway-base-url: http://localhost/tago-subway-not-used-in-tests
   api-key: ""
 
 gyeonggi-bus:

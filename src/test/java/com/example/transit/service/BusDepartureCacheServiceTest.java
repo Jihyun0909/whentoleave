@@ -3,21 +3,22 @@ package com.example.transit.service;
 import com.example.transit.domain.BusStopDeparture;
 import com.example.transit.domain.DayType;
 import com.example.transit.repository.BusStopDepartureRepository;
-import com.example.transit.service.client.OdsayClient;
-import com.example.transit.service.client.dto.OdsayBusLaneDetailResponse;
+import com.example.transit.service.client.TagoBusRouteDetailApiClient;
+import com.example.transit.service.client.dto.TagoBusArrivalResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Example;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -27,21 +28,27 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 버스 막차 "추정" 로직 검증. 실제 ODsay 응답에서 확인한 형태를 그대로 쓴다
- * (시간/배차간격이 문자열, station[]에 기점부터의 누적거리).
+ * 버스 막차 "추정" 로직 검증. 실제 TAGO 응답에서 확인한 필드명을 그대로 쓴다
+ * (getRouteInfoIem: startvehicletime/endvehicletime/intervaltime류, getRouteAcctoThrghSttnList:
+ * nodeord/nodeid/gpslati/gpslong).
  */
 class BusDepartureCacheServiceTest {
 
-    private static final int BUS_ID = 1500;
-    private static final int BOARDING_STOP_ID = 80821;
+    private static final double EARTH_RADIUS_METERS = 6_371_000;
+    private static final String ROUTE_ID = "R1500";
+    private static final String BOARDING_NODE_ID = "N80821";
+    private static final String CITY_CODE = "31010";
     /** 요일유형을 고정해야 배차간격 선택이 실행 요일에 따라 흔들리지 않는다 (2026-08-13은 목요일). */
     private static final LocalDate TODAY = LocalDate.of(2026, 8, 13);
 
+    private final ObjectMapper mapper = new ObjectMapper();
+
     @Test
-    void 기점부터_승차정류장까지_걸리는_시간만큼_막차를_늦춰서_추정한다() {
+    void 기점부터_승차정류장까지_걸리는_시간만큼_막차를_늦춰서_추정한다() throws Exception {
         // 구간: 2000m를 10분에 감 -> 200m/분. 승차 정류장은 기점에서 4000m -> 20분 걸림.
         // 기점 막차 23:00 -> 승차 정류장 막차는 23:20으로 추정되어야 한다.
-        BusDepartureCacheService service = service(detail("05:00", "23:00", "10", 4000));
+        BusDepartureCacheService service = service(routeDetailJson("0500", "2300", 10, 10, 10),
+                routeStopsJson(4000));
         TransitLeg leg = busLeg(2000, 10);
 
         List<Integer> minutes = service.departureServiceMinutes(leg, TODAY);
@@ -54,9 +61,10 @@ class BusDepartureCacheServiceTest {
      * 나온다. 그대로 환산하면 "막차가 아침에 지나간다"는 값이 나와서(N61에서 실제 발생) 상한을 둔다.
      */
     @Test
-    void 누적거리가_과하게_크면_오프셋을_상한으로_자른다() {
+    void 누적거리가_과하게_크면_오프셋을_상한으로_자른다() throws Exception {
         // 60km를 200m/분으로 환산하면 300분이지만, 상한 60분으로 잘려야 한다.
-        BusDepartureCacheService service = service(detail("05:00", "23:00", "10", 60000));
+        BusDepartureCacheService service = service(routeDetailJson("0500", "2300", 10, 10, 10),
+                routeStopsJson(60000));
         TransitLeg leg = busLeg(2000, 10);
 
         List<Integer> minutes = service.departureServiceMinutes(leg, TODAY);
@@ -65,8 +73,8 @@ class BusDepartureCacheServiceTest {
     }
 
     @Test
-    void 막차부터_배차간격만큼_거슬러_올라가며_차편_후보를_만든다() {
-        BusDepartureCacheService service = service(detail("22:00", "23:00", "20", 0));
+    void 막차부터_배차간격만큼_거슬러_올라가며_차편_후보를_만든다() throws Exception {
+        BusDepartureCacheService service = service(routeDetailJson("2200", "2300", 20, 20, 20), routeStopsJson(0));
         TransitLeg leg = busLeg(0, 0); // 거리 정보 없음 -> 기점 시각 그대로
 
         List<Integer> minutes = service.departureServiceMinutes(leg, TODAY);
@@ -76,27 +84,31 @@ class BusDepartureCacheServiceTest {
     }
 
     @Test
-    void 한_구간에_노선이_여러개면_모든_노선의_차편을_합쳐서_가장_늦은_막차까지_고려한다() {
-        Map<Integer, OdsayBusLaneDetailResponse> details = new HashMap<>();
-        details.put(1, detail("05:00", "22:30", "30", 0));
-        details.put(2, detail("05:00", "23:40", "30", 0)); // 이 노선이 더 늦게까지 다님
-        BusDepartureCacheService service = service(details);
+    void 한_구간에_노선이_여러개면_모든_노선의_차편을_합쳐서_가장_늦은_막차까지_고려한다() throws Exception {
+        Map<String, TagoBusArrivalResponse> details = new HashMap<>();
+        details.put("R1", routeDetailJson("0500", "2230", 30, 30, 30));
+        details.put("R2", routeDetailJson("0500", "2340", 30, 30, 30)); // 이 노선이 더 늦게까지 다님
+        Map<String, TagoBusArrivalResponse> stops = new HashMap<>();
+        stops.put("R1", routeStopsJson(0));
+        stops.put("R2", routeStopsJson(0));
+        BusDepartureCacheService service = service(details, stops);
 
-        TransitLeg leg = TransitLeg.bus(BOARDING_STOP_ID, 0, 0, "정류장", "하차정류장", "간선", List.of(1, 2), "146", 0);
+        TransitLeg leg = TransitLeg.bus(BOARDING_NODE_ID, 0, 0, "정류장", "하차정류장", "간선",
+                List.of("R1", "R2"), "146", 0, null, null, CITY_CODE);
         List<Integer> minutes = service.departureServiceMinutes(leg, TODAY);
 
         assertEquals(23 * 60 + 40, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
     }
 
     /**
-     * 심야버스 회귀 테스트. N15는 첫차 24:00 / 막차 27:30이라 자정 이후에만 다니는데,
-     * 첫차의 "다음날" 여부를 잃어버리면 첫차가 00:00으로 해석되어 막차부터 배차간격으로
-     * 거슬러 내려가는 루프가 낮 시간대 차편까지 만들어냈다 (오후 4시에 N버스를 탈 수 있다고
-     * 안내하던 버그). 후보는 전부 24:00 이후여야 한다.
+     * 심야버스류 회귀 테스트. 첫차 "0000"(자정) / 막차 "0330"(익일 03:30)처럼 이른 시각은
+     * TagoTimeParser가 "다음날"로 해석해야 한다 - 안 그러면 막차부터 배차간격으로 거슬러
+     * 내려가는 루프가 낮 시간대 차편까지 만들어낸다 (오후 4시에 N버스를 탈 수 있다고 안내하던 버그).
+     * 후보는 전부 24:00 이후(=자정 이후)여야 한다.
      */
     @Test
-    void 자정_이후에만_다니는_노선은_낮_시간대_차편을_만들지_않는다() {
-        BusDepartureCacheService service = service(detail("24:00", "27:30", "35", 0));
+    void 자정_이후에만_다니는_노선은_낮_시간대_차편을_만들지_않는다() throws Exception {
+        BusDepartureCacheService service = service(routeDetailJson("0000", "0330", 35, 35, 35), routeStopsJson(0));
 
         List<Integer> minutes = service.departureServiceMinutes(busLeg(0, 0), TODAY);
 
@@ -106,9 +118,16 @@ class BusDepartureCacheServiceTest {
     }
 
     @Test
-    void 배차간격이_숫자가_아니면_기본값으로_대체한다() {
-        // ODsay는 "1회 -"처럼 숫자가 아닌 배차간격도 준다.
-        BusDepartureCacheService service = service(detail("22:00", "23:00", "1회 -", 0));
+    void 배차간격이_숫자가_아니면_기본값으로_대체한다() throws Exception {
+        // TAGO도 이따금 "1회 -"처럼 숫자가 아닌 배차간격을 준다(ODsay와 동일한 quirk).
+        TagoBusArrivalResponse detail = mapper.readValue("""
+                { "response": { "header": { "resultCode": "00", "resultMsg": "NORMAL SERVICE." },
+                  "body": { "items": { "item":
+                    { "routeno": "120", "startvehicletime": "2200", "endvehicletime": "2300",
+                      "intervaltime": "1회 -", "intervalsattime": "1회 -", "intervalsuntime": "1회 -" }
+                  } } } }
+                """, TagoBusArrivalResponse.class);
+        BusDepartureCacheService service = service(detail, routeStopsJson(0));
         TransitLeg leg = busLeg(0, 0);
 
         List<Integer> minutes = service.departureServiceMinutes(leg, TODAY);
@@ -119,9 +138,9 @@ class BusDepartureCacheServiceTest {
 
     @Test
     void 노선_상세_조회가_실패하면_그_노선은_후보에서_빠진다() {
-        OdsayClient failing = new OdsayClient("http://dummy", "dummy") {
+        TagoBusRouteDetailApiClient failing = new TagoBusRouteDetailApiClient("http://dummy", "dummy") {
             @Override
-            public OdsayBusLaneDetailResponse fetchBusLaneDetail(int busId) {
+            public TagoBusArrivalResponse fetchRouteDetail(String routeId, String cityCode) {
                 throw new IllegalStateException("API 실패");
             }
         };
@@ -131,34 +150,40 @@ class BusDepartureCacheServiceTest {
     }
 
     @Test
-    void 같은_노선_정류장은_두번째부터_캐시에서_읽어_API를_다시_호출하지_않는다() {
-        CountingClient client = new CountingClient(detail("05:00", "23:00", "10", 0));
+    void 같은_노선_정류장은_두번째부터_캐시에서_읽어_API를_다시_호출하지_않는다() throws Exception {
+        CountingClient client = new CountingClient(routeDetailJson("0500", "2300", 10, 10, 10), routeStopsJson(0));
         BusDepartureCacheService service = new BusDepartureCacheService(new InMemoryRepository(), client);
 
         service.departureServiceMinutes(busLeg(0, 0), TODAY);
         service.departureServiceMinutes(busLeg(0, 0), TODAY);
 
-        assertEquals(1, client.calls);
+        assertEquals(1, client.detailCalls);
     }
 
     /**
-     * 캐시 미스 경합 회귀 테스트. 동시 요청이 같은 키(busId, stationId, dayType)로 먼저
+     * 캐시 미스 경합 회귀 테스트. 동시 요청이 같은 키(bus_id, station_id, day_type)로 먼저
      * 커밋해버리면 우리의 저장은 유니크 제약 위반(DataIntegrityViolationException)을 받는데,
-     * 이때 그 예외로 요청을 실패시키는 대신 이긴 쪽이 이미 저장한 행을 재조회해 써야 한다
-     * (원래 버그: NonUniqueResultException이 아니라, 여기서 예외를 그냥 흘려보내면 매번
-     * DataIntegrityViolationException으로 500이 났다). 이긴 쪽의 막차(22:50)가 우리가
-     * 계산했을 값(23:00)과 다르게 반환되는 것으로 "재조회한 행을 실제로 썼는지" 검증한다.
+     * 이때 그 예외로 요청을 실패시키는 대신 이긴 쪽이 이미 저장한 행을 재조회해 써야 한다.
+     * 이긴 쪽의 막차(22:50)가 우리가 계산했을 값(23:00)과 다르게 반환되는 것으로
+     * "재조회한 행을 실제로 썼는지" 검증한다.
      */
     @Test
-    void 캐시_미스_경합에서_저장이_유니크_제약에_걸리면_먼저_커밋된_행으로_복구한다() {
+    void 캐시_미스_경합에서_저장이_유니크_제약에_걸리면_먼저_커밋된_행으로_복구한다() throws Exception {
         BusStopDeparture winner = new BusStopDeparture(
-                BUS_ID, BOARDING_STOP_ID, DayType.from(TODAY),
+                ROUTE_ID, BOARDING_NODE_ID, DayType.from(TODAY),
                 LocalTime.of(5, 0), false, LocalTime.of(22, 50), false, 10, "120");
         RaceLosingRepository repository = new RaceLosingRepository(winner);
-        OdsayClient client = new OdsayClient("http://dummy", "dummy") {
+        TagoBusArrivalResponse detail = routeDetailJson("0500", "2300", 10, 10, 10);
+        TagoBusArrivalResponse stops = routeStopsJson(0);
+        TagoBusRouteDetailApiClient client = new TagoBusRouteDetailApiClient("http://dummy", "dummy") {
             @Override
-            public OdsayBusLaneDetailResponse fetchBusLaneDetail(int busId) {
-                return detail("05:00", "23:00", "10", 0);
+            public TagoBusArrivalResponse fetchRouteDetail(String routeId, String cityCode) {
+                return detail;
+            }
+
+            @Override
+            public TagoBusArrivalResponse fetchRouteStops(String routeId, String cityCode) {
+                return stops;
             }
         };
         BusDepartureCacheService service = new BusDepartureCacheService(repository, client);
@@ -170,42 +195,82 @@ class BusDepartureCacheServiceTest {
     }
 
     private TransitLeg busLeg(int distanceMeters, int rideMinutes) {
-        return TransitLeg.bus(BOARDING_STOP_ID, rideMinutes, 0, "정류장", "하차정류장", "간선", List.of(BUS_ID), "120", distanceMeters);
+        return TransitLeg.bus(BOARDING_NODE_ID, rideMinutes, 0, "정류장", "하차정류장", "간선",
+                List.of(ROUTE_ID), "120", distanceMeters, null, null, CITY_CODE);
     }
 
-    private OdsayBusLaneDetailResponse detail(String first, String last, String interval, int stopDistance) {
-        return new OdsayBusLaneDetailResponse(new OdsayBusLaneDetailResponse.Result(
-                "120", first, last, interval, interval, interval, interval, 30000,
-                List.of(new OdsayBusLaneDetailResponse.Station(0, BOARDING_STOP_ID, "정류장", stopDistance))));
+    /** getRouteInfoIem 응답. 시간은 "HHMM" 4자리, 배차간격은 분 단위 정수. */
+    private TagoBusArrivalResponse routeDetailJson(String first, String last,
+                                                    int intervalWeek, int intervalSat, int intervalSun)
+            throws Exception {
+        String json = """
+                { "response": { "header": { "resultCode": "00", "resultMsg": "NORMAL SERVICE." },
+                  "body": { "items": { "item":
+                    { "routeno": "120", "startvehicletime": "%s", "endvehicletime": "%s",
+                      "intervaltime": %d, "intervalsattime": %d, "intervalsuntime": %d }
+                  } } } }
+                """.formatted(first, last, intervalWeek, intervalSat, intervalSun);
+        return mapper.readValue(json, TagoBusArrivalResponse.class);
     }
 
-    private BusDepartureCacheService service(OdsayBusLaneDetailResponse detail) {
-        return service(Map.of(BUS_ID, detail));
+    /**
+     * getRouteAcctoThrghSttnList 응답. 기점(nodeord=1, 좌표 37.0/127.0)에서 정확히
+     * cumulativeMeters만큼 북쪽으로 떨어진 지점에 승차 정류장(nodeord=2, {@link #BOARDING_NODE_ID})을 둔다
+     * (경도가 같으면 Haversine 거리가 위도차×지구반지름과 정확히 일치한다).
+     */
+    private TagoBusArrivalResponse routeStopsJson(int cumulativeMeters) throws Exception {
+        double deltaLatDegrees = Math.toDegrees(cumulativeMeters / EARTH_RADIUS_METERS);
+        String boardingLat = String.format(Locale.ROOT, "%.8f", 37.0 + deltaLatDegrees);
+        String json = """
+                { "response": { "header": { "resultCode": "00", "resultMsg": "NORMAL SERVICE." },
+                  "body": { "items": { "item": [
+                    {"nodeord":1,"nodeid":"ORIGIN","gpslati":37.0,"gpslong":127.0},
+                    {"nodeord":2,"nodeid":"%s","gpslati":%s,"gpslong":127.0}
+                  ] } } } }
+                """.formatted(BOARDING_NODE_ID, boardingLat);
+        return mapper.readValue(json, TagoBusArrivalResponse.class);
     }
 
-    private BusDepartureCacheService service(Map<Integer, OdsayBusLaneDetailResponse> details) {
-        OdsayClient client = new OdsayClient("http://dummy", "dummy") {
+    private BusDepartureCacheService service(TagoBusArrivalResponse detail, TagoBusArrivalResponse stops) {
+        return service(Map.of(ROUTE_ID, detail), Map.of(ROUTE_ID, stops));
+    }
+
+    private BusDepartureCacheService service(Map<String, TagoBusArrivalResponse> details,
+                                              Map<String, TagoBusArrivalResponse> stops) {
+        TagoBusRouteDetailApiClient client = new TagoBusRouteDetailApiClient("http://dummy", "dummy") {
             @Override
-            public OdsayBusLaneDetailResponse fetchBusLaneDetail(int busId) {
-                return details.get(busId);
+            public TagoBusArrivalResponse fetchRouteDetail(String routeId, String cityCode) {
+                return details.get(routeId);
+            }
+
+            @Override
+            public TagoBusArrivalResponse fetchRouteStops(String routeId, String cityCode) {
+                return stops.get(routeId);
             }
         };
         return new BusDepartureCacheService(new InMemoryRepository(), client);
     }
 
-    private class CountingClient extends OdsayClient {
-        private final OdsayBusLaneDetailResponse detail;
-        private int calls;
+    private static class CountingClient extends TagoBusRouteDetailApiClient {
+        private final TagoBusArrivalResponse detail;
+        private final TagoBusArrivalResponse stops;
+        private int detailCalls;
 
-        CountingClient(OdsayBusLaneDetailResponse detail) {
+        CountingClient(TagoBusArrivalResponse detail, TagoBusArrivalResponse stops) {
             super("http://dummy", "dummy");
             this.detail = detail;
+            this.stops = stops;
         }
 
         @Override
-        public OdsayBusLaneDetailResponse fetchBusLaneDetail(int busId) {
-            calls++;
+        public TagoBusArrivalResponse fetchRouteDetail(String routeId, String cityCode) {
+            detailCalls++;
             return detail;
+        }
+
+        @Override
+        public TagoBusArrivalResponse fetchRouteStops(String routeId, String cityCode) {
+            return stops;
         }
     }
 
@@ -238,7 +303,7 @@ class BusDepartureCacheServiceTest {
 
         @Override
         public Optional<BusStopDeparture> findFirstByBusIdAndStationIdAndDayTypeOrderByIdDesc(
-                Integer busId, Integer stationId, DayType dayType) {
+                String busId, String stationId, DayType dayType) {
             return saved.stream()
                     .filter(d -> d.getBusId().equals(busId) && d.getStationId().equals(stationId)
                             && d.getDayType() == dayType)

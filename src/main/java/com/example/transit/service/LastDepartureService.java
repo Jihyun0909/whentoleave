@@ -1,9 +1,10 @@
 package com.example.transit.service;
 
-import com.example.transit.service.client.OdsayClient;
+import com.example.transit.service.client.GoogleRoutesClient;
 import com.example.transit.service.client.SearchPathType;
-import com.example.transit.service.client.dto.OdsayPathResponse;
+import com.example.transit.service.client.dto.GoogleRoutesResponse;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -16,7 +17,8 @@ import java.util.OptionalInt;
 import java.util.stream.Collectors;
 
 /**
- * 출발지/도착지 좌표를 받아 ODsay 경로탐색 -> 지하철 구간 추출 -> 막차/목표도착시간 역산까지 잇는다.
+ * 출발지/도착지 좌표를 받아 Google Routes 경로탐색 -> 지하철/버스 구간 추출 -> 막차/목표도착시간
+ * 역산까지 잇는다.
  */
 @Service
 public class LastDepartureService {
@@ -54,16 +56,16 @@ public class LastDepartureService {
     /** 직선거리(Haversine)는 실제로 걷는 길보다 짧으므로, 도로거리를 어림잡아 20% 더 본다. */
     private static final double ROAD_DISTANCE_FACTOR = 1.2;
 
-    private final OdsayClient odsayClient;
+    private final GoogleRoutesClient googleRoutesClient;
     private final RouteLegExtractor routeLegExtractor;
     private final LastDepartureCalculator calculator;
     private final NightBusRouteFinder nightBusRouteFinder;
 
-    public LastDepartureService(OdsayClient odsayClient,
+    public LastDepartureService(GoogleRoutesClient googleRoutesClient,
                                  RouteLegExtractor routeLegExtractor,
                                  LastDepartureCalculator calculator,
                                  NightBusRouteFinder nightBusRouteFinder) {
-        this.odsayClient = odsayClient;
+        this.googleRoutesClient = googleRoutesClient;
         this.routeLegExtractor = routeLegExtractor;
         this.calculator = calculator;
         this.nightBusRouteFinder = nightBusRouteFinder;
@@ -166,7 +168,14 @@ public class LastDepartureService {
                                Integer targetArrivalMinutes, LocalDate date) {
         List<RouteLegExtractor.ExtractedRoute> pathCandidates;
         try {
-            OdsayPathResponse response = odsayClient.searchPath(sx, sy, ex, ey, pathType);
+            GoogleRoutesResponse response;
+            try {
+                response = googleRoutesClient.computeTransitRoutes(sx, sy, ex, ey, allowedTravelModes(pathType));
+            } catch (RestClientException e) {
+                // Google이 HTTP 오류(쿼터 초과, 잘못된 요청 등)를 준 상황 - 경로가 없는 게 아니라
+                // 조회 자체를 못 한 것이므로 "운행 종료"류 문구로 바뀌면 안 된다.
+                throw new RouteSearchUnavailableException("경로탐색 API 오류: " + e.getMessage());
+            }
             pathCandidates = routeLegExtractor.extractAll(response, pathType != SearchPathType.SUBWAY_ONLY);
         } catch (RouteSearchUnavailableException e) {
             // 경로가 없는 게 아니라 조회 자체를 못 한 상황이라, "운행 종료"류 문구로 바뀌지 않게
@@ -175,9 +184,9 @@ public class LastDepartureService {
         } catch (WalkOnlyRouteException e) {
             return new Best(new LastDepartureResult.Infeasible(e.getMessage(), e.walkMinutes()), 0);
         } catch (NoSubwayRouteFoundException e) {
-            // ODsay가 아예 경로를 못 준 이유는 다양하지만(예: "출,도착지가 700m이내입니다"
-            // 에러), 실제로 가까운 거리라면 이유를 따지지 말고 도보 시간을 추정해서 보여주는
-            // 게 사용자에게 더 유용하다 - "운행 종료" 같은 엉뚱한 안내보다 낫다.
+            // 경로탐색이 아예 결과를 못 준 이유는 다양하지만, 실제로 가까운 거리라면 이유를
+            // 따지지 말고 도보 시간을 추정해서 보여주는 게 사용자에게 더 유용하다 -
+            // "운행 종료" 같은 엉뚱한 안내보다 낫다.
             return new Best(new LastDepartureResult.Infeasible(
                     e.getMessage(), estimateWalkMinutesIfClose(sx, sy, ex, ey)), 0);
         } catch (RuntimeException e) {
@@ -198,6 +207,14 @@ public class LastDepartureService {
                     targetFeasible.legs(), targetFeasible.finalWalkMinutes(), true), best.fareWon());
         }
         return best;
+    }
+
+    private List<String> allowedTravelModes(SearchPathType pathType) {
+        return switch (pathType) {
+            case SUBWAY_ONLY -> List.of("SUBWAY");
+            case BUS_ONLY -> List.of("BUS");
+            case ALL -> null;
+        };
     }
 
     /** 고른 결과와 그 경로의 요금을 같이 들고 다닌다 (요금은 계산에는 안 쓰이고 화면 표시용이라 결과 타입에 넣지 않음). */

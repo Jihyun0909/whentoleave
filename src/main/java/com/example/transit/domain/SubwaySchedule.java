@@ -31,8 +31,8 @@ public class SubwaySchedule {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "station_id", nullable = false)
-    private Integer stationId;
+    @Column(name = "station_id", nullable = false, length = 20)
+    private String stationId;
 
     @Column(name = "way_code", nullable = false)
     private Integer wayCode;
@@ -65,7 +65,7 @@ public class SubwaySchedule {
         // JPA
     }
 
-    public SubwaySchedule(Integer stationId, Integer wayCode, DayType dayType,
+    public SubwaySchedule(String stationId, Integer wayCode, DayType dayType,
                            String endStationName, LocalTime departureTime, boolean nextDay,
                            Integer firstLastFlag) {
         this.stationId = stationId;
@@ -87,7 +87,7 @@ public class SubwaySchedule {
         return id;
     }
 
-    public Integer getStationId() {
+    public String getStationId() {
         return stationId;
     }
 

@@ -15,5 +15,5 @@ import java.util.List;
  */
 @FunctionalInterface
 public interface LastTrainLookup {
-    List<SubwaySchedule> getLastTrains(int stationId, int wayCode, LocalDate date);
+    List<SubwaySchedule> getLastTrains(String stationId, int wayCode, LocalDate date);
 }

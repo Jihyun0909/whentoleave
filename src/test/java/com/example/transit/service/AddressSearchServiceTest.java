@@ -206,7 +206,7 @@ class AddressSearchServiceTest {
 
     private VWorldSearchResponse.Item item(String x, String y, String parcel, String title) {
         return new VWorldSearchResponse.Item(
-                "id", title, new VWorldSearchResponse.Address(null, null, null, parcel),
+                "id", title, null, new VWorldSearchResponse.Address(null, null, null, parcel),
                 new VWorldSearchResponse.Point(x, y));
     }
 

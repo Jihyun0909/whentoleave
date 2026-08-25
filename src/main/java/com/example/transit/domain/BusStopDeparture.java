@@ -43,11 +43,11 @@ public class BusStopDeparture {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "bus_id", nullable = false)
-    private Integer busId;
+    @Column(name = "bus_id", nullable = false, length = 20)
+    private String busId;
 
-    @Column(name = "station_id", nullable = false)
-    private Integer stationId;
+    @Column(name = "station_id", nullable = false, length = 20)
+    private String stationId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "day_type", nullable = false, length = 10)
@@ -88,7 +88,7 @@ public class BusStopDeparture {
         // JPA
     }
 
-    public BusStopDeparture(Integer busId, Integer stationId, DayType dayType,
+    public BusStopDeparture(String busId, String stationId, DayType dayType,
                              LocalTime firstTime, boolean firstTimeNextDay,
                              LocalTime lastTime, boolean lastTimeNextDay, Integer intervalMinutes, String busNo) {
         this.busId = busId;
@@ -112,11 +112,11 @@ public class BusStopDeparture {
         return id;
     }
 
-    public Integer getBusId() {
+    public String getBusId() {
         return busId;
     }
 
-    public Integer getStationId() {
+    public String getStationId() {
         return stationId;
     }
 

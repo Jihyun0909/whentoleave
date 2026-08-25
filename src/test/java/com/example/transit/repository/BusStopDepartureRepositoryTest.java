@@ -29,23 +29,23 @@ class BusStopDepartureRepositoryTest {
 
     @Test
     void 같은_버스_정류장_요일유형_조합은_두번째_저장에서_유니크_제약_위반이_난다() {
-        repository.saveAndFlush(departure(1500, 80821, DayType.WEEKDAY, "05:00", "23:00"));
+        repository.saveAndFlush(departure("1500", "80821", DayType.WEEKDAY, "05:00", "23:00"));
 
-        BusStopDeparture duplicate = departure(1500, 80821, DayType.WEEKDAY, "05:10", "23:10");
+        BusStopDeparture duplicate = departure("1500", "80821", DayType.WEEKDAY, "05:10", "23:10");
         assertThrows(DataIntegrityViolationException.class, () -> repository.saveAndFlush(duplicate));
     }
 
     @Test
     void 버스나_정류장이나_요일유형_중_하나라도_다르면_함께_저장된다() {
-        repository.saveAndFlush(departure(1500, 80821, DayType.WEEKDAY, "05:00", "23:00"));
-        repository.saveAndFlush(departure(1600, 80821, DayType.WEEKDAY, "05:00", "23:00"));
-        repository.saveAndFlush(departure(1500, 90000, DayType.WEEKDAY, "05:00", "23:00"));
-        repository.saveAndFlush(departure(1500, 80821, DayType.SATURDAY, "05:00", "23:00"));
+        repository.saveAndFlush(departure("1500", "80821", DayType.WEEKDAY, "05:00", "23:00"));
+        repository.saveAndFlush(departure("1600", "80821", DayType.WEEKDAY, "05:00", "23:00"));
+        repository.saveAndFlush(departure("1500", "90000", DayType.WEEKDAY, "05:00", "23:00"));
+        repository.saveAndFlush(departure("1500", "80821", DayType.SATURDAY, "05:00", "23:00"));
 
         assertEquals(4, repository.count());
     }
 
-    private BusStopDeparture departure(int busId, int stationId, DayType dayType, String first, String last) {
+    private BusStopDeparture departure(String busId, String stationId, DayType dayType, String first, String last) {
         return new BusStopDeparture(
                 busId, stationId, dayType,
                 LocalTime.parse(first), false,
