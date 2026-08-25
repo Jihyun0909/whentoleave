@@ -352,6 +352,14 @@
                                     <span class="route-timeline-walk" th:text="'도보 ' + ${row.minutes()} + '분'"></span>
                                 </span>
                             </th:block>
+                            <th:block th:case="'WAIT'">
+                                <span class="route-timeline-time"></span>
+                                <span class="route-timeline-rail"></span>
+                                <span class="route-timeline-body">
+                                    <span class="route-timeline-wait"
+                                          th:text="${row.fromName()} + ' 대기 약 ' + ${row.minutes()} + '분'"></span>
+                                </span>
+                            </th:block>
                             <th:block th:case="'RIDE'">
                                 <span class="route-timeline-time" th:text="${#temporals.format(row.time(), 'HH:mm')}"></span>
                                 <span class="route-timeline-rail"

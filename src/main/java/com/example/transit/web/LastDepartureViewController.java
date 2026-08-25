@@ -8,6 +8,7 @@ import com.example.transit.service.RealtimeBusArrival;
 import com.example.transit.service.RealtimeSubwayArrivalLookup;
 import com.example.transit.service.RegionalBusArrivalLookup;
 import com.example.transit.service.RouteOption;
+import com.example.transit.service.SeoulBusRouteScheduleCatalog;
 import com.example.transit.service.StationResolution;
 import com.example.transit.service.StationSearchService;
 import com.example.transit.service.TaxiFareEstimator;
@@ -25,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Controller
@@ -43,19 +45,22 @@ public class LastDepartureViewController {
     private final RealtimeSubwayArrivalLookup subwayArrivalLookup;
     private final RegionalBusArrivalLookup busArrivalLookup;
     private final TaxiFareEstimator taxiFareEstimator;
+    private final SeoulBusRouteScheduleCatalog seoulBusRouteScheduleCatalog;
 
     public LastDepartureViewController(LastDepartureService lastDepartureService,
                                         StationSearchService stationSearchService,
                                         LineColorResolver lineColorResolver,
                                         RealtimeSubwayArrivalLookup subwayArrivalLookup,
                                         RegionalBusArrivalLookup busArrivalLookup,
-                                        TaxiFareEstimator taxiFareEstimator) {
+                                        TaxiFareEstimator taxiFareEstimator,
+                                        SeoulBusRouteScheduleCatalog seoulBusRouteScheduleCatalog) {
         this.lastDepartureService = lastDepartureService;
         this.stationSearchService = stationSearchService;
         this.lineColorResolver = lineColorResolver;
         this.subwayArrivalLookup = subwayArrivalLookup;
         this.busArrivalLookup = busArrivalLookup;
         this.taxiFareEstimator = taxiFareEstimator;
+        this.seoulBusRouteScheduleCatalog = seoulBusRouteScheduleCatalog;
     }
 
     /**
@@ -429,6 +434,12 @@ public class LastDepartureViewController {
      * 상세보기용 타임라인. 출발 시각에서 시작해 도보/승차/하차 시간을 차례로 더해가며
      * 각 지점의 시각을 만든다 (지도 앱의 세로 경로 안내와 같은 구성).
      * 실시간 도착정보는 지하철 승차 행마다 붙인다.
+     * <p>
+     * 버스 구간은 정류장 도착 시각과 승차 시각이 항상 같게 계산된다(막차 역산 특성상 "그 차편
+     * 출발 시각에 정확히 맞춰 걷는다"고 가정하기 때문 - {@link LastDepartureCalculator} 참고).
+     * 실제로는 정류장에서 기다리는 시간이 있으므로, 이 시각 자체는 안전하게 그대로 두되(막차
+     * 계산의 신뢰성이 걸려 있어 함부로 당길 수 없다) "예상 대기" 참고 정보를 별도 행으로
+     * 덧붙인다(실사용 중 발견: 실제로는 대기시간이 있는데 화면상 0분으로 보여 혼란을 줌).
      */
     private List<RouteTimelineRow> timelineOf(RouteOption option, boolean showRealtimeArrivals) {
         List<RouteTimelineRow> rows = new ArrayList<>();
@@ -440,11 +451,14 @@ public class LastDepartureViewController {
                 rows.add(RouteTimelineRow.walk(leg.transferBufferMinutes()));
                 cursor += leg.transferBufferMinutes();
             }
+            List<RealtimeArrivalView> arrivals = realtimeArrivalsFor(leg, showRealtimeArrivals);
+            if (leg.isBus()) {
+                estimatedWaitFor(leg, arrivals).ifPresent(rows::add);
+            }
             LocalTime boardTime = toLocalTime(cursor);
             cursor += leg.rideMinutes();
             rows.add(new RouteTimelineRow("RIDE", boardTime, toLocalTime(cursor), leg.rideMinutes(),
-                    leg.stationName(), leg.endStationName(), lineLabelOf(leg), colorOf(leg),
-                    realtimeArrivalsFor(leg, showRealtimeArrivals)));
+                    leg.stationName(), leg.endStationName(), lineLabelOf(leg), colorOf(leg), arrivals));
         }
         if (option.finalWalkMinutes() > 0) {
             rows.add(RouteTimelineRow.walk(option.finalWalkMinutes()));
@@ -452,6 +466,22 @@ public class LastDepartureViewController {
         }
         rows.add(RouteTimelineRow.place(toLocalTime(cursor), "도착"));
         return rows;
+    }
+
+    /**
+     * 이 버스 구간의 예상 대기시간(참고용, 승차 시각 계산에는 반영하지 않는다).
+     * 오늘 검색이면 실시간 도착정보(가장 빠른 차편)를 우선 쓰고, 없으면(다른 날짜 검색이거나
+     * 실시간 조회가 실패한 경우) 노선 배차간격의 절반을 평균 대기시간으로 추정한다 - 정류장에
+     * 무작위로 도착한다고 보면 평균적으로 배차간격의 절반을 기다리게 된다는 일반적인 근사치다.
+     */
+    private Optional<RouteTimelineRow> estimatedWaitFor(TransitLeg leg, List<RealtimeArrivalView> busArrivals) {
+        Optional<RealtimeArrivalView> soonest = busArrivals.stream().filter(view -> !view.isStatusOnly()).findFirst();
+        if (soonest.isPresent()) {
+            int minutes = Math.max(1, (soonest.get().secondsUntilArrival() + 59) / 60);
+            return Optional.of(RouteTimelineRow.wait(minutes, true));
+        }
+        return seoulBusRouteScheduleCatalog.find(leg.busNo())
+                .map(schedule -> RouteTimelineRow.wait(Math.max(1, (schedule.intervalMinutes() + 1) / 2), false));
     }
 
     private String lineLabelOf(TransitLeg leg) {
@@ -527,10 +557,11 @@ public class LastDepartureViewController {
     }
 
     /**
-     * @param type              PLACE(출발/도착) | WALK(도보) | RIDE(승차~하차)
+     * @param type              PLACE(출발/도착) | WALK(도보) | WAIT(버스 예상 대기, 참고용) | RIDE(승차~하차)
      * @param time              PLACE는 그 지점 시각, RIDE는 승차 시각
      * @param endTime           RIDE의 하차 시각
-     * @param label             PLACE의 "출발"/"도착"
+     * @param label             PLACE의 "출발"/"도착", WAIT은 실시간 기반이면 "실시간", 배차간격
+     *                          추정이면 "예상"
      * @param realtimeArrivals  RIDE 중 첫 승차 행에만 붙는 실시간 지하철 도착정보 (그 외에는 빈 목록)
      */
     public record RouteTimelineRow(String type, LocalTime time, LocalTime endTime, int minutes,
@@ -543,6 +574,12 @@ public class LastDepartureViewController {
 
         static RouteTimelineRow walk(int minutes) {
             return new RouteTimelineRow("WALK", null, null, minutes, null, null, null, null, List.of());
+        }
+
+        /** @param fromRealtime true면 실시간 도착정보 기준, false면 배차간격 절반 추정치 */
+        static RouteTimelineRow wait(int minutes, boolean fromRealtime) {
+            return new RouteTimelineRow("WAIT", null, null, minutes,
+                    fromRealtime ? "실시간" : "예상", null, null, null, List.of());
         }
     }
 
