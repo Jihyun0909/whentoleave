@@ -296,7 +296,7 @@
             </div>
 
             <p class="route-meta">
-                <b class="route-meta-total" th:text="${view.option().totalMinutes()} + '분'"></b>
+                <b class="route-meta-total" th:text="${view.totalMinutes()} + '분'"></b>
                 <span th:text="${#temporals.format(view.expectedArrivalTime(), 'HH:mm')} + ' 도착'"></span>
                 <span th:if="${view.expectedArrivalNextDay()}">(다음날)</span>
                 <th:block th:if="${view.option().fareWon() > 0}">
