@@ -280,21 +280,57 @@ public class LastDepartureViewController {
      * 값은 계산 결과가 아니라 표시 시점의 관심사라 여기서 만든다).
      */
     private RouteOptionView toView(RouteOption option, boolean showRealtimeArrivals, LocalDate selectedDate) {
+        // 버스 구간의 "예상 대기"(실시간 또는 배차간격/2 추정, estimatedWaitMinutes 참고)를 총
+        // 소요시간/도착시각/구간 막대에도 반영해야 앞뒤가 맞는다 - 상세 타임라인에만 대기를
+        // 보여주고 이 숫자들은 그대로 두면, "3+13+10=26분"인데 타임라인엔 "대기 13분"까지 있어
+        // 산수가 안 맞는 것처럼 보인다는 신고를 받았다(실사용 중 발견). 막차로 잡는 특정
+        // 차편(추천 출발 시각)은 그대로 시간표 기준이라 안전성엔 영향 없다 - 그 차편을 탄 뒤의
+        // "체감 소요시간"을 더 정확하게 보여주는 것뿐이다.
+        List<LegDisplay> legDisplays = legDisplaysOf(option, showRealtimeArrivals);
+        int waitMinutesTotal = legDisplays.stream().mapToInt(LegDisplay::waitMinutes).sum();
+        int totalMinutes = option.totalMinutes() + waitMinutesTotal;
+
         boolean alreadyPassed = hasAlreadyPassed(option, selectedDate);
         LocalTime earliestArrival = alreadyPassed
-                ? LocalTime.now().plusMinutes(option.totalMinutes()) : null;
+                ? LocalTime.now().plusMinutes(totalMinutes) : null;
 
         // 추천 출발 시각이 이미 지났으면(alreadyPassed) 총 소요시간 옆에 보여줄 도착 시각도
         // "지금 출발" 기준(earliestArrival)과 같은 값을 써야 한다 - 예전엔 여기서만 지난
         // 추천 출발 시각 기준으로 다시 계산해서, 헤드라인(예: 03:39)과 바로 아래 도착 시각
         // (예: 18:29)이 서로 다른 시나리오를 섞어서 보여주는 바람에 화면이 모순돼 보였다.
         int arrivalMinutes = alreadyPassed
-                ? nowServiceMinutes() + option.totalMinutes()
-                : option.departureServiceMinutes() + option.totalMinutes();
+                ? nowServiceMinutes() + totalMinutes
+                : option.departureServiceMinutes() + totalMinutes;
 
         return new RouteOptionView(option, alreadyPassed, earliestArrival,
-                toLocalTime(arrivalMinutes), arrivalMinutes >= MINUTES_PER_DAY,
-                segmentsOf(option), timelineOf(option, showRealtimeArrivals));
+                toLocalTime(arrivalMinutes), arrivalMinutes >= MINUTES_PER_DAY, totalMinutes,
+                segmentsOf(option, legDisplays), timelineOf(option, legDisplays));
+    }
+
+    /** 버스 구간별 실시간 도착정보 + 예상 대기시간을 한 번만 계산해 타임라인/구간막대/총소요시간이 같은 값을 쓰게 한다. */
+    private record LegDisplay(List<RealtimeArrivalView> arrivals, int waitMinutes, boolean waitFromRealtime) {
+    }
+
+    private List<LegDisplay> legDisplaysOf(RouteOption option, boolean showRealtimeArrivals) {
+        List<LegDisplay> result = new ArrayList<>();
+        for (TransitLeg leg : option.legs()) {
+            List<RealtimeArrivalView> arrivals = realtimeArrivalsFor(leg, showRealtimeArrivals);
+            if (!leg.isBus()) {
+                result.add(new LegDisplay(arrivals, 0, false));
+                continue;
+            }
+            Optional<RealtimeArrivalView> soonest = arrivals.stream().filter(v -> !v.isStatusOnly()).findFirst();
+            if (soonest.isPresent()) {
+                int minutes = Math.max(1, (soonest.get().secondsUntilArrival() + 59) / 60);
+                result.add(new LegDisplay(arrivals, minutes, true));
+                continue;
+            }
+            int estimated = seoulBusRouteScheduleCatalog.find(leg.busNo())
+                    .map(schedule -> Math.max(1, (schedule.intervalMinutes() + 1) / 2))
+                    .orElse(0);
+            result.add(new LegDisplay(arrivals, estimated, false));
+        }
+        return result;
     }
 
     private int nowServiceMinutes() {
@@ -415,12 +451,18 @@ public class LastDepartureViewController {
         return (seconds / 60) + ":" + String.format("%02d", seconds % 60);
     }
 
-    /** 소요시간 비율 막대에 쓸 구간들 (도보는 회색, 승차는 노선 색). */
-    private List<RouteSegmentView> segmentsOf(RouteOption option) {
+    /** 소요시간 비율 막대에 쓸 구간들 (도보·대기는 회색, 승차는 노선 색). */
+    private List<RouteSegmentView> segmentsOf(RouteOption option, List<LegDisplay> legDisplays) {
         List<RouteSegmentView> segments = new ArrayList<>();
-        for (TransitLeg leg : option.legs()) {
+        List<TransitLeg> legs = option.legs();
+        for (int i = 0; i < legs.size(); i++) {
+            TransitLeg leg = legs.get(i);
             if (leg.transferBufferMinutes() > 0) {
                 segments.add(new RouteSegmentView(leg.transferBufferMinutes(), null, true));
+            }
+            int waitMinutes = legDisplays.get(i).waitMinutes();
+            if (waitMinutes > 0) {
+                segments.add(new RouteSegmentView(waitMinutes, null, true));
             }
             segments.add(new RouteSegmentView(leg.rideMinutes(), colorOf(leg), false));
         }
@@ -431,34 +473,38 @@ public class LastDepartureViewController {
     }
 
     /**
-     * 상세보기용 타임라인. 출발 시각에서 시작해 도보/승차/하차 시간을 차례로 더해가며
+     * 상세보기용 타임라인. 출발 시각에서 시작해 도보/대기/승차/하차 시간을 차례로 더해가며
      * 각 지점의 시각을 만든다 (지도 앱의 세로 경로 안내와 같은 구성).
-     * 실시간 도착정보는 지하철 승차 행마다 붙인다.
+     * 실시간 도착정보는 지하철·버스 승차 행마다 붙인다.
      * <p>
-     * 버스 구간은 정류장 도착 시각과 승차 시각이 항상 같게 계산된다(막차 역산 특성상 "그 차편
-     * 출발 시각에 정확히 맞춰 걷는다"고 가정하기 때문 - {@link LastDepartureCalculator} 참고).
-     * 실제로는 정류장에서 기다리는 시간이 있으므로, 이 시각 자체는 안전하게 그대로 두되(막차
-     * 계산의 신뢰성이 걸려 있어 함부로 당길 수 없다) "예상 대기" 참고 정보를 별도 행으로
-     * 덧붙인다(실사용 중 발견: 실제로는 대기시간이 있는데 화면상 0분으로 보여 혼란을 줌).
+     * 버스 구간의 승차 시각은 막차 역산 특성상 "그 차편 출발 시각에 정확히 맞춰 걷는다"고
+     * 가정해서(즉시 승차, 대기 0분) 계산된다({@link LastDepartureCalculator} 참고) - 실제로는
+     * 정류장에서 기다리는 시간이 있다(실사용 중 발견: 화면상 0분으로 보여 혼란을 줌). 그래서
+     * 예상 대기시간만큼 실제로 cursor를 밀어서 승차 이후 모든 시각·총 소요시간에 반영한다 -
+     * 막차로 잡는 특정 차편(추천 출발 시각) 자체는 여전히 시간표 기준이라 안전성엔 영향 없고,
+     * 그 뒤 "체감 소요시간"만 더 정확해진다.
      */
-    private List<RouteTimelineRow> timelineOf(RouteOption option, boolean showRealtimeArrivals) {
+    private List<RouteTimelineRow> timelineOf(RouteOption option, List<LegDisplay> legDisplays) {
         List<RouteTimelineRow> rows = new ArrayList<>();
         int cursor = option.departureServiceMinutes();
+        List<TransitLeg> legs = option.legs();
 
         rows.add(RouteTimelineRow.place(toLocalTime(cursor), "출발"));
-        for (TransitLeg leg : option.legs()) {
+        for (int i = 0; i < legs.size(); i++) {
+            TransitLeg leg = legs.get(i);
+            LegDisplay display = legDisplays.get(i);
             if (leg.transferBufferMinutes() > 0) {
                 rows.add(RouteTimelineRow.walk(leg.transferBufferMinutes()));
                 cursor += leg.transferBufferMinutes();
             }
-            List<RealtimeArrivalView> arrivals = realtimeArrivalsFor(leg, showRealtimeArrivals);
-            if (leg.isBus()) {
-                estimatedWaitFor(leg, arrivals).ifPresent(rows::add);
+            if (display.waitMinutes() > 0) {
+                rows.add(RouteTimelineRow.wait(display.waitMinutes(), display.waitFromRealtime()));
+                cursor += display.waitMinutes();
             }
             LocalTime boardTime = toLocalTime(cursor);
             cursor += leg.rideMinutes();
             rows.add(new RouteTimelineRow("RIDE", boardTime, toLocalTime(cursor), leg.rideMinutes(),
-                    leg.stationName(), leg.endStationName(), lineLabelOf(leg), colorOf(leg), arrivals));
+                    leg.stationName(), leg.endStationName(), lineLabelOf(leg), colorOf(leg), display.arrivals()));
         }
         if (option.finalWalkMinutes() > 0) {
             rows.add(RouteTimelineRow.walk(option.finalWalkMinutes()));
@@ -466,22 +512,6 @@ public class LastDepartureViewController {
         }
         rows.add(RouteTimelineRow.place(toLocalTime(cursor), "도착"));
         return rows;
-    }
-
-    /**
-     * 이 버스 구간의 예상 대기시간(참고용, 승차 시각 계산에는 반영하지 않는다).
-     * 오늘 검색이면 실시간 도착정보(가장 빠른 차편)를 우선 쓰고, 없으면(다른 날짜 검색이거나
-     * 실시간 조회가 실패한 경우) 노선 배차간격의 절반을 평균 대기시간으로 추정한다 - 정류장에
-     * 무작위로 도착한다고 보면 평균적으로 배차간격의 절반을 기다리게 된다는 일반적인 근사치다.
-     */
-    private Optional<RouteTimelineRow> estimatedWaitFor(TransitLeg leg, List<RealtimeArrivalView> busArrivals) {
-        Optional<RealtimeArrivalView> soonest = busArrivals.stream().filter(view -> !view.isStatusOnly()).findFirst();
-        if (soonest.isPresent()) {
-            int minutes = Math.max(1, (soonest.get().secondsUntilArrival() + 59) / 60);
-            return Optional.of(RouteTimelineRow.wait(minutes, true));
-        }
-        return seoulBusRouteScheduleCatalog.find(leg.busNo())
-                .map(schedule -> RouteTimelineRow.wait(Math.max(1, (schedule.intervalMinutes() + 1) / 2), false));
     }
 
     private String lineLabelOf(TransitLeg leg) {
@@ -505,12 +535,15 @@ public class LastDepartureViewController {
      * @param departureAlreadyPassed 추천 출발 시각이 이미 지났는지
      * @param earliestArrivalTime 지금 출발할 경우 가장 빨리 도착하는 시각 (지난 경우에만)
      * @param expectedArrivalTime 추천 출발 시각에 나설 경우의 도착 시각
+     * @param totalMinutes        화면에 보여줄 총 소요시간. option.totalMinutes()(시간표 기준)에
+     *                            버스 구간 예상 대기시간을 더한 값이라 option 쪽 값과 다를 수 있다 -
+     *                            반드시 이 값을 써야 상세 타임라인의 "예상 대기" 줄과 산수가 맞는다.
      * @param segments            소요시간 비율 막대용 구간들
      * @param timeline            상세보기용 타임라인. 첫 승차 행에 실시간 도착정보가 붙어있다.
      */
     public record RouteOptionView(RouteOption option, boolean departureAlreadyPassed,
                                    LocalTime earliestArrivalTime, LocalTime expectedArrivalTime,
-                                   boolean expectedArrivalNextDay,
+                                   boolean expectedArrivalNextDay, int totalMinutes,
                                    List<RouteSegmentView> segments, List<RouteTimelineRow> timeline) {
     }
 
