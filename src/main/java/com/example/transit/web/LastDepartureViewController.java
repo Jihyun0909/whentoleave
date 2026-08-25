@@ -303,8 +303,8 @@ public class LastDepartureViewController {
                 : option.departureServiceMinutes() + totalMinutes;
 
         return new RouteOptionView(option, alreadyPassed, earliestArrival,
-                toLocalTime(arrivalMinutes), arrivalMinutes >= MINUTES_PER_DAY, totalMinutes,
-                segmentsOf(option, legDisplays), timelineOf(option, legDisplays));
+                toLocalTime(arrivalMinutes), arrivalMinutes >= MINUTES_PER_DAY, totalMinutes, waitMinutesTotal,
+                segmentsOf(option), timelineOf(option, legDisplays));
     }
 
     /** 버스 구간별 실시간 도착정보 + 예상 대기시간을 한 번만 계산해 타임라인/구간막대/총소요시간이 같은 값을 쓰게 한다. */
@@ -451,18 +451,17 @@ public class LastDepartureViewController {
         return (seconds / 60) + ":" + String.format("%02d", seconds % 60);
     }
 
-    /** 소요시간 비율 막대에 쓸 구간들 (도보·대기는 회색, 승차는 노선 색). */
-    private List<RouteSegmentView> segmentsOf(RouteOption option, List<LegDisplay> legDisplays) {
+    /**
+     * 소요시간 비율 막대에 쓸 구간들 (도보는 회색, 승차는 노선 색). 예상 대기시간은 여기 막대에는
+     * 안 넣는다 - 도보/승차와 나란히 막대 구간으로 두면 "걷고 타는 과정"처럼 보여 오해를 줄 수
+     * 있다는 피드백을 받아, 대신 총 소요시간 옆에 "(대기시간 N분 포함)"으로만 안내한다
+     * (toView/RouteOptionView.waitMinutesTotal 참고). 상세 타임라인에는 여전히 별도 행으로 보여준다.
+     */
+    private List<RouteSegmentView> segmentsOf(RouteOption option) {
         List<RouteSegmentView> segments = new ArrayList<>();
-        List<TransitLeg> legs = option.legs();
-        for (int i = 0; i < legs.size(); i++) {
-            TransitLeg leg = legs.get(i);
+        for (TransitLeg leg : option.legs()) {
             if (leg.transferBufferMinutes() > 0) {
                 segments.add(new RouteSegmentView(leg.transferBufferMinutes(), null, true));
-            }
-            int waitMinutes = legDisplays.get(i).waitMinutes();
-            if (waitMinutes > 0) {
-                segments.add(new RouteSegmentView(waitMinutes, null, true));
             }
             segments.add(new RouteSegmentView(leg.rideMinutes(), colorOf(leg), false));
         }
@@ -538,12 +537,14 @@ public class LastDepartureViewController {
      * @param totalMinutes        화면에 보여줄 총 소요시간. option.totalMinutes()(시간표 기준)에
      *                            버스 구간 예상 대기시간을 더한 값이라 option 쪽 값과 다를 수 있다 -
      *                            반드시 이 값을 써야 상세 타임라인의 "예상 대기" 줄과 산수가 맞는다.
+     * @param waitMinutesTotal    totalMinutes에 포함된 예상 대기시간 합계. 0이면 "(대기시간 포함)"
+     *                            안내를 안 보여준다.
      * @param segments            소요시간 비율 막대용 구간들
      * @param timeline            상세보기용 타임라인. 첫 승차 행에 실시간 도착정보가 붙어있다.
      */
     public record RouteOptionView(RouteOption option, boolean departureAlreadyPassed,
                                    LocalTime earliestArrivalTime, LocalTime expectedArrivalTime,
-                                   boolean expectedArrivalNextDay, int totalMinutes,
+                                   boolean expectedArrivalNextDay, int totalMinutes, int waitMinutesTotal,
                                    List<RouteSegmentView> segments, List<RouteTimelineRow> timeline) {
     }
 

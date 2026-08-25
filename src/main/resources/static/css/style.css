@@ -994,6 +994,11 @@ body {
     opacity: 0.5;
 }
 
+.route-meta-wait {
+    font-size: 12px;
+    opacity: 0.75;
+}
+
 /* 구간별 소요시간 비율 막대 */
 .route-bar {
     display: flex;
