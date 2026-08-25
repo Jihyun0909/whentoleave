@@ -23,10 +23,10 @@ import java.util.stream.StreamSupport;
  * 호출부(LastDepartureService, NightBusRouteFinder)를 덜 건드리려고 그대로 유지했다.
  * <ul>
  *   <li>지하철: 역명+노선명으로 TAGO 역을 찾고({@link #resolveSubwayStation}), Google의
- *       headsign(방면 텍스트)으로 상/하행을 추정한다({@link #resolveWayCode}) - 이 추정은
- *       순환선(2호선의 "외선순환"/"내선순환"처럼 종착역명이 아닌 노선 텍스트)에서는 못 맞히고
- *       하행으로 기본 처리되는 알려진 한계가 있다. 단축운행 필터링용 종착역 목록({@code earlierStopNames})도
- *       Google이 안 주는 정보라 TAGO 시간표에서 별도로 재구성한다({@link #resolveEarlierStopNames}).</li>
+ *       headsign(방면 텍스트)으로 상/하행을 추정한다({@link #resolveWayCode}) - 순환선(2호선의
+ *       "외선순환"/"내선순환")은 종착역명 매칭 대신 외선=상행/내선=하행으로 직접 매핑한다.
+ *       단축운행 필터링용 종착역 목록({@code earlierStopNames})도 Google이 안 주는 정보라
+ *       TAGO 시간표에서 별도로 재구성한다({@link #resolveEarlierStopNames}).</li>
  *   <li>버스: 정류장 좌표 → TAGO cityCode({@link TagoCityCodeResolver}) → 노선번호로 routeId 검색
  *       → 그 노선의 경유정류소 목록에서 가장 가까운 정류소를 찾는다. cityCode를 못 구하면(서울 등
  *       TAGO 미커버 지역) 경로 자체는 만들되 배차정보(busIds)는 비워둔다 - NightBusRouteFinder와
@@ -261,14 +261,26 @@ public class RouteLegExtractor {
     }
 
     /**
-     * Google의 headsign("외선순환 방면", "성수행" 등)을 TAGO 상행(U) 시간표의 종착역명과 비교해
-     * 맞으면 상행(1), 아니면 하행(2)으로 본다.
+     * Google의 headsign("성수행" 등)을 TAGO 상행(U) 시간표의 종착역명과 비교해 맞으면 상행(1),
+     * 아니면 하행(2)으로 본다.
      * <p>
-     * <b>알려진 한계:</b> 2호선처럼 headsign이 종착역명이 아니라 "외선순환"/"내선순환" 같은
-     * 순환 방향 텍스트인 노선은 이 비교가 항상 실패해서 하행(2)으로 기본 처리된다 - 실제 방향이
-     * 다르면 그 구간의 막차 계산이 부정확해질 수 있다. 별도 유닛테스트로 이 케이스를 추적할 필요가 있다.
+     * 2호선처럼 headsign이 종착역명이 아니라 "외선순환"/"내선순환" 같은 순환 방향 텍스트인
+     * 노선은 이 비교가 항상 실패하므로 먼저 걸러서 직접 매핑한다: <b>외선순환=상행(U),
+     * 내선순환=하행(D)</b>다 - 2026-08-25 강남역(TAGO id MTRS12222) 실제 시간표로 확인:
+     * 상행(U) 종착역들(신도림·을지로입구·홍대입구·서울대입구·성수)은 강남역의 공식 역번호(222)
+     * 기준으로 번호가 증가(순환이라 넘어가면 다시 낮은 번호부터)하는 방향에 있고, 하행(D)
+     * 종착역들(성수·삼성·신도림)은 감소하는 방향에 있다 - 이는 "역번호가 증가하는 방향이
+     * 외선순환"이라는 서울교통공사 공식 규칙과 일치한다.
      */
     private int resolveWayCode(String subwayStationId, String headsign) {
+        if (headsign != null) {
+            if (headsign.contains("외선")) {
+                return 1;
+            }
+            if (headsign.contains("내선")) {
+                return 2;
+            }
+        }
         String normalizedHeadsign = normalizeHeadsign(headsign);
         if (normalizedHeadsign != null && directionMatches(subwayStationId, "U", normalizedHeadsign)) {
             return 1;

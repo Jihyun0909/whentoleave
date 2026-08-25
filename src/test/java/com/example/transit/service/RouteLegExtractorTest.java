@@ -104,6 +104,24 @@ class RouteLegExtractorTest {
         assertTrue(legs.get(0).earlierStopNames().isEmpty());
     }
 
+    /**
+     * 2호선처럼 headsign이 종착역명이 아니라 "외선순환"/"내선순환" 순환 방향 텍스트인 노선은
+     * 종착역명 매칭이 아예 성립하지 않는다. 2026-08-25 강남역(TAGO MTRS12222) 실제 시간표로
+     * 확인한 규칙(외선=상행, 내선=하행)대로 직접 매핑되는지 확인한다.
+     */
+    @Test
+    void 외선순환_headsign은_상행으로_내선순환은_하행으로_매핑한다() {
+        RouteLegExtractor extractor = extractor(Map.of("강남", new StationFixture("MTRS12222", "2호선")));
+
+        GoogleRoutesResponse outer = response(route(
+                subwayStepWithHeadsign(5, "강남", "2호선", "외선순환 방면")));
+        GoogleRoutesResponse inner = response(route(
+                subwayStepWithHeadsign(5, "강남", "2호선", "내선순환 방면")));
+
+        assertEquals(1, extractor.extract(outer).get(0).wayCode());
+        assertEquals(2, extractor.extract(inner).get(0).wayCode());
+    }
+
     @Test
     void 경로가_없으면_예외를_던진다() {
         RouteLegExtractor extractor = extractor(Map.of());
@@ -273,15 +291,25 @@ class RouteLegExtractorTest {
 
     private GoogleRoutesResponse.Step subwayStep(int rideMinutes, String departureStopName, String arrivalStopName,
                                                    String lineNameShort) {
-        return transitStep(rideMinutes, departureStopName, arrivalStopName, lineNameShort, "SUBWAY");
+        return transitStep(rideMinutes, departureStopName, arrivalStopName, null, lineNameShort, "SUBWAY");
+    }
+
+    private GoogleRoutesResponse.Step subwayStepWithHeadsign(int rideMinutes, String departureStopName,
+                                                               String lineNameShort, String headsign) {
+        return transitStep(rideMinutes, departureStopName, null, headsign, lineNameShort, "SUBWAY");
     }
 
     private GoogleRoutesResponse.Step busStep(int rideMinutes, String departureStopName, String lineNameShort) {
-        return transitStep(rideMinutes, departureStopName, null, lineNameShort, "BUS");
+        return transitStep(rideMinutes, departureStopName, null, null, lineNameShort, "BUS");
     }
 
     private GoogleRoutesResponse.Step transitStep(int rideMinutes, String departureStopName, String arrivalStopName,
                                                     String lineNameShort, String vehicleType) {
+        return transitStep(rideMinutes, departureStopName, arrivalStopName, null, lineNameShort, vehicleType);
+    }
+
+    private GoogleRoutesResponse.Step transitStep(int rideMinutes, String departureStopName, String arrivalStopName,
+                                                    String headsign, String lineNameShort, String vehicleType) {
         GoogleRoutesResponse.TransitLine line =
                 new GoogleRoutesResponse.TransitLine(lineNameShort, lineNameShort, new GoogleRoutesResponse.Vehicle(vehicleType));
         GoogleRoutesResponse.Stop departureStop =
@@ -291,7 +319,7 @@ class RouteLegExtractorTest {
                 : new GoogleRoutesResponse.Stop(arrivalStopName, new GoogleRoutesResponse.Location(
                         new GoogleRoutesResponse.LatLng(37.0, 127.0)));
         GoogleRoutesResponse.StopDetails stopDetails = new GoogleRoutesResponse.StopDetails(departureStop, arrivalStop, null, null);
-        GoogleRoutesResponse.TransitDetails details = new GoogleRoutesResponse.TransitDetails(stopDetails, null, null, line, null);
+        GoogleRoutesResponse.TransitDetails details = new GoogleRoutesResponse.TransitDetails(stopDetails, headsign, null, line, null);
         return new GoogleRoutesResponse.Step("TRANSIT", 0, (rideMinutes * 60) + "s", details);
     }
 
