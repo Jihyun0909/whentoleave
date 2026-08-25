@@ -31,8 +31,8 @@ public class SubwaySchedule {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "station_id", nullable = false)
-    private Integer stationId;
+    @Column(name = "station_id", nullable = false, length = 20)
+    private String stationId;
 
     @Column(name = "way_code", nullable = false)
     private Integer wayCode;
@@ -41,7 +41,13 @@ public class SubwaySchedule {
     @Column(name = "day_type", nullable = false, length = 10)
     private DayType dayType;
 
-    @Column(name = "end_station_name", nullable = false, length = 50)
+    /**
+     * TAGO가 이 필드를 비워서 주는 행이 실제로 있다(2026-08-25 실사용 중 발견 - 이른 새벽
+     * 첫차류로 보이는 일부 항목). ODsay는 항상 채워서 줬으므로 원래 not-null이었는데, 그
+     * 가정이 TAGO에는 안 맞아 nullable로 바꿨다 - 표시용/earlierStopNames 비교용일 뿐 막차
+     * 시각 계산 자체에는 안 쓰이므로 비어 있어도 안전하다.
+     */
+    @Column(name = "end_station_name", length = 50)
     private String endStationName;
 
     @Column(name = "departure_time", nullable = false)
@@ -65,7 +71,7 @@ public class SubwaySchedule {
         // JPA
     }
 
-    public SubwaySchedule(Integer stationId, Integer wayCode, DayType dayType,
+    public SubwaySchedule(String stationId, Integer wayCode, DayType dayType,
                            String endStationName, LocalTime departureTime, boolean nextDay,
                            Integer firstLastFlag) {
         this.stationId = stationId;
@@ -87,7 +93,7 @@ public class SubwaySchedule {
         return id;
     }
 
-    public Integer getStationId() {
+    public String getStationId() {
         return stationId;
     }
 

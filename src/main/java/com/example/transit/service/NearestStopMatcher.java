@@ -18,6 +18,14 @@ import java.util.stream.StreamSupport;
 final class NearestStopMatcher {
 
     private static final int EARTH_RADIUS_METERS = 6_371_000;
+    /**
+     * 이 거리(m)를 넘으면 "그 정류장을 못 찾은 것"으로 본다. 지역별 API는 관할 밖 좌표로
+     * 물어도 자기 관할에서 제일 가까운 정류소를 돌려주는데, 거리 제한이 없으면 수 km 떨어진
+     * 엉뚱한 정류소가 매칭된다 - 서울 정류장(TAGO 미커버)을 조회할 때 경기 API가 한참 떨어진
+     * 광역버스 정류소를 물어와 전혀 다른 노선들의 도착정보를 보여주던 원인이었다.
+     * 같은 정류장의 반대편 승강장 정도는 포함하되 다른 정류장은 걸러지는 값으로 잡는다.
+     */
+    private static final int MAX_MATCH_DISTANCE_METERS = 200;
 
     private NearestStopMatcher() {
     }
@@ -41,7 +49,8 @@ final class NearestStopMatcher {
                 best = new Match(row, (int) Math.round(distance));
             }
         }
-        return Optional.ofNullable(best);
+        return Optional.ofNullable(best)
+                .filter(match -> match.distanceMeters() <= MAX_MATCH_DISTANCE_METERS);
     }
 
     /** 결과가 1건이면 배열이 아니라 단일 객체로 오는 경우가 흔해(공공데이터포털) 둘 다 리스트로 정규화한다. */

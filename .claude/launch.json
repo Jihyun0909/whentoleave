@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "whentoleave-dev",
+      "runtimeExecutable": "C:\\Users\\quswl\\projects\\whentoleave\\run-dev.bat",
+      "runtimeArgs": [],
+      "port": 8080
+    }
+  ]
+}

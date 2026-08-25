@@ -9,10 +9,10 @@ import java.util.List;
 public interface SubwayScheduleRepository extends JpaRepository<SubwaySchedule, Long> {
 
     List<SubwaySchedule> findByStationIdAndWayCodeAndDayType(
-            Integer stationId, Integer wayCode, DayType dayType
+            String stationId, Integer wayCode, DayType dayType
     );
 
     boolean existsByStationIdAndWayCodeAndDayType(
-            Integer stationId, Integer wayCode, DayType dayType
+            String stationId, Integer wayCode, DayType dayType
     );
 }

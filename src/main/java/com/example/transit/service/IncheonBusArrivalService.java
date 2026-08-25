@@ -45,7 +45,7 @@ public class IncheonBusArrivalService implements RealtimeIncheonBusArrivalLookup
         }
         return response.items().stream()
                 .filter(item -> item.arrivalEstimateSeconds() != null)
-                .map(item -> new RealtimeBusArrival(item.routeId(), item.arrivalEstimateSeconds(),
+                .map(item -> RealtimeBusArrival.arriving(item.routeId(), item.arrivalEstimateSeconds(),
                         item.restStopCount(), item.busNumPlate()))
                 .toList();
     }

@@ -10,6 +10,7 @@ import com.example.transit.service.RegionalBusArrivalLookup;
 import com.example.transit.service.RouteOption;
 import com.example.transit.service.StationResolution;
 import com.example.transit.service.StationSearchService;
+import com.example.transit.service.TaxiFareEstimator;
 import com.example.transit.service.TransitLeg;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.stereotype.Controller;
@@ -33,23 +34,28 @@ public class LastDepartureViewController {
     private static final int MINUTES_PER_DAY = 24 * 60;
     /** 버스 구간 색 (노선별 색이 있는 지하철과 달리 버스는 한 가지 색으로 통일). */
     private static final String BUS_COLOR = "#3C8A3F";
+    /** 위경도 상 약 30m 이내면 "같은 지점을 두 번 고른 것"으로 본다. */
+    private static final double SAME_POINT_EPSILON_DEGREES = 0.0003;
 
     private final LastDepartureService lastDepartureService;
     private final StationSearchService stationSearchService;
     private final LineColorResolver lineColorResolver;
     private final RealtimeSubwayArrivalLookup subwayArrivalLookup;
     private final RegionalBusArrivalLookup busArrivalLookup;
+    private final TaxiFareEstimator taxiFareEstimator;
 
     public LastDepartureViewController(LastDepartureService lastDepartureService,
                                         StationSearchService stationSearchService,
                                         LineColorResolver lineColorResolver,
                                         RealtimeSubwayArrivalLookup subwayArrivalLookup,
-                                        RegionalBusArrivalLookup busArrivalLookup) {
+                                        RegionalBusArrivalLookup busArrivalLookup,
+                                        TaxiFareEstimator taxiFareEstimator) {
         this.lastDepartureService = lastDepartureService;
         this.stationSearchService = stationSearchService;
         this.lineColorResolver = lineColorResolver;
         this.subwayArrivalLookup = subwayArrivalLookup;
         this.busArrivalLookup = busArrivalLookup;
+        this.taxiFareEstimator = taxiFareEstimator;
     }
 
     /**
@@ -113,9 +119,22 @@ public class LastDepartureViewController {
         }
 
         model.addAttribute("searched", true);
+
+        if (isSamePoint(origin, dest)) {
+            // 이 상태로 검색을 진행하면 ODsay가 "출,도착지가 700m이내입니다" 에러를 주고
+            // 그게 그대로 "대중교통 운행이 종료되어 안내가 불가능합니다"로 오해를 사는
+            // 문구로 이어진다 - 원인이 전혀 다르므로(같은 지점을 골랐을 뿐) 더 명확하게 안내한다.
+            model.addAttribute("feasible", false);
+            model.addAttribute("reason", "출발지와 도착지가 같습니다. 다른 목적지를 입력해주세요.");
+            addTaxiEstimate(model, origin, dest, arrivalMode ? targetArrivalTime : LocalTime.now());
+            return "index";
+        }
+
         List<RouteOption> options =
                 lastDepartureService.calculateOptions(origin.x(), origin.y(), dest.x(), dest.y(),
                         arrivalMode ? targetArrivalTime : null, selectedDate);
+
+        addTaxiEstimate(model, origin, dest, taxiReferenceTime(arrivalMode, targetArrivalTime, options));
 
         if (options.isEmpty()) {
             // 세 가지 모두 실패한 경우, 이유를 보여주기 위해 지하철 기준 결과의 사유를 쓴다.
@@ -123,9 +142,15 @@ public class LastDepartureViewController {
                     origin.x(), origin.y(), dest.x(), dest.y(),
                     arrivalMode ? targetArrivalTime : null, selectedDate);
             model.addAttribute("feasible", false);
-            model.addAttribute("reason", fallback instanceof LastDepartureResult.Infeasible i
-                    ? displayReason(i, arrivalMode)
-                    : "가능한 경로를 찾지 못했습니다.");
+            if (fallback instanceof LastDepartureResult.Infeasible infeasible && infeasible.walkOnlyMinutes() != null) {
+                // 대중교통을 탈 필요가 없을 만큼 가까운 거리 - "운행 종료" 같은 엉뚱한 안내
+                // 대신 도보 소요시간을 그대로 보여준다.
+                model.addAttribute("walkOnlyMinutes", infeasible.walkOnlyMinutes());
+            } else {
+                model.addAttribute("reason", fallback instanceof LastDepartureResult.Infeasible i
+                        ? displayReason(i, arrivalMode)
+                        : "가능한 경로를 찾지 못했습니다.");
+            }
             return "index";
         }
 
@@ -133,12 +158,45 @@ public class LastDepartureViewController {
         // 미래 시간표 기준 계산이라 실시간 값을 붙이면 오해를 준다).
         boolean showRealtimeArrivals = selectedDate.equals(LocalDate.now());
         model.addAttribute("feasible", true);
-        model.addAttribute("routeOptions", options.stream().map(o -> toView(o, showRealtimeArrivals)).toList());
+        model.addAttribute("routeOptions",
+                options.stream().map(o -> toView(o, showRealtimeArrivals, selectedDate)).toList());
         // "가장 늦게 출발해도 되는 경로"에 배지를 달기 위한 기준값 (동점이면 둘 다 표시된다).
         model.addAttribute("latestDepartureMinutes", options.stream()
                 .mapToInt(RouteOption::departureServiceMinutes)
                 .max().orElse(-1));
         return "index";
+    }
+
+    /**
+     * 택시 안내는 검색과 추천 경로 사이에 항상 보여준다 - 대중교통 결과가 어떻든(성공/실패
+     * 무관) 택시와 바로 비교해볼 수 있게.
+     */
+    private void addTaxiEstimate(Model model, StationResolution.Resolved origin,
+                                  StationResolution.Resolved dest, LocalTime referenceTime) {
+        model.addAttribute("taxiFareEstimate",
+                taxiFareEstimator.estimate(origin.x(), origin.y(), dest.x(), dest.y(), referenceTime));
+    }
+
+    /**
+     * 할증·혼잡도는 "지금"이 아니라 실제로 그 이동을 하는 시각 기준이어야 한다.
+     * <ul>
+     *   <li>출발 시간 계산 탭: 목표 도착 시각</li>
+     *   <li>막차 탭: 추천 경로의 막차 출발 시각 - 막차는 대개 밤 늦은 시각이라 지금(예: 낮)
+     *       기준으로 계산하면 할증도 안 붙고 혼잡도도 딴판이 된다.</li>
+     * </ul>
+     * 어느 쪽도 정할 수 없으면(경로를 못 찾은 경우) 지금을 쓴다.
+     */
+    private LocalTime taxiReferenceTime(boolean arrivalMode, LocalTime targetArrivalTime,
+                                         List<RouteOption> options) {
+        if (arrivalMode && targetArrivalTime != null) {
+            return targetArrivalTime;
+        }
+        return options.isEmpty() ? LocalTime.now() : options.get(0).departureTime();
+    }
+
+    private boolean isSamePoint(StationResolution.Resolved a, StationResolution.Resolved b) {
+        return Math.abs(a.x() - b.x()) < SAME_POINT_EPSILON_DEGREES
+                && Math.abs(a.y() - b.y()) < SAME_POINT_EPSILON_DEGREES;
     }
 
     /**
@@ -216,8 +274,8 @@ public class LastDepartureViewController {
      * 화면에서 쓰기 쉬운 형태로 펼친다 (예상 도착 시각, 이미 지난 시각 여부처럼 "지금"에 의존하는
      * 값은 계산 결과가 아니라 표시 시점의 관심사라 여기서 만든다).
      */
-    private RouteOptionView toView(RouteOption option, boolean showRealtimeArrivals) {
-        boolean alreadyPassed = hasAlreadyPassed(option);
+    private RouteOptionView toView(RouteOption option, boolean showRealtimeArrivals, LocalDate selectedDate) {
+        boolean alreadyPassed = hasAlreadyPassed(option, selectedDate);
         LocalTime earliestArrival = alreadyPassed
                 ? LocalTime.now().plusMinutes(option.totalMinutes()) : null;
 
@@ -248,16 +306,40 @@ public class LastDepartureViewController {
     }
 
     /**
-     * 같은 역에 방향이 여러 개(상행/하행, 내선/외선, 환승역의 다른 호선)일 수 있어 어느 열차가
-     * 사용자가 탈 방향인지 자동으로 가려낼 근거가 없다 - 그래서 방향(=사실상 노선)은 하나도
-     * 빼지 않고 전부 보여준다. 대신 한 방향에 열차가 여러 대 잡히면 화면이 너무 길어지니
-     * 방향마다 가장 빠른 2대까지만 골라, 실제 승강장 전광판처럼 행선지를 그대로 보여준다.
+     * ODsay의 wayCode(1:상행, 2:하행)와 서울시 API의 방향 표기("상행"/"하행")가 일치하는 대부분의
+     * 일반 노선에서는 이걸로 실제 타는 방향을 가려낼 수 있다. 2호선처럼 "내선/외선"으로 표기되는
+     * 순환선 등 표기 체계가 다른 노선은 아예 안 걸려서(매칭 결과가 없어서) 방향 전체를 보여주는
+     * 쪽으로 자연히 폴백된다 - subwayRealtimeArrivals 참고.
+     */
+    private static final Map<Integer, String> DIRECTION_TEXT_BY_WAY_CODE = Map.of(1, "상행", 2, "하행");
+
+    /**
+     * 환승역은 서울시 API 응답 하나에 여러 호선 열차가 섞여 온다(실측 확인: 충무로역이면
+     * 3호선/4호선 열차가 같이 옴) - 이 구간이 타는 노선(leg.laneName())과 다른 호선 열차를
+     * 섞어서 보여주면 승객이 헷갈린다. 노선을 먼저 걸러낸다.
+     * <p>
+     * 노선 안에서도 방향(상행/하행)이 갈리는데, wayCode 기준으로 실제 타는 방향만 골라지면
+     * 그것만 쓰고, 하나도 안 걸리면(순환선처럼 표기 체계가 다르거나 그 방향에 마침 실시간
+     * 열차가 없는 경우) 방향을 가려낼 수 없다고 보고 기존처럼 노선 전체를 보여준다 - 정보가
+     * 아예 안 뜨는 것보단 낫다. 어느 쪽이든 방향마다 가장 빠른 2대까지만 골라 실제 승강장
+     * 전광판처럼 행선지를 그대로 보여준다.
      */
     private List<RealtimeArrivalView> subwayRealtimeArrivals(TransitLeg leg) {
-        Map<String, List<RealtimeSubwayArrivalLookup.SubwayArrival>> byDirection =
+        String legLineName = lineColorResolver.shortNameOf(leg.laneName());
+        List<RealtimeSubwayArrivalLookup.SubwayArrival> sameLine =
                 subwayArrivalLookup.findArrivals(leg.stationName()).stream()
                         .filter(arrival -> arrival.secondsUntilArrival() != null)
-                        .collect(Collectors.groupingBy(RealtimeSubwayArrivalLookup.SubwayArrival::direction));
+                        .filter(arrival -> legLineName.equals(arrival.lineName()))
+                        .toList();
+
+        String expectedDirection = DIRECTION_TEXT_BY_WAY_CODE.get(leg.wayCode());
+        List<RealtimeSubwayArrivalLookup.SubwayArrival> sameDirection = expectedDirection == null
+                ? List.of()
+                : sameLine.stream().filter(arrival -> expectedDirection.equals(arrival.direction())).toList();
+        List<RealtimeSubwayArrivalLookup.SubwayArrival> candidates = sameDirection.isEmpty() ? sameLine : sameDirection;
+
+        Map<String, List<RealtimeSubwayArrivalLookup.SubwayArrival>> byDirection =
+                candidates.stream().collect(Collectors.groupingBy(RealtimeSubwayArrivalLookup.SubwayArrival::direction));
 
         return byDirection.values().stream()
                 .peek(arrivals -> arrivals.sort(
@@ -270,23 +352,36 @@ public class LastDepartureViewController {
 
     /**
      * 정류장 좌표로 TAGO/경기/인천 순서로 조회한다({@link RegionalBusArrivalLookup} 참고). 지하철과
-     * 같은 이유로 노선은 하나도 빼지 않고 전부 보여주되, 한 노선에 여러 대가 잡히면 노선마다
-     * 가장 빠른 2대까지만 보여준다.
+     * 달리 정류장 하나에 수십 개 노선이 같이 잡히는 게 흔하고(간선/지선/광역/공항버스 등이 한
+     * 정류장에 몰림), 그중 환승역처럼 "어느 노선인지 모호"한 경우가 아니라 이 구간에서 탈 노선이
+     * 이미 정해져 있으므로(leg.busNo()) 그 노선만 걸러서 보여준다. 관계없는 노선을 다 보여주면
+     * 실사용 검증 중 확인한 것처럼 화면이 수십 줄로 길어져서 오히려 못 쓰게 된다.
      */
     private List<RealtimeArrivalView> busRealtimeArrivals(TransitLeg leg) {
-        if (leg.stationX() == null || leg.stationY() == null) {
+        if (leg.stationX() == null || leg.stationY() == null || leg.busNo() == null) {
             return List.of();
         }
 
-        Map<String, List<RealtimeBusArrival>> byRoute = busArrivalLookup.findArrivals(leg.stationX(), leg.stationY())
+        List<RealtimeBusArrival> mine = busArrivalLookup.findArrivals(leg.stationX(), leg.stationY())
                 .stream()
-                .filter(arrival -> arrival.secondsUntilArrival() != null)
-                .collect(Collectors.groupingBy(arrival -> String.valueOf(arrival.routeName())));
+                .filter(arrival -> leg.busNo().equals(arrival.routeName()))
+                .toList();
 
-        return byRoute.values().stream()
-                .peek(arrivals -> arrivals.sort(Comparator.comparing(RealtimeBusArrival::secondsUntilArrival)))
-                .sorted(Comparator.comparingInt(arrivals -> arrivals.get(0).secondsUntilArrival()))
-                .flatMap(arrivals -> arrivals.stream().limit(2))
+        // 오고 있는 버스가 있으면 그것만 (가까운 순 2대까지) 보여준다. 하나도 없으면 왜 없는지를
+        // (운행 종료인지 출발대기인지) 알려주는 게 아무것도 안 띄우는 것보다 낫다 - 실사용에서
+        // "실시간이 왜 안 뜨지?"로 오해를 샀던 부분이다.
+        List<RealtimeArrivalView> arriving = mine.stream()
+                .filter(RealtimeBusArrival::isArriving)
+                .sorted(Comparator.comparing(RealtimeBusArrival::secondsUntilArrival))
+                .limit(2)
+                .map(this::toRealtimeArrivalView)
+                .toList();
+        if (!arriving.isEmpty()) {
+            return arriving;
+        }
+        return mine.stream()
+                .filter(arrival -> arrival.statusLabel() != null)
+                .limit(1)
                 .map(this::toRealtimeArrivalView)
                 .toList();
     }
@@ -298,8 +393,13 @@ public class LastDepartureViewController {
     }
 
     private RealtimeArrivalView toRealtimeArrivalView(RealtimeBusArrival arrival) {
-        int seconds = arrival.secondsUntilArrival();
         String label = arrival.routeName() != null ? arrival.routeName() + "번" : "버스";
+        if (!arrival.isArriving()) {
+            // 카운트다운할 값이 없으므로 secondsUntilArrival을 null로 둔다 - 화면 JS는 이 값이
+            // 있는 칩만 매초 줄이므로, 상태 문구는 그대로 남는다.
+            return new RealtimeArrivalView(label, arrival.statusLabel(), null, false);
+        }
+        int seconds = arrival.secondsUntilArrival();
         return new RealtimeArrivalView(label, etaLabel(seconds), seconds, false);
     }
 
@@ -392,12 +492,19 @@ public class LastDepartureViewController {
      * @param headsign            "OO행 - OO방면" 형태의 종착지 설명 (실제 승강장 전광판과 같은 표기라
      *                            사용자가 자기 방향을 스스로 알아볼 수 있다)
      * @param etaLabel            초기 렌더링용 "분:초" 또는 "곧 도착" - 이후 화면 JS가 secondsUntilArrival을
-     *                            이어받아 매초 직접 카운트다운하며 이 텍스트를 갱신한다.
-     * @param secondsUntilArrival 도착까지 남은 시간(초). 화면 JS 카운트다운의 시작값.
+     *                            이어받아 매초 직접 카운트다운하며 이 텍스트를 갱신한다. 오고 있는 차가
+     *                            없는 버스에서는 대신 상태 문구가 들어간다("운행 종료 · 막차 18:49" 등).
+     * @param secondsUntilArrival 도착까지 남은 시간(초). 화면 JS 카운트다운의 시작값이며, 카운트다운할
+     *                            대상이 아니면(상태 문구) null이다 - 화면 JS는 이 값이 있는 칩만 줄인다.
      * @param isLastTrain         이 열차가 막차인지
      */
-    public record RealtimeArrivalView(String headsign, String etaLabel, int secondsUntilArrival,
+    public record RealtimeArrivalView(String headsign, String etaLabel, Integer secondsUntilArrival,
                                        boolean isLastTrain) {
+
+        /** 카운트다운이 아니라 상태만 알려주는 칩인지 (화면에서 다르게 스타일링한다). */
+        public boolean isStatusOnly() {
+            return secondsUntilArrival == null;
+        }
     }
 
     /** 후보 선택 라디오가 넘기는 "경도,위도". 형식이 어긋나면 무시하고 이름으로 다시 찾는다. */
@@ -447,19 +554,40 @@ public class LastDepartureViewController {
      * 시각을 입력함) 그 메시지는 그대로 둔다.
      */
     private String displayReason(LastDepartureResult.Infeasible infeasible, boolean arrivalMode) {
-        boolean targetAlreadyPast = infeasible.reason() != null && infeasible.reason().contains("이미 지난 시각");
-        if (arrivalMode && !targetAlreadyPast) {
+        String reason = infeasible.reason();
+        boolean targetAlreadyPast = reason != null && reason.contains("이미 지난 시각");
+        // 경로탐색 API가 조회 자체를 못 해준 경우(한도 초과 등)를 "운행 종료"로 바꾸면,
+        // 기다린다고 해결되지 않는 상황을 운행 시간 문제로 오해하게 된다 - 그대로 보여준다.
+        boolean searchUnavailable = LastDepartureService.ROUTE_SEARCH_UNAVAILABLE_REASON.equals(reason);
+        // TAGO가 이 역/노선의 시간표 자체를 안 주는 경우(운행이 끊긴 게 아니라 데이터가 없는 것 -
+        // 2026-08-25 실사용 중 발견: 1호선 코레일 구간 역들(창동·광운대·월계·석계 등, TAGO ID가
+        // "MTRKR"로 시작)이 TAGO GetSubwaySttnAcctoSchdulList에서 상행/하행 둘 다 0건으로 온다).
+        // 이것도 "운행 종료"로 바꾸면 "밤이 늦어 못 간다"고 오해하게 되므로 원인을 구분해서 보여준다.
+        boolean noTimetableData = reason != null && reason.contains("운행 정보를 찾을 수 없습니다");
+        if (arrivalMode && !targetAlreadyPast && !searchUnavailable && !noTimetableData) {
             return "해당 목적지까지 대중교통 운행이 종료되어 안내가 불가능합니다.";
         }
-        return infeasible.reason();
+        if (noTimetableData) {
+            return "이 경로 일부 구간의 시간표 정보를 확인할 수 없어 안내가 어렵습니다. 다른 경로나 택시를 이용해주세요.";
+        }
+        return reason;
     }
 
     /**
      * 추천 출발 시각이 이미 지난 시각인지 본다 (예: 막차 계산 결과가 23:30인데 확인하는 시점이
      * 이미 23:50인 경우). 새벽 시간대는 "오늘 자정 넘어서"로 이어지는 서비스일 개념이라
      * targetArrivalTime 처리와 같은 방식(새벽 6시 컷오프)으로 "지금"도 확장해서 비교한다.
+     * <p>
+     * 오늘이 아닌 날짜(달력에서 며칠 뒤를 골라 조회한 경우)는 "이미 지났다"는 개념 자체가
+     * 성립하지 않으므로 항상 false다 - 시:분만 비교하면(날짜를 안 보고) 미래 날짜의 계산
+     * 결과가 지금 시각보다 이른 시:분이라는 이유만으로 "이미 지났다"고 오판해서, 실제 계산된
+     * 막차 시각 대신 엉뚱하게 "지금 출발하면"(현재 시각 + 소요시간) 값을 보여주는 버그가 있었다
+     * (예: 오늘 오후에 5일 뒤 막차를 조회했는데 그 결과가 새벽 5시대라 "이미 지남"으로 오판).
      */
-    private boolean hasAlreadyPassed(RouteOption option) {
+    private boolean hasAlreadyPassed(RouteOption option, LocalDate selectedDate) {
+        if (!selectedDate.equals(LocalDate.now())) {
+            return false;
+        }
         LocalTime now = LocalTime.now();
         int nowMinutes = now.getHour() * 60 + now.getMinute();
         int serviceNowMinutes = nowMinutes < EARLY_MORNING_CUTOFF_MINUTES ? nowMinutes + MINUTES_PER_DAY : nowMinutes;

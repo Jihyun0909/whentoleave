@@ -1,7 +1,7 @@
 package com.example.transit.service;
 
-import com.example.transit.service.client.OdsayClient;
-import com.example.transit.service.client.dto.OdsayStationSearchResponse;
+import com.example.transit.service.client.VWorldGeocoderClient;
+import com.example.transit.service.client.dto.VWorldSearchResponse;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -9,13 +9,17 @@ import java.util.List;
 @Service
 public class StationSearchService {
 
-    private final OdsayClient odsayClient;
+    /** VWorld는 이름 전용 검색이 아니라 일반 장소검색이라 무관한 결과가 많이 섞인다 - 그 안에서
+     * 지하철역 카테고리를 걸러내려면 기본 5건보다 넉넉하게 받아야 한다. */
+    private static final int STATION_SEARCH_SIZE = 20;
+
+    private final VWorldGeocoderClient vWorldGeocoderClient;
     private final StationCandidateResolver resolver;
     private final AddressSearchService addressSearchService;
 
-    public StationSearchService(OdsayClient odsayClient, StationCandidateResolver resolver,
+    public StationSearchService(VWorldGeocoderClient vWorldGeocoderClient, StationCandidateResolver resolver,
                                  AddressSearchService addressSearchService) {
-        this.odsayClient = odsayClient;
+        this.vWorldGeocoderClient = vWorldGeocoderClient;
         this.resolver = resolver;
         this.addressSearchService = addressSearchService;
     }
@@ -24,34 +28,26 @@ public class StationSearchService {
      * 역 이름으로 먼저 찾고, 못 찾으면 주소로 보고 지오코딩한다 (이슈 #7).
      * 역 이름이 여러 건(환승역)으로 걸리는 경우는 기존과 동일하게 후보 선택 화면을 보여준다 -
      * 주소 폴백은 역 이름 검색이 정말 아무것도 못 찾았을 때만 시도한다.
-     * <p>
-     * "수유역"처럼 뒤에 "역"을 붙여 입력하는 경우, ODsay 검색 자체가 아무것도 못 찾으므로
-     * (ODsay에는 "수유(강북구청)"으로 저장돼 있음) "역"을 뗀 이름으로 한 번 더 검색한다.
-     * 이걸 안 하면 "수유역"이 역이 아니라 주소로 폴백돼서 엉뚱한 아파트 좌표로 잡힌다.
      */
     public StationResolution resolve(String name) {
         StationResolution byStationName = searchByStationName(name);
 
-        if (byStationName instanceof StationResolution.NotFound && name.length() > 1 && name.trim().endsWith("역")) {
-            String withoutSuffix = name.trim().substring(0, name.trim().length() - 1);
-            StationResolution retried = searchByStationName(withoutSuffix);
-            if (!(retried instanceof StationResolution.NotFound)) {
-                return retried;
-            }
-        }
-
         if (!(byStationName instanceof StationResolution.NotFound)) {
             return byStationName;
         }
-        return addressSearchService.resolve(name)
-                .<StationResolution>map(resolved -> resolved)
-                .orElse(byStationName);
+        StationResolution byAddress = addressSearchService.resolve(name);
+        return byAddress instanceof StationResolution.NotFound ? byStationName : byAddress;
     }
 
     private StationResolution searchByStationName(String name) {
-        OdsayStationSearchResponse response = odsayClient.searchStation(name);
-        List<OdsayStationSearchResponse.Station> stations =
-                response.result() == null ? null : response.result().station();
-        return resolver.resolve(name, stations);
+        VWorldSearchResponse.Response body;
+        try {
+            body = vWorldGeocoderClient.searchPlace(name, STATION_SEARCH_SIZE).response();
+        } catch (RuntimeException e) {
+            return new StationResolution.NotFound(name);
+        }
+        List<VWorldSearchResponse.Item> items =
+                body == null || body.result() == null ? null : body.result().items();
+        return resolver.resolve(name, items);
     }
 }

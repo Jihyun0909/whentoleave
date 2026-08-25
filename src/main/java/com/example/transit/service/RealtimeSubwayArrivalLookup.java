@@ -15,6 +15,10 @@ public interface RealtimeSubwayArrivalLookup {
     List<SubwayArrival> findArrivals(String stationName);
 
     /**
+     * @param lineName               노선 이름 (예: "4호선", "수인분당선"). 환승역은 한 응답에 여러 노선
+     *                                열차가 섞여 오므로, TransitLeg가 실제로 타는 노선만 걸러내는 데
+     *                                쓴다. 서울시 API가 커버하지 않는 노선(다른 사업자 운영 구간)이거나
+     *                                매핑표에 없는 코드면 null - 이 경우 호출하는 쪽에서 제외해야 한다.
      * @param direction              방향 표시 원문 (호선마다 "상행/하행", "내선/외선" 등 표기가 달라 그대로 노출한다)
      * @param destinationStationName 이 열차의 종착역 이름 - TransitLeg의 laneName/endStationName과
      *                                맞춰 어느 방향 열차인지 가리는 데 쓸 수 있다.
@@ -23,7 +27,7 @@ public interface RealtimeSubwayArrivalLookup {
      * @param secondsUntilArrival    도착까지 남은 시간(초). 알 수 없으면 null.
      * @param isLastTrain            이 열차가 막차인지 여부
      */
-    record SubwayArrival(String direction, String destinationStationName, String headsign,
+    record SubwayArrival(String lineName, String direction, String destinationStationName, String headsign,
                           String arrivalMessage, Integer secondsUntilArrival, boolean isLastTrain) {
     }
 }

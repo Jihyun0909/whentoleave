@@ -1,9 +1,10 @@
 package com.example.transit.service;
 
-import com.example.transit.service.client.OdsayClient;
+import com.example.transit.service.client.GoogleRoutesClient;
 import com.example.transit.service.client.SearchPathType;
-import com.example.transit.service.client.dto.OdsayPathResponse;
+import com.example.transit.service.client.dto.GoogleRoutesResponse;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -16,7 +17,8 @@ import java.util.OptionalInt;
 import java.util.stream.Collectors;
 
 /**
- * 출발지/도착지 좌표를 받아 ODsay 경로탐색 -> 지하철 구간 추출 -> 막차/목표도착시간 역산까지 잇는다.
+ * 출발지/도착지 좌표를 받아 Google Routes 경로탐색 -> 지하철/버스 구간 추출 -> 막차/목표도착시간
+ * 역산까지 잇는다.
  */
 @Service
 public class LastDepartureService {
@@ -29,17 +31,41 @@ public class LastDepartureService {
     private static final String NIGHT_BUS_LABEL = "심야버스";
     /** 서울 심야버스 중 가장 이른 첫차가 23시대라, 이보다 이른 도착 목표면 탐색 자체를 건너뛴다. */
     private static final int NIGHT_BUS_EARLIEST_MINUTES = 23 * 60;
+    /**
+     * "안전 막차"에서 환승마다 추가로 확보하는 여유시간(분). 5~10분 사이 중간값 - 배차가
+     * 시간표와 1~2분 어긋나거나 걸음이 느려도 놓치지 않을 정도의 여유. 막차 모드에서만
+     * 의미가 있다(목표 도착시간 역산에서는 "안전"이라는 개념 자체가 불분명해서 적용하지 않는다).
+     */
+    private static final int SAFE_TRANSFER_MARGIN_MINUTES = 7;
+    /**
+     * 경로탐색 API가 조회 자체를 못 해준 경우의 안내 문구. 화면에서 "운행 종료"류 문구로
+     * 바꾸지 않고 그대로 보여줘야 해서(기다린다고 해결되는 상황이 아니다) 상수로 공유한다.
+     */
+    public static final String ROUTE_SEARCH_UNAVAILABLE_REASON =
+            "지금은 경로를 조회할 수 없습니다. 잠시 후 다시 시도해주세요.";
+    /**
+     * 출발지-목적지가 이 거리(m) 이내인데 ODsay가 경로를 못 찾으면(예: ODsay 자체가
+     * "출,도착지가 700m이내입니다" 에러를 주는 경우), 대중교통이 필요 없을 만큼 가까운
+     * 거리라고 보고 도보 시간을 추정해서 대신 보여준다. ODsay가 도보 전용 경로를 실제로
+     * 계산해서 줄 때는 그 값을 그대로 쓰고(WalkOnlyRouteException), 이 추정치는 ODsay가
+     * 아예 아무 경로도 안 줄 때만 쓰는 fallback이다.
+     */
+    private static final double WALK_ESTIMATE_DISTANCE_THRESHOLD_METERS = 1000;
+    /** 도보 속도 추정(약 4km/h = 67m/분). */
+    private static final double WALKING_METERS_PER_MINUTE = 67;
+    /** 직선거리(Haversine)는 실제로 걷는 길보다 짧으므로, 도로거리를 어림잡아 20% 더 본다. */
+    private static final double ROAD_DISTANCE_FACTOR = 1.2;
 
-    private final OdsayClient odsayClient;
+    private final GoogleRoutesClient googleRoutesClient;
     private final RouteLegExtractor routeLegExtractor;
     private final LastDepartureCalculator calculator;
     private final NightBusRouteFinder nightBusRouteFinder;
 
-    public LastDepartureService(OdsayClient odsayClient,
+    public LastDepartureService(GoogleRoutesClient googleRoutesClient,
                                  RouteLegExtractor routeLegExtractor,
                                  LastDepartureCalculator calculator,
                                  NightBusRouteFinder nightBusRouteFinder) {
-        this.odsayClient = odsayClient;
+        this.googleRoutesClient = googleRoutesClient;
         this.routeLegExtractor = routeLegExtractor;
         this.calculator = calculator;
         this.nightBusRouteFinder = nightBusRouteFinder;
@@ -93,13 +119,15 @@ public class LastDepartureService {
                 SearchPathType.SUBWAY_ONLY, SearchPathType.ALL, SearchPathType.BUS_ONLY)) {
             Best best = calculateFor(pathType, sx, sy, ex, ey, targetArrivalMinutes, date);
             if (best.result() instanceof LastDepartureResult.Feasible feasible) {
-                options.add(toOption(pathType.label(), feasible, best.fareWon()));
+                options.add(toOption(pathType.label(), feasible, best.fareWon(), targetArrivalMinutes, date));
             }
         }
         // 심야버스는 ODsay 경로탐색에 아예 안 나와서 따로 찾아 붙인다. 지하철/버스가 다 끊긴
         // 시간대에는 이게 유일한 답인 경우가 많아, 막차 앱에서는 빠지면 안 되는 정보다.
+        Integer finalTargetArrivalMinutes = targetArrivalMinutes;
         bestNightBus(sx, sy, ex, ey, targetArrivalMinutes, date)
-                .ifPresent(feasible -> options.add(toOption(NIGHT_BUS_LABEL, feasible, 0)));
+                .ifPresent(feasible -> options.add(
+                        toOption(NIGHT_BUS_LABEL, feasible, 0, finalTargetArrivalMinutes, date)));
 
         return options.stream()
                 .collect(Collectors.toMap(
@@ -108,8 +136,26 @@ public class LastDepartureService {
                         (first, duplicate) -> first,
                         LinkedHashMap::new))
                 .values().stream()
-                .sorted(Comparator.comparingInt(RouteOption::totalMinutes))
+                .sorted(recommendationOrder(targetArrivalMinutes))
                 .toList();
+    }
+
+    /**
+     * 목표 도착시간이 있으면 "그 시각에 가장 가깝게 도착하는" 경로를 맨 위로 올린다 - 훨씬
+     * 일찍 도착해서 하염없이 기다리게 되는 경로보다, 목표 시각에 딱 맞춰 도착하는 쪽이
+     * 이 모드에서 원하는 답이기 때문이다(도착 시각이 목표를 넘는 경로는 애초에 계산 단계에서
+     * 걸러져 여기까지 오지 않는다). 막차 모드처럼 목표 시각이 없으면 기존대로 소요시간이
+     * 짧은 순으로 둔다.
+     */
+    private Comparator<RouteOption> recommendationOrder(Integer targetArrivalMinutes) {
+        if (targetArrivalMinutes == null) {
+            return Comparator.comparingInt(RouteOption::totalMinutes);
+        }
+        return Comparator.comparingInt(option -> targetArrivalMinutes - arrivalServiceMinutes(option));
+    }
+
+    private int arrivalServiceMinutes(RouteOption option) {
+        return option.departureServiceMinutes() + option.totalMinutes();
     }
 
     /** 목표 도착시간 계산이 실패한 이유를 화면에 보여주기 위해, 지하철 기준 결과를 한 번 더 구한다. */
@@ -122,10 +168,27 @@ public class LastDepartureService {
                                Integer targetArrivalMinutes, LocalDate date) {
         List<RouteLegExtractor.ExtractedRoute> pathCandidates;
         try {
-            OdsayPathResponse response = odsayClient.searchPath(sx, sy, ex, ey, pathType);
+            GoogleRoutesResponse response;
+            try {
+                response = googleRoutesClient.computeTransitRoutes(sx, sy, ex, ey, allowedTravelModes(pathType));
+            } catch (RestClientException e) {
+                // Google이 HTTP 오류(쿼터 초과, 잘못된 요청 등)를 준 상황 - 경로가 없는 게 아니라
+                // 조회 자체를 못 한 것이므로 "운행 종료"류 문구로 바뀌면 안 된다.
+                throw new RouteSearchUnavailableException("경로탐색 API 오류: " + e.getMessage());
+            }
             pathCandidates = routeLegExtractor.extractAll(response, pathType != SearchPathType.SUBWAY_ONLY);
+        } catch (RouteSearchUnavailableException e) {
+            // 경로가 없는 게 아니라 조회 자체를 못 한 상황이라, "운행 종료"류 문구로 바뀌지 않게
+            // 사유를 그대로 위로 올린다(displayReason이 이 문구를 알아보고 그대로 보여준다).
+            return new Best(new LastDepartureResult.Infeasible(ROUTE_SEARCH_UNAVAILABLE_REASON), 0);
+        } catch (WalkOnlyRouteException e) {
+            return new Best(new LastDepartureResult.Infeasible(e.getMessage(), e.walkMinutes()), 0);
         } catch (NoSubwayRouteFoundException e) {
-            return new Best(new LastDepartureResult.Infeasible(e.getMessage()), 0);
+            // 경로탐색이 아예 결과를 못 준 이유는 다양하지만, 실제로 가까운 거리라면 이유를
+            // 따지지 말고 도보 시간을 추정해서 보여주는 게 사용자에게 더 유용하다 -
+            // "운행 종료" 같은 엉뚱한 안내보다 낫다.
+            return new Best(new LastDepartureResult.Infeasible(
+                    e.getMessage(), estimateWalkMinutesIfClose(sx, sy, ex, ey)), 0);
         } catch (RuntimeException e) {
             return new Best(new LastDepartureResult.Infeasible("경로를 찾는 중 문제가 발생했습니다."), 0);
         }
@@ -144,6 +207,14 @@ public class LastDepartureService {
                     targetFeasible.legs(), targetFeasible.finalWalkMinutes(), true), best.fareWon());
         }
         return best;
+    }
+
+    private List<String> allowedTravelModes(SearchPathType pathType) {
+        return switch (pathType) {
+            case SUBWAY_ONLY -> List.of("SUBWAY");
+            case BUS_ONLY -> List.of("BUS");
+            case ALL -> null;
+        };
     }
 
     /** 고른 결과와 그 경로의 요금을 같이 들고 다닌다 (요금은 계산에는 안 쓰이고 화면 표시용이라 결과 타입에 넣지 않음). */
@@ -175,14 +246,33 @@ public class LastDepartureService {
                 ? Optional.of(feasible) : Optional.empty();
     }
 
-    private RouteOption toOption(String modeLabel, LastDepartureResult.Feasible feasible, int fareWon) {
+    private RouteOption toOption(String modeLabel, LastDepartureResult.Feasible feasible, int fareWon,
+                                  Integer targetArrivalMinutes, LocalDate date) {
         int legsMinutes = feasible.legs().stream()
                 .mapToInt(leg -> leg.rideMinutes() + leg.transferBufferMinutes())
                 .sum();
         boolean hasBus = feasible.legs().stream().anyMatch(TransitLeg::isBus);
+
+        // "안전 막차"는 막차 모드(목표 도착시간 없음)에서만 의미가 있다. 같은 경로(legs)를 그대로
+        // 두고, 환승마다 여유 버퍼를 더 요구하며 다시 역산해서 더 이른 출발 시각을 구한다 -
+        // ODsay 재검색 없이 이미 고른 경로의 시간표만 다시 본다. 환승이 없는 직행 경로는 여유를
+        // 둘 지점 자체가 없어 최단 막차와 똑같은 시각이 나오는데, 그런 경우 굳이 "안전 막차"라는
+        // 이름으로 같은 시각을 또 보여주면 중복일 뿐이라 화면에는 최단 막차만 남긴다.
+        LocalTime safeDepartureTime = null;
+        boolean safeNextDay = false;
+        if (targetArrivalMinutes == null) {
+            LastDepartureResult safeResult = calculator.calculate(
+                    feasible.legs(), null, feasible.finalWalkMinutes(), date, SAFE_TRANSFER_MARGIN_MINUTES);
+            if (safeResult instanceof LastDepartureResult.Feasible safeFeasible
+                    && toServiceMinutes(safeFeasible) != toServiceMinutes(feasible)) {
+                safeDepartureTime = safeFeasible.departureTime();
+                safeNextDay = safeFeasible.nextDay();
+            }
+        }
+
         return new RouteOption(modeLabel, feasible.departureTime(), feasible.nextDay(),
                 feasible.legs(), feasible.finalWalkMinutes(), legsMinutes + feasible.finalWalkMinutes(),
-                hasBus, feasible.isLastTrainDeparture(), fareWon);
+                hasBus, feasible.isLastTrainDeparture(), fareWon, safeDepartureTime, safeNextDay);
     }
 
     private String legSignature(RouteOption option) {
@@ -242,5 +332,26 @@ public class LastDepartureService {
             return OptionalInt.of(targetMinutes + MINUTES_PER_DAY); // 오늘 밤 자정 넘어서
         }
         return OptionalInt.empty(); // 이미 지난 시각
+    }
+
+    /** 가까운 거리가 아니면 null - 그러면 화면은 원래 실패 사유(reason) 문구를 그대로 보여준다. */
+    private Integer estimateWalkMinutesIfClose(double sx, double sy, double ex, double ey) {
+        double meters = distanceMeters(sy, sx, ey, ex);
+        if (meters > WALK_ESTIMATE_DISTANCE_THRESHOLD_METERS) {
+            return null;
+        }
+        return Math.max(1, (int) Math.ceil(meters * ROAD_DISTANCE_FACTOR / WALKING_METERS_PER_MINUTE));
+    }
+
+    /** 두 좌표 사이 거리(m). Haversine. */
+    private double distanceMeters(double lat1, double lon1, double lat2, double lon2) {
+        double earthRadiusMeters = 6_371_000;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return earthRadiusMeters * c;
     }
 }

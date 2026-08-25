@@ -1,6 +1,7 @@
 package com.example.transit.service.client;
 
 import com.example.transit.service.client.dto.TagoBusArrivalResponse;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -27,12 +28,20 @@ public class TagoBusApiClient {
     private final RestClient restClient;
     private final String baseUrl;
     private final String apiKey;
+    private final TagoRateLimiter rateLimiter;
 
+    @Autowired
     public TagoBusApiClient(@Value("${tago.base-url}") String baseUrl,
-                             @Value("${tago.api-key}") String apiKey) {
+                             @Value("${tago.api-key}") String apiKey, TagoRateLimiter rateLimiter) {
         this.restClient = RestClient.create();
         this.baseUrl = baseUrl;
         this.apiKey = apiKey;
+        this.rateLimiter = rateLimiter;
+    }
+
+    /** 테스트에서 오버라이드로 HTTP 호출 자체를 안 쓸 때 쓰는 생성자. */
+    public TagoBusApiClient(String baseUrl, String apiKey) {
+        this(baseUrl, apiKey, new TagoRateLimiter());
     }
 
     public boolean isConfigured() {
@@ -49,6 +58,7 @@ public class TagoBusApiClient {
                 + "&cityCode=" + encode(cityCode)
                 + "&nodeId=" + encode(nodeId)
                 + "&numOfRows=20&pageNo=1&_type=json");
+        rateLimiter.acquire();
         return restClient.get().uri(uri).retrieve().body(TagoBusArrivalResponse.class);
     }
 

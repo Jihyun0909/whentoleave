@@ -223,7 +223,7 @@
                         <input type="radio" name="originPoint" required
                                th:checked="${i.first}"
                                th:value="${c.x()} + ',' + ${c.y()}">
-                        <span th:text="${c.stationName()} + ' (' + ${c.laneName()} + ')'"></span>
+                        <span th:text="${c.laneName() != null and !c.laneName().isEmpty()} ? ${c.stationName()} + ' (' + ${c.laneName()} + ')' : ${c.stationName()}"></span>
                     </label>
                 </li>
             </ul>
@@ -237,7 +237,7 @@
                         <input type="radio" name="destPoint" required
                                th:checked="${i.first}"
                                th:value="${c.x()} + ',' + ${c.y()}">
-                        <span th:text="${c.stationName()} + ' (' + ${c.laneName()} + ')'"></span>
+                        <span th:text="${c.laneName() != null and !c.laneName().isEmpty()} ? ${c.stationName()} + ' (' + ${c.laneName()} + ')' : ${c.stationName()}"></span>
                     </label>
                 </li>
             </ul>
@@ -247,6 +247,17 @@
     </form>
 
     <div th:if="${searched}" class="result">
+        <div class="taxi-info-card" th:if="${taxiFareEstimate != null}">
+            <p class="taxi-info-label">택시로 가면</p>
+            <p class="taxi-info-main">
+                약 <b th:text="${taxiFareEstimate.estimatedMinutes()}"></b>분 소요
+                <span class="taxi-info-sep">·</span>
+                예상 요금 <b th:text="${#numbers.formatInteger(taxiFareEstimate.fareWon(), 0, 'COMMA')}"></b>원
+            </p>
+            <p class="taxi-info-surcharge" th:if="${taxiFareEstimate.hasSurcharge()}"
+               th:text="${taxiFareEstimate.surchargeLabel()} + '가 적용된 요금입니다.'"></p>
+        </div>
+
         <h2 class="result-heading" th:if="${feasible}">추천 경로</h2>
 
         <div class="route-summary" th:if="${!feasible and (originStatus == 'RESOLVED' or destStatus == 'RESOLVED')}">
@@ -271,11 +282,16 @@
             <div class="route-headline" th:unless="${view.departureAlreadyPassed()}">
                 <p class="route-headline-label">
                     <span th:if="${arrivalMode}" th:text="${#temporals.format(targetArrivalTime, 'HH:mm')} + '까지 도착하려면 이 시각까지 출발'"></span>
-                    <span th:unless="${arrivalMode}">막차로 도착하려면 이 시각까지 출발</span>
+                    <span th:unless="${arrivalMode}" th:text="${view.option().hasSafeDeparture()} ? '최단 막차 - 환승을 정확히 맞춰야 함' : '막차로 도착하려면 이 시각까지 출발'"></span>
                 </p>
                 <p class="route-headline-time">
                     <span th:text="${#temporals.format(view.option().departureTime(), 'HH:mm')}"></span>
                     <span class="badge-nextday" th:if="${view.option().nextDay()}">다음날 새벽</span>
+                </p>
+                <p class="route-headline-safe" th:if="${!arrivalMode and view.option().hasSafeDeparture()}">
+                    <span class="route-headline-safe-label">환승 여유 7분 두는 안전 막차</span>
+                    <span class="route-headline-safe-time" th:text="${#temporals.format(view.option().safeDepartureTime(), 'HH:mm')}"></span>
+                    <span class="badge-nextday" th:if="${view.option().safeNextDay()}">다음날 새벽</span>
                 </p>
             </div>
 
@@ -352,7 +368,7 @@
                                     <div class="realtime-arrivals" th:if="${!row.realtimeArrivals().isEmpty()}">
                                         <span class="realtime-label">실시간</span>
                                         <span class="realtime-chip" th:each="rt : ${row.realtimeArrivals()}"
-                                              th:classappend="${rt.isLastTrain()} ? ' realtime-chip-last' : ''"
+                                              th:classappend="${rt.isLastTrain()} ? ' realtime-chip-last' : (${rt.isStatusOnly()} ? ' realtime-chip-status' : '')"
                                               th:attr="data-seconds=${rt.secondsUntilArrival()}">
                                             <span class="realtime-chip-headsign" th:text="${rt.headsign()}"></span>
                                             <b class="realtime-chip-eta" th:text="${rt.etaLabel()}"></b>
@@ -373,8 +389,11 @@
             </details>
         </div>
 
-        <div th:unless="${feasible}" class="result-card result-infeasible">
+        <div th:if="${!feasible and walkOnlyMinutes == null}" class="result-card result-infeasible">
             <p th:text="${reason}"></p>
+        </div>
+        <div th:if="${!feasible and walkOnlyMinutes != null}" class="result-card result-walk-only">
+            <p>도보로 약 <b th:text="${walkOnlyMinutes}"></b>분이면 충분한 거리예요. 대중교통을 탈 필요가 없습니다.</p>
         </div>
 
         <p class="disclaimer">이 시각은 계획된 시간표 기준입니다. 출발 전 실시간 도착정보로 한 번 더 확인하세요.
@@ -490,12 +509,13 @@
             minute = v;
         });
 
-        // 열 때 지금 선택된 값이 목록 맨 위에 보이도록 스크롤한다 (안 하면 항상 00부터 보여서
+        // 열 때 지금 선택된 값이 목록 맨 위에 오도록 스크롤한다 (안 하면 항상 00부터 보여서
         // 23시/50분처럼 뒤쪽 값이 선택돼 있어도 한참 스크롤해야 현재 값을 찾을 수 있다).
+        // 위치 계산은 offsetParent가 무엇이든 정확하도록 두 요소의 화면상 위치 차이로 구한다.
         function scrollToSelected(dropdown) {
             var selected = dropdown.querySelector('.time-picker-option.is-selected');
             if (selected) {
-                dropdown.scrollTop = selected.offsetTop - dropdown.clientHeight / 2 + selected.offsetHeight / 2;
+                dropdown.scrollTop += selected.getBoundingClientRect().top - dropdown.getBoundingClientRect().top;
             }
         }
 
@@ -733,18 +753,26 @@
             var destName = document.getElementById('destName');
             var originX = document.getElementById('originX');
             var originY = document.getElementById('originY');
+            var destX = document.getElementById('destX');
+            var destY = document.getElementById('destY');
             var gpsStatus = document.getElementById('gpsStatus');
-            var temp = originName.value;
+
+            var tempName = originName.value;
             originName.value = destName.value;
-            destName.value = temp;
-            // 도착지엔 좌표 입력칸이 없어서(GPS는 출발지 전용) 좌표를 그대로 들고 넘어갈 수 없다 -
-            // 바뀐 이름으로 다시 찾도록 비운다.
-            if (originX) {
-                originX.value = '';
+            destName.value = tempName;
+
+            // 이름만 바꾸고 좌표를 그대로 두면, 자동완성/GPS로 좌표까지 채워진 상태에서는
+            // 화면엔 바뀐 이름이 뜨지만 실제 검색은 스왑 전 좌표로 수행되는 조용한 오검색
+            // 버그가 생긴다 - 이름과 함께 좌표도 같이 맞바꿔야 한다.
+            if (originX && originY && destX && destY) {
+                var tempX = originX.value;
+                var tempY = originY.value;
+                originX.value = destX.value;
+                originY.value = destY.value;
+                destX.value = tempX;
+                destY.value = tempY;
             }
-            if (originY) {
-                originY.value = '';
-            }
+            // GPS로 채웠던 출발지 위치 안내 문구는 스왑 후엔 더 이상 안 맞으므로 지운다.
             if (gpsStatus) {
                 gpsStatus.textContent = '';
             }

@@ -1,0 +1,190 @@
+package com.example.transit.service;
+
+import org.junit.jupiter.api.Test;
+
+import java.time.LocalTime;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class TaxiFareEstimatorTest {
+
+    private final TaxiFareEstimator estimator = new TaxiFareEstimator();
+    private static final LocalTime DAYTIME = LocalTime.of(14, 0);
+
+    /** 기본요금(1.6km) 이내 거리는 할증 없는 시간대엔 기본요금 그대로 나와야 한다. */
+    @Test
+    void 기본거리_이내면_기본요금만_나온다() {
+        // 두 좌표를 아주 가깝게 잡아서(약 100m) 도로거리 보정을 해도 1.6km를 넘지 않게 한다.
+        TaxiFareEstimator.TaxiFareEstimate estimate =
+                estimator.estimate(127.0276, 37.4979, 127.0286, 37.4979, DAYTIME);
+
+        assertEquals(4_800, estimate.fareWon());
+        assertFalse(estimate.hasSurcharge());
+    }
+
+    /** 거리가 늘어나면 요금도 늘어나야 한다(기본요금보다 커야 함). */
+    @Test
+    void 기본거리를_넘으면_요금이_기본요금보다_커진다() {
+        // 서울역 근처 -> 강남역 근처, 약 9km
+        TaxiFareEstimator.TaxiFareEstimate estimate =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, DAYTIME);
+
+        assertTrue(estimate.fareWon() > 4_800);
+    }
+
+    /** 100원 단위로 반올림된 값이어야 한다. */
+    @Test
+    void 요금은_백원_단위로_반올림된다() {
+        TaxiFareEstimator.TaxiFareEstimate estimate =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, DAYTIME);
+
+        assertEquals(0, estimate.fareWon() % 100);
+    }
+
+    /** 거리가 멀수록 예상 소요시간도 늘어나야 한다. */
+    @Test
+    void 거리가_멀수록_예상_소요시간도_늘어난다() {
+        TaxiFareEstimator.TaxiFareEstimate near =
+                estimator.estimate(127.0276, 37.4979, 127.0286, 37.4979, DAYTIME);
+        TaxiFareEstimator.TaxiFareEstimate far =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, DAYTIME);
+
+        assertTrue(far.estimatedMinutes() > near.estimatedMinutes());
+    }
+
+    /** 할증 시간대가 아니면(예: 낮 2시) 할증 안내가 없어야 한다. */
+    @Test
+    void 낮시간에는_할증이_없다() {
+        TaxiFareEstimator.TaxiFareEstimate estimate =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, DAYTIME);
+
+        assertNull(estimate.surchargeLabel());
+    }
+
+    /** 22시~23시는 20% 할증 구간이어야 한다. */
+    @Test
+    void 밤_10시대는_20퍼센트_할증이다() {
+        TaxiFareEstimator.TaxiFareEstimate withSurcharge =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, LocalTime.of(22, 30));
+        TaxiFareEstimator.TaxiFareEstimate base =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, DAYTIME);
+
+        assertTrue(withSurcharge.hasSurcharge());
+        assertTrue(withSurcharge.surchargeLabel().contains("20%"));
+        assertTrue(withSurcharge.fareWon() > base.fareWon());
+    }
+
+    /**
+     * 23시~다음날 02시는 자정을 넘나드는 구간이라 별도 로직이 필요하다 - 40% 할증으로,
+     * 22~23시/02~04시 구간(20%)보다 더 높은 할증률이어야 한다.
+     */
+    @Test
+    void 밤_11시부터_새벽_2시까지는_40퍼센트_할증이고_자정도_포함된다() {
+        TaxiFareEstimator.TaxiFareEstimate at2330 =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, LocalTime.of(23, 30));
+        TaxiFareEstimator.TaxiFareEstimate atMidnight =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, LocalTime.of(0, 0));
+        TaxiFareEstimator.TaxiFareEstimate at0130 =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, LocalTime.of(1, 30));
+
+        assertTrue(at2330.surchargeLabel().contains("40%"));
+        assertTrue(atMidnight.surchargeLabel().contains("40%"));
+        assertTrue(at0130.surchargeLabel().contains("40%"));
+    }
+
+    /** 02시~04시는 다시 20% 할증으로 낮아져야 한다. */
+    @Test
+    void 새벽_2시부터_4시까지는_다시_20퍼센트_할증이다() {
+        TaxiFareEstimator.TaxiFareEstimate estimate =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, LocalTime.of(3, 0));
+
+        assertTrue(estimate.surchargeLabel().contains("20%"));
+    }
+
+    /** 04시 정각부터는 할증이 끝나야 한다. */
+    @Test
+    void 새벽_4시부터는_할증이_끝난다() {
+        TaxiFareEstimator.TaxiFareEstimate estimate =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, LocalTime.of(4, 0));
+
+        assertFalse(estimate.hasSurcharge());
+    }
+
+    /**
+     * 심야(00~05시)는 도로가 한산해서 평시보다 빨리 달린다 - 같은 거리라도 새벽 1시반이
+     * 낮 2시보다 예상 소요시간이 짧아야 한다 (실사용 비교: 카카오맵 기준 이 정도 거리를
+     * 새벽 1시반에 출발하면 약 24분, 이 앱의 평시 추정치는 그보다 훨씬 걸림).
+     */
+    @Test
+    void 심야에는_평시보다_소요시간이_짧다() {
+        TaxiFareEstimator.TaxiFareEstimate lateNight =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, LocalTime.of(1, 30));
+        TaxiFareEstimator.TaxiFareEstimate daytime =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, DAYTIME);
+
+        assertTrue(lateNight.estimatedMinutes() < daytime.estimatedMinutes());
+    }
+
+    /** 출퇴근 혼잡 시간대는 평시보다 더 오래 걸려야 한다. */
+    @Test
+    void 출퇴근_혼잡_시간대는_평시보다_소요시간이_길다() {
+        TaxiFareEstimator.TaxiFareEstimate rushHour =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, LocalTime.of(8, 0));
+        TaxiFareEstimator.TaxiFareEstimate daytime =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, DAYTIME);
+
+        assertTrue(rushHour.estimatedMinutes() > daytime.estimatedMinutes());
+    }
+
+    /**
+     * 카카오맵 실측값에 대한 회귀 테스트 - 신사역 -> 강북구 번동(직선 약 13.7km) 구간에서
+     * 17:28 출발 42분/20,100원, 다음날 01:00 출발 22분으로 확인된 값이다. 도로거리 보정치나
+     * 시간대별 속도, 시간요금 계수를 건드리면 이 값들이 같이 움직이므로 여기서 잡는다.
+     * (실제 도로 경로가 아니라 직선거리 기반 추정이라 정확히 같을 수는 없어 여유를 둔다.)
+     */
+    @Test
+    void 카카오맵_실측값과_비슷한_범위로_추정한다() {
+        double sx = 127.020402, sy = 37.516484;   // 신사역
+        double ex = 127.0281893, ey = 37.6394739; // 서울특별시 강북구 번동 463-68
+
+        TaxiFareEstimator.TaxiFareEstimate evening = estimator.estimate(sx, sy, ex, ey, LocalTime.of(17, 28));
+        assertTrue(Math.abs(evening.estimatedMinutes() - 42) <= 3,
+                "17:28 소요시간 실측 42분과 3분 이내여야 함: " + evening.estimatedMinutes());
+        assertTrue(Math.abs(evening.fareWon() - 20_100) <= 1_500,
+                "17:28 요금 실측 20,100원과 1,500원 이내여야 함: " + evening.fareWon());
+
+        TaxiFareEstimator.TaxiFareEstimate lateNight = estimator.estimate(sx, sy, ex, ey, LocalTime.of(1, 0));
+        assertTrue(Math.abs(lateNight.estimatedMinutes() - 22) <= 3,
+                "01:00 소요시간 실측 22분과 3분 이내여야 함: " + lateNight.estimatedMinutes());
+    }
+
+    /** 정체가 없는 심야엔 시간요금이 안 붙어야 한다(지연 시간이 0이므로). */
+    @Test
+    void 심야에는_시간요금이_붙지_않는다() {
+        // 04:00은 할증도 끝나고 심야 속도대(00~05시)라 순수 거리요금만 나와야 한다.
+        TaxiFareEstimator.TaxiFareEstimate estimate =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, LocalTime.of(4, 0));
+
+        assertFalse(estimate.hasSurcharge());
+        // 같은 거리를 정체 시간대에 가면 시간요금이 붙어 더 비싸야 한다.
+        TaxiFareEstimator.TaxiFareEstimate rushHour =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, LocalTime.of(8, 0));
+        assertTrue(rushHour.fareWon() > estimate.fareWon());
+    }
+
+    /**
+     * 기준 시각을 "지금"이 아니라 파라미터로 받아야 한다 - 예를 들어 새벽 1시반 도착을
+     * 목표로 검색하면(현재 시각이 언제든 상관없이) 그 시각 기준 할증/혼잡도가 적용돼야 한다.
+     */
+    @Test
+    void 기준_시각을_그대로_반영한다() {
+        TaxiFareEstimator.TaxiFareEstimate at0130 =
+                estimator.estimate(126.9707, 37.5547, 127.0276, 37.4979, LocalTime.of(1, 30));
+
+        assertTrue(at0130.hasSurcharge());
+        assertTrue(at0130.surchargeLabel().contains("40%"));
+    }
+}

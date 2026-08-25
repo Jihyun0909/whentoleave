@@ -137,6 +137,37 @@ CREATE TABLE subway_schedule (
 
 원래는 이름이 `subway_last_train`이었고 `firstLastFlag:2/3`인 항목만 저장했는데, 그러면 공식 막차로 태그되진 않았지만 특정 환승 마감엔 여전히 맞는 열차를 놓치는 문제가 있었습니다 ([이슈 #5](https://github.com/Jihyun0909/whentoleave/issues/5), 위 ODsay 연동 주의사항 5번 참고). 그래서 응답 전체를 저장하는 걸로 바뀌면서 `subway_schedule`로 이름도 바뀌었고, 목적지별로 여러 시각이 저장되므로 `(station_id, way_code, day_type, end_station_name)` 유니크 제약도 제거했습니다.
 
+버스는 정류장별 시간표 API가 없어서 노선 단위 정보로 정류장 통과시각을 추정해 캐싱합니다 (`BusDepartureCacheService`, 상세 이유는 클래스 주석 참고). `subway_schedule`과 달리 이 테이블은 키(`bus_id, station_id, day_type`)당 딱 한 행(그 조합의 첫차/막차 추정치 한 세트)만 있어야 하는 설계라 유니크 제약을 둡니다.
+
+```sql
+CREATE TABLE bus_stop_departure (
+    id BIGSERIAL PRIMARY KEY,
+    bus_id INT NOT NULL,
+    station_id INT NOT NULL,
+    day_type VARCHAR(10) NOT NULL,
+    first_time TIME NOT NULL,
+    first_time_next_day BOOLEAN NOT NULL DEFAULT false,
+    last_time TIME NOT NULL,
+    last_time_next_day BOOLEAN NOT NULL DEFAULT false,
+    interval_minutes INT NOT NULL,
+    bus_no VARCHAR(40),
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    UNIQUE (bus_id, station_id, day_type)
+);
+```
+
+⚠️ **배포 시 주의(1회성)**: 이 유니크 제약은 처음부터 있던 게 아닙니다 — 캐시 미스 read-check-then-insert 로직에 동시 요청 방어가 없어서, 같은 키에 두 요청이 경합하면 둘 다 삽입에 성공해 중복 행이 쌓이고, 이후 조회(`Optional` 반환을 기대하는 `findByBusIdAndStationIdAndDayType`)가 `NonUniqueResultException`으로 500을 내는 버그가 있었습니다(라이브 테스트 중 실제 발생). `ddl-auto=update`는 기존 행 중 중복이 있으면 이 제약을 추가하는 `ALTER TABLE`을 실패시키므로, 이미 데이터가 쌓인 환경에 이 변경을 배포하기 전에 먼저 중복을 정리해야 합니다:
+
+```sql
+DELETE FROM bus_stop_departure a USING bus_stop_departure b
+WHERE a.id < b.id
+  AND a.bus_id = b.bus_id
+  AND a.station_id = b.station_id
+  AND a.day_type = b.day_type;
+```
+
+(가장 최근 행만 남기고 오래된 중복을 지웁니다. 이 값들은 캐시일 뿐이라 다음 요청에서 다시 조회되므로 어느 쪽을 남겨도 무방합니다.) 재발 방지는 `BusDepartureCacheService.fetchAndCache`에서 유니크 제약 위반을 잡아 이긴 쪽이 저장한 행으로 재조회하는 것으로 처리했습니다 — 클래스 주석 참고.
+
 ## 배포 전략 (무료 우선)
 
 | 항목 | 선택 | 비고 |

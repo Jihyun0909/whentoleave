@@ -22,8 +22,9 @@ public record VWorldSearchResponse(Response response) {
     public record Result(List<Item> items) {
     }
 
+    /** @param category 예: "철도시설 > 철도/지하철 > 지하철역" - item 최상위 필드다(address 안이 아님). */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Item(String id, String title, Address address, Point point) {
+    public record Item(String id, String title, String category, Address address, Point point) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
