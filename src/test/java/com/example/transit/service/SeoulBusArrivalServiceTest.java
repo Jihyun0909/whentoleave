@@ -49,6 +49,27 @@ class SeoulBusArrivalServiceTest {
         assertEquals(93, result.get(0).secondsUntilArrival());
     }
 
+    /**
+     * 실사용 중 발견: 정류소에 진짜로 진입 중인 버스도 GPS 갱신 시점에 따라 남은 시간이 0으로
+     * 온다(카카오맵엔 "곧 도착"으로 뜨는데 우리 화면에선 그 버스 정보가 사라진다는 신고).
+     * isArrive가 "1"(도착임박)이면 남은 시간이 0이어도 출발대기가 아니라 도착예정으로 담아야 한다.
+     */
+    @Test
+    void 도착임박_버스는_남은_시간이_0이어도_도착예정으로_담는다() {
+        SeoulBusArrivalResponse.Item arrivingNow = new SeoulBusArrivalResponse.Item(
+                "1218", "R1218", "09013", "수유역.강북구청",
+                "20260820040100", "20260820224400", "8",
+                0, "곧 도착", "서울70사1234", "0", "1",
+                307, "5분7초후[2번째 전]", "서울70사5678", "0", "0");
+        SeoulBusArrivalService service = serviceWith(okResponse(arrivingNow));
+
+        List<RealtimeBusArrival> result = service.findArrivals(STOP_X, STOP_Y);
+
+        assertEquals(2, result.size());
+        assertTrue(result.get(0).isArriving());
+        assertEquals(0, result.get(0).secondsUntilArrival());
+    }
+
     /** 운행 시간이 끝난 노선은 막차 시각까지 같이 알려줘야 판단이 된다. */
     @Test
     void 운행종료면_막차_시각을_함께_알려준다() {
@@ -202,6 +223,6 @@ class SeoulBusArrivalServiceTest {
                                                String arrmsg1, String lastTm, String term) {
         return new SeoulBusArrivalResponse.Item(routeName, busRouteId, "09013", "수유역.강북구청",
                 "20260820040100", lastTm, term,
-                seconds1, arrmsg1, plate1, "0", seconds2, arrmsg1, plate2, "0");
+                seconds1, arrmsg1, plate1, "0", "0", seconds2, arrmsg1, plate2, "0", "0");
     }
 }

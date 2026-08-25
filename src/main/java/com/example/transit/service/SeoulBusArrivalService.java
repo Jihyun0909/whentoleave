@@ -75,8 +75,8 @@ public class SeoulBusArrivalService implements RealtimeSeoulBusArrivalLookup {
             if (item.busRouteId() != null && !seenRouteIds.add(item.busRouteId())) {
                 continue;
             }
-            boolean added = addIfArriving(arrivals, item.rtNm(), item.traTime1(), item.plainNo1());
-            added |= addIfArriving(arrivals, item.rtNm(), item.traTime2(), item.plainNo2());
+            boolean added = addIfArriving(arrivals, item.rtNm(), item.traTime1(), item.plainNo1(), item.isArrive1());
+            added |= addIfArriving(arrivals, item.rtNm(), item.traTime2(), item.plainNo2(), item.isArrive2());
             if (!added) {
                 arrivals.add(RealtimeBusArrival.status(item.rtNm(), statusLabelOf(item)));
             }
@@ -88,15 +88,21 @@ public class SeoulBusArrivalService implements RealtimeSeoulBusArrivalLookup {
      * 운행종료·출발대기인 버스는 남은 시간이 0으로 온다. 그걸 그대로 카운트다운에 넣으면 화면에서
      * "곧 도착"으로 보여 실제로는 오지 않는 버스를 기다리게 만들므로, 여기서는 담지 않고
      * 호출하는 쪽이 상태 문구로 대신 보여준다.
+     * <p>
+     * 예외: 정류소에 진짜로 진입 중인 버스도 GPS 갱신 시점에 따라 남은 시간이 0으로 오는 경우가
+     * 있다(2026-08-25 실사용 중 발견 - 카카오맵엔 "곧 도착"으로 뜨는데 우리 화면에선 그 버스
+     * 정보가 통째로 사라짐). isArrive가 "1"(도착임박)이면 남은 시간이 0이어도 "출발대기"가
+     * 아니라 실제로 오고 있는 버스이므로 담아야 한다 - 0초는 etaLabel에서 "곧 도착"으로 표시된다.
      *
      * @return 실제로 담았으면 true
      */
     private boolean addIfArriving(List<RealtimeBusArrival> arrivals, String routeName,
-                                   Integer seconds, String plateNo) {
-        if (seconds == null || seconds <= 0) {
+                                   Integer seconds, String plateNo, String isArrive) {
+        boolean arriving = "1".equals(isArrive);
+        if (seconds == null || (seconds <= 0 && !arriving)) {
             return false;
         }
-        arrivals.add(RealtimeBusArrival.arriving(routeName, seconds, null, plateNo));
+        arrivals.add(RealtimeBusArrival.arriving(routeName, Math.max(seconds, 0), null, plateNo));
         return true;
     }
 
