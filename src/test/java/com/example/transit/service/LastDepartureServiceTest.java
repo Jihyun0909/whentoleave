@@ -125,13 +125,15 @@ class LastDepartureServiceTest {
     }
 
     /**
-     * 목표 도착시간 모드에서는 "목표 시각에 가장 가깝게 도착하는" 경로가 맨 위여야 한다.
-     * 소요시간만으로 정렬하면 훨씬 일찍 도착해 하염없이 기다리게 되는 경로가 1순위로 올라온다.
-     * 여기서는 5분짜리 빠른 경로(23:35 도착, 목표보다 24분 이름)보다 50분짜리 경로(23:50 도착,
-     * 목표까지 9분)가 위로 와야 한다.
+     * 목표 도착시간 모드에서도 소요시간이 짧은 경로가 맨 위여야 한다. 예전엔 "목표 시각에
+     * 가장 가깝게 도착하는" 경로를 우선했는데, 그러면 환승이 많고 오래 걸리는 경로가 단지
+     * "딱 맞춰 도착한다"는 이유만으로 더 빠르고 단순한 경로보다 위로 올라오는 문제가 있었다
+     * (실사용 중 발견 - 번동->광운대에서 버스 직행 19분보다 2번 환승하는 43분짜리 경로가
+     * "가장 빠름"으로 추천됨). 여기서는 5분짜리 경로(23:35 도착, 목표보다 24분 이름)가
+     * 50분짜리 경로(23:50 도착, 목표까지 9분)보다 위로 와야 한다.
      */
     @Test
-    void 목표_도착시간_모드에서는_목표에_가장_가깝게_도착하는_경로가_맨_위다() throws Exception {
+    void 목표_도착시간_모드에서도_소요시간이_짧은_경로가_맨_위다() throws Exception {
         LastTrainLookup lookup = fakeLookup(Map.of(
                 "300", List.of(train(LocalTime.of(23, 30), false)),
                 "400", List.of(train(LocalTime.of(23, 0), false))
@@ -141,8 +143,8 @@ class LastDepartureServiceTest {
         List<RouteOption> options = service.calculateOptions(0, 0, 0, 0, FIXED_TARGET, LocalDate.now());
 
         assertEquals(2, options.size());
-        assertEquals(LocalTime.of(23, 0), options.get(0).departureTime()); // 23:50 도착 - 목표에 더 가까움
-        assertEquals(LocalTime.of(23, 30), options.get(1).departureTime()); // 23:35 도착
+        assertEquals(LocalTime.of(23, 30), options.get(0).departureTime()); // 5분 소요, 23:35 도착
+        assertEquals(LocalTime.of(23, 0), options.get(1).departureTime()); // 50분 소요, 23:50 도착
     }
 
     /** 막차 모드(목표 시각 없음)에서는 기존대로 소요시간이 짧은 순이어야 한다. */
