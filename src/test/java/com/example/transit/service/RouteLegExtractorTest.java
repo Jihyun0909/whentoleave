@@ -123,6 +123,37 @@ class RouteLegExtractorTest {
         assertEquals(2, extractor.extract(inner).get(0).wayCode());
     }
 
+    /**
+     * 실사용 중 발견한 버그의 회귀 테스트(2026-08-25, 수유->창동). TAGO는 종착역을 부역명 괄호까지
+     * 붙여 "불암산(당고개)"로 주는데 Google headsign은 "불암산행"으로 짧게 온다. 예전엔
+     * headsign.contains(종착역명)으로만 비교해서 짧은 쪽이 긴 쪽을 못 담아 항상 실패했고,
+     * 그 결과 상행이어야 할 구간이 하행(2)으로 떨어져 실시간 도착정보에 반대 방향 열차가 떴다.
+     */
+    @Test
+    void 종착역명에_부역명_괄호가_붙어도_headsign과_매칭해_상행을_찾는다() {
+        RouteLegExtractor extractor = extractor(
+                Map.of("수유", new StationFixture("MTRS14414", "4호선")),
+                Map.of("MTRS14414:U", Set.of("불암산(당고개)"),
+                        "MTRS14414:D", Set.of("사당", "남태령", "서울역")));
+        GoogleRoutesResponse response = response(route(
+                subwayStepWithHeadsign(5, "수유", "4호선", "불암산행")));
+
+        assertEquals(1, extractor.extract(response).get(0).wayCode());
+    }
+
+    /** 반대 방향(하행)도 그대로 하행으로 남아야 한다 - 위 수정이 무조건 상행으로 만들면 안 된다. */
+    @Test
+    void 하행_방면_headsign은_하행으로_남는다() {
+        RouteLegExtractor extractor = extractor(
+                Map.of("수유", new StationFixture("MTRS14414", "4호선")),
+                Map.of("MTRS14414:U", Set.of("불암산(당고개)"),
+                        "MTRS14414:D", Set.of("사당", "남태령", "서울역")));
+        GoogleRoutesResponse response = response(route(
+                subwayStepWithHeadsign(5, "수유", "4호선", "사당행")));
+
+        assertEquals(2, extractor.extract(response).get(0).wayCode());
+    }
+
     @Test
     void 경로가_없으면_예외를_던진다() {
         RouteLegExtractor extractor = extractor(Map.of());

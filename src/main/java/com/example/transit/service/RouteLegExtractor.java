@@ -306,8 +306,32 @@ public class RouteLegExtractor {
         return headsign.replace("방면", "").replace("행", "").trim();
     }
 
+    /**
+     * TAGO 종착역명과 Google headsign을 비교한다.
+     * <p>
+     * <b>단순 contains로는 안 된다(2026-08-25 실사용 중 발견):</b> TAGO는 부역명을 괄호로 붙여
+     * "불암산(당고개)"처럼 주는데 Google headsign은 "불암산행"/"당고개행"처럼 짧게 온다. 짧은
+     * 쪽이 긴 쪽을 포함할 수 없으니 {@code headsign.contains(종착역명)}은 항상 실패했고, 그래서
+     * 수유역(4호선)처럼 멀쩡한 노선까지 방향 판별이 안 돼 하행으로 잘못 떨어졌다. 종착역명을
+     * 괄호 기준으로 분해해("불암산(당고개)" -> "불암산", "당고개") 어느 쪽이든 맞으면 인정한다.
+     */
     private boolean directionMatches(String subwayStationId, String upDownTypeCode, String normalizedHeadsign) {
-        return terminiOf(subwayStationId, upDownTypeCode).stream().anyMatch(normalizedHeadsign::contains);
+        return terminiOf(subwayStationId, upDownTypeCode).stream()
+                .flatMap(terminus -> terminusAliases(terminus).stream())
+                .anyMatch(alias -> normalizedHeadsign.contains(alias) || alias.contains(normalizedHeadsign));
+    }
+
+    /** "불암산(당고개)" -> ["불암산(당고개)", "불암산", "당고개"] (빈 문자열은 제외). */
+    private List<String> terminusAliases(String terminus) {
+        List<String> aliases = new ArrayList<>();
+        aliases.add(terminus);
+        int open = terminus.indexOf('(');
+        int close = terminus.lastIndexOf(')');
+        if (open >= 0 && close > open) {
+            aliases.add(terminus.substring(0, open).trim());
+            aliases.add(terminus.substring(open + 1, close).trim());
+        }
+        return aliases.stream().filter(alias -> !alias.isBlank()).toList();
     }
 
     private TransitLeg busLeg(GoogleRoutesResponse.TransitDetails details, int rideMinutes, int pendingWalkMinutes,

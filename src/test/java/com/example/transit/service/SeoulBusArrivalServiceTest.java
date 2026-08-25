@@ -85,6 +85,24 @@ class SeoulBusArrivalServiceTest {
         assertEquals("출발대기", result.get(0).statusLabel());
     }
 
+    /**
+     * 실사용 중 발견한 버그의 회귀 테스트(2026-08-25, 1218번/강북구청사거리). 순환 노선은 같은
+     * 정류장을 한 바퀴 안에 두 번 지나서, 응답에 같은 busRouteId가 서로 다른 staOrd로 두 항목
+     * 온다. 노선번호만 보고 둘 다 담으면 서로 다른 바퀴 지점의 버스(18분 뒤/30분 뒤)를 "곧 오는
+     * 버스 두 대"처럼 섞어 보여주게 되므로, 먼저 오는 항목만 남겨야 한다.
+     */
+    @Test
+    void 순환노선이_같은_정류장을_두번_지나면_먼저_오는_항목만_쓴다() {
+        SeoulBusArrivalService service = serviceWith(okResponse(
+                item("1218", "100100177", 1085, "서울74사5418", 0, null, "18분5초후", "20260826004400", "11"),
+                item("1218", "100100177", 1797, "서울74사1564", 2027, "서울74사8949", "29분57초후", "20260826004400", "11")));
+
+        List<RealtimeBusArrival> result = service.findArrivals(STOP_X, STOP_Y);
+
+        assertEquals(1, result.size());
+        assertEquals(1085, result.get(0).secondsUntilArrival());
+    }
+
     /** headerCd "4"(결과 없음)는 실패가 아니라 빈 목록이다. */
     @Test
     void 결과가_없으면_빈_목록을_준다() {
@@ -176,7 +194,13 @@ class SeoulBusArrivalServiceTest {
     private SeoulBusArrivalResponse.Item item(String routeName, int seconds1, String plate1,
                                                int seconds2, String plate2,
                                                String arrmsg1, String lastTm, String term) {
-        return new SeoulBusArrivalResponse.Item(routeName, "09013", "수유역.강북구청",
+        return item(routeName, "R" + routeName, seconds1, plate1, seconds2, plate2, arrmsg1, lastTm, term);
+    }
+
+    private SeoulBusArrivalResponse.Item item(String routeName, String busRouteId, int seconds1, String plate1,
+                                               int seconds2, String plate2,
+                                               String arrmsg1, String lastTm, String term) {
+        return new SeoulBusArrivalResponse.Item(routeName, busRouteId, "09013", "수유역.강북구청",
                 "20260820040100", lastTm, term,
                 seconds1, arrmsg1, plate1, "0", seconds2, arrmsg1, plate2, "0");
     }

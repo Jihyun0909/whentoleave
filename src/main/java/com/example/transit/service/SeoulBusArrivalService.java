@@ -7,7 +7,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 서울시 실시간 버스 도착정보를 조회해 지역 공통 형태({@link RealtimeBusArrival})로 바꾼다.
@@ -38,7 +40,11 @@ public class SeoulBusArrivalService implements RealtimeSeoulBusArrivalLookup {
             return List.of();
         }
         return stopCatalog.findNearest(stationX, stationY)
-                .map(stop -> findArrivals(stop.stopId()))
+                .map(stop -> {
+                    log.debug("서울 버스 실시간 조회: 요청좌표=({},{}) -> 매칭 정류소 stopId={} name={}",
+                            stationX, stationY, stop.stopId(), stop.name());
+                    return findArrivals(stop.stopId());
+                })
                 .orElse(List.of());
     }
 
@@ -57,8 +63,16 @@ public class SeoulBusArrivalService implements RealtimeSeoulBusArrivalLookup {
         }
 
         List<RealtimeBusArrival> arrivals = new ArrayList<>();
+        java.util.Set<String> seenRouteIds = new java.util.HashSet<>();
         for (SeoulBusArrivalResponse.Item item : response.msgBody().itemList()) {
             if (item.rtNm() == null) {
+                continue;
+            }
+            // 순환 노선은 같은 정류장을 한 바퀴 안에 두 번 지나는 항목이 따로 온다(Item 참고) -
+            // busRouteId가 같으면 노선 순서상 먼저 오는 항목(응답이 staOrd 오름차순이라 처음
+            // 만나는 쪽)만 쓰고, 뒤에 오는 바퀴는 무시한다. 둘 다 합치면 서로 다른 바퀴 지점의
+            // 버스를 "곧 오는 버스 두 대"처럼 섞어서 보여주게 된다.
+            if (item.busRouteId() != null && !seenRouteIds.add(item.busRouteId())) {
                 continue;
             }
             boolean added = addIfArriving(arrivals, item.rtNm(), item.traTime1(), item.plainNo1());

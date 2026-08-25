@@ -28,17 +28,23 @@ public record SeoulBusArrivalResponse(MsgHeader msgHeader, MsgBody msgBody) {
     /**
      * 한 노선의 도착정보. 첫 번째/두 번째 도착 예정 버스가 같은 항목에 1/2 접미사로 들어있다.
      *
-     * @param rtNm      노선 번호 (예: "148")
-     * @param firstTm   이 노선의 첫차 시각 ("20260820040100" - yyyyMMddHHmmss)
-     * @param lastTm    이 노선의 막차 시각. 오고 있는 버스가 없을 때 "막차 몇 시였는지" 안내에 쓴다.
-     * @param term      배차간격(분). 심야 노선 등은 0으로 오기도 한다.
-     * @param traTime1  첫 번째 버스 도착까지 남은 시간(초). 운행종료/출발대기면 0이 온다.
-     * @param arrmsg1   첫 번째 버스 도착 안내 문구 (예: "2분25초후[1번째 전]", "곧 도착", "운행종료")
-     * @param plainNo1  첫 번째 버스 차량번호
-     * @param isLast1   첫 번째 버스가 막차인지 ("1"이면 막차)
+     * @param rtNm       노선 번호 (예: "148")
+     * @param busRouteId 노선 고유 ID. <b>순환 노선은 같은 정류장을 노선 한 바퀴 안에 두 번(다른
+     *                    staOrd로) 지나는 경우가 있는데, busRouteId는 두 항목에서 동일하다</b>
+     *                    (2026-08-25 실사용 중 발견: 1218번이 "강북구청사거리"를 staOrd 15/83
+     *                    두 번 지남 - 노선번호만 보고 두 항목을 합치면 서로 다른 바퀴 지점의
+     *                    버스를 섞어서 보여주게 된다). 이 필드로 중복을 걸러야 한다
+     *                    ({@link com.example.transit.service.SeoulBusArrivalService} 참고).
+     * @param firstTm    이 노선의 첫차 시각 ("20260820040100" - yyyyMMddHHmmss)
+     * @param lastTm     이 노선의 막차 시각. 오고 있는 버스가 없을 때 "막차 몇 시였는지" 안내에 쓴다.
+     * @param term       배차간격(분). 심야 노선 등은 0으로 오기도 한다.
+     * @param traTime1   첫 번째 버스 도착까지 남은 시간(초). 운행종료/출발대기면 0이 온다.
+     * @param arrmsg1    첫 번째 버스 도착 안내 문구 (예: "2분25초후[1번째 전]", "곧 도착", "운행종료")
+     * @param plainNo1   첫 번째 버스 차량번호
+     * @param isLast1    첫 번째 버스가 막차인지 ("1"이면 막차)
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Item(String rtNm, String arsId, String stNm,
+    public record Item(String rtNm, String busRouteId, String arsId, String stNm,
                         String firstTm, String lastTm, String term,
                         Integer traTime1, String arrmsg1, String plainNo1, String isLast1,
                         Integer traTime2, String arrmsg2, String plainNo2, String isLast2) {
