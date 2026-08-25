@@ -57,13 +57,16 @@ public class RouteLegExtractor {
     private final TagoSubwayApiClient tagoSubwayApiClient;
     private final TagoBusRouteDetailApiClient tagoBusRouteDetailApiClient;
     private final TagoCityCodeResolver tagoCityCodeResolver;
+    private final SeoulBusStopCatalog seoulBusStopCatalog;
 
     public RouteLegExtractor(TagoSubwayApiClient tagoSubwayApiClient,
                               TagoBusRouteDetailApiClient tagoBusRouteDetailApiClient,
-                              TagoCityCodeResolver tagoCityCodeResolver) {
+                              TagoCityCodeResolver tagoCityCodeResolver,
+                              SeoulBusStopCatalog seoulBusStopCatalog) {
         this.tagoSubwayApiClient = tagoSubwayApiClient;
         this.tagoBusRouteDetailApiClient = tagoBusRouteDetailApiClient;
         this.tagoCityCodeResolver = tagoCityCodeResolver;
+        this.seoulBusStopCatalog = seoulBusStopCatalog;
     }
 
     /** 가장 첫 번째 추천 경로만 뽑는다 (하위 호환용). 여러 경로를 다 시도하려면 {@link #extractAll}을 쓴다. */
@@ -368,26 +371,34 @@ public class RouteLegExtractor {
         double stopY = departureStop.location().latLng().latitude();
         int distanceMeters = stepDistanceMeters == null ? 0 : stepDistanceMeters;
         String endName = arrivalStop == null ? null : arrivalStop.name();
+        // Google의 정류장명이 실제 개명을 못 따라가는 경우가 있다(2026-08-25 실사용 피드백 -
+        // "장위3동주민센터"가 "성북청소년센터"로 바뀐 지 한참인데 Google은 옛 이름을 줌). 매칭
+        // 자체는 이름이 아니라 좌표로 하므로 기능엔 영향 없지만, 표시용 이름은 우리가 실시간
+        // 조회에도 쓰는 서울 열린데이터광장 정류소 목록(더 최신인 경우가 많다)이 있으면 그걸
+        // 우선한다. 서울 밖 좌표거나 근처에 없으면 자연히 Google 이름으로 남는다.
+        String boardingStopName = seoulBusStopCatalog.findNearest(stopX, stopY)
+                .map(SeoulBusStopCatalog.SeoulBusStop::name)
+                .orElse(departureStop.name());
 
         Optional<String> cityCode = tagoCityCodeResolver.resolve(stopX, stopY);
         if (cityCode.isEmpty()) {
             // TAGO가 커버 안 하는 지역(서울 등) - 경로 자체는 만들되 배차정보(busIds)는 비워둔다.
             // NightBusRouteFinder와 동일한 절충: "탈 수 있다"는 알아도 "몇 시에 오는지"는 모른다.
             return TransitLeg.bus(coordinateStationId(stopX, stopY), rideMinutes, pendingWalkMinutes,
-                    departureStop.name(), endName, busNo, List.of(), busNo, distanceMeters, stopX, stopY, null);
+                    boardingStopName, endName, busNo, List.of(), busNo, distanceMeters, stopX, stopY, null);
         }
 
         Optional<String> routeId = resolveBusRouteId(busNo, cityCode.get());
         if (routeId.isEmpty()) {
             return TransitLeg.bus(coordinateStationId(stopX, stopY), rideMinutes, pendingWalkMinutes,
-                    departureStop.name(), endName, busNo, List.of(), busNo, distanceMeters, stopX, stopY,
+                    boardingStopName, endName, busNo, List.of(), busNo, distanceMeters, stopX, stopY,
                     cityCode.get());
         }
 
         String stationId = resolveNearestStopId(routeId.get(), cityCode.get(), stopX, stopY)
                 .orElseGet(() -> coordinateStationId(stopX, stopY));
         return TransitLeg.bus(stationId, rideMinutes, pendingWalkMinutes,
-                departureStop.name(), endName, busNo, List.of(routeId.get()), busNo, distanceMeters, stopX, stopY,
+                boardingStopName, endName, busNo, List.of(routeId.get()), busNo, distanceMeters, stopX, stopY,
                 cityCode.get());
     }
 

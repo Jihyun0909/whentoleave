@@ -1,5 +1,6 @@
 package com.example.transit.service;
 
+import com.example.transit.service.client.SeoulBusStopApiClient;
 import com.example.transit.service.client.TagoBusRouteDetailApiClient;
 import com.example.transit.service.client.TagoSubwayApiClient;
 import com.example.transit.service.client.dto.GoogleRoutesResponse;
@@ -190,6 +191,53 @@ class RouteLegExtractorTest {
     }
 
     /**
+     * 실사용 피드백 회귀 테스트(2026-08-25). Google의 정류장명이 실제 개명을 못 따라가는 경우가
+     * 있다("장위3동주민센터" -> "성북청소년센터"). 매칭 자체는 좌표로 하니 기능엔 문제없지만,
+     * 표시용 이름은 우리가 실시간 조회에도 쓰는 서울 정류소 데이터셋(더 최신)이 있으면 그걸
+     * 우선해야 한다.
+     */
+    @Test
+    void 서울_버스_정류장명은_google_대신_자체_카탈로그_이름을_우선한다() throws Exception {
+        SeoulBusStopApiClient stopClient = new SeoulBusStopApiClient("http://dummy", "dummy") {
+            @Override
+            public tools.jackson.databind.JsonNode findStops(int startIndex, int endIndex) {
+                String json = """
+                        { "busStopLocationXyInfo": { "list_total_count": 1, "row": [
+                          { "STOPS_NO": "107000099", "STOPS_NM": "성북청소년센터",
+                            "XCRD": "127.0", "YCRD": "37.0", "NODE_ID": "08189" }
+                        ] } }
+                        """;
+                return new tools.jackson.databind.ObjectMapper().readTree(json);
+            }
+        };
+        RouteLegExtractor extractor = new RouteLegExtractor(
+                new TagoSubwayApiClient("http://dummy", "dummy"),
+                new TagoBusRouteDetailApiClient("http://dummy", "dummy"),
+                new TagoCityCodeResolver(null),
+                new SeoulBusStopCatalog(stopClient));
+        GoogleRoutesResponse response = response(route(busStep(10, "장위3동주민센터", "146")));
+
+        List<RouteLegExtractor.ExtractedRoute> candidates = extractor.extractAll(response, true);
+
+        assertEquals("성북청소년센터", candidates.get(0).legs().get(0).stationName());
+    }
+
+    /** 서울 카탈로그에 근처 정류소가 없으면(예: 서울 밖) Google 이름을 그대로 쓴다. */
+    @Test
+    void 근처에_카탈로그_정류소가_없으면_google_이름을_그대로_쓴다() {
+        RouteLegExtractor extractor = new RouteLegExtractor(
+                new TagoSubwayApiClient("http://dummy", "dummy"),
+                new TagoBusRouteDetailApiClient("http://dummy", "dummy"),
+                new TagoCityCodeResolver(null),
+                new SeoulBusStopCatalog(new SeoulBusStopApiClient("http://dummy", "")));
+        GoogleRoutesResponse response = response(route(busStep(10, "정류장", "146")));
+
+        List<RouteLegExtractor.ExtractedRoute> candidates = extractor.extractAll(response, true);
+
+        assertEquals("정류장", candidates.get(0).legs().get(0).stationName());
+    }
+
+    /**
      * 이슈 #8 회귀 테스트. Google도 경로 후보를 여러 개 줄 수 있는데(1순위가 항상 최선은
      * 아님 — 배차가 뜸한 구간을 타는 경로가 1순위로 나올 수 있다), extractAll은 지하철
      * 전용인 후보를 전부 뽑아야 한다. 버스가 섞인 후보는 조용히 걸러내고 나머지는 유지한다.
@@ -321,7 +369,8 @@ class RouteLegExtractorTest {
             }
         };
         TagoBusRouteDetailApiClient busClient = new TagoBusRouteDetailApiClient("http://dummy", "dummy");
-        return new RouteLegExtractor(subwayClient, busClient, new TagoCityCodeResolver(null));
+        return new RouteLegExtractor(subwayClient, busClient, new TagoCityCodeResolver(null),
+                new SeoulBusStopCatalog(new SeoulBusStopApiClient("http://dummy", "")));
     }
 
     private GoogleRoutesResponse response(GoogleRoutesResponse.Route... routes) {

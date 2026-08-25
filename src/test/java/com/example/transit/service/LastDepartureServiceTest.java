@@ -3,6 +3,7 @@ package com.example.transit.service;
 import com.example.transit.domain.DayType;
 import com.example.transit.domain.SubwaySchedule;
 import com.example.transit.service.client.GoogleRoutesClient;
+import com.example.transit.service.client.SeoulBusStopApiClient;
 import com.example.transit.service.client.TagoBusRouteDetailApiClient;
 import com.example.transit.service.client.TagoSubwayApiClient;
 import com.example.transit.service.client.dto.GoogleRoutesResponse;
@@ -219,7 +220,8 @@ class LastDepartureServiceTest {
         };
         TagoBusRouteDetailApiClient busClient = new TagoBusRouteDetailApiClient("http://dummy", "dummy");
         TagoCityCodeResolver cityCodeResolver = new TagoCityCodeResolver(null);
-        return new RouteLegExtractor(subwayClient, busClient, cityCodeResolver);
+        return new RouteLegExtractor(subwayClient, busClient, cityCodeResolver,
+                new SeoulBusStopCatalog(new SeoulBusStopApiClient("http://dummy", "")));
     }
 
     /** 테스트에서 쓰는 역명은 전부 "역이름(stationId)" 형태로 지어서, 이름만 보고 원하는 stationId를 돌려준다. */
