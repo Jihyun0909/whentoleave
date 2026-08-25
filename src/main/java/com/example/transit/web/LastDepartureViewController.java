@@ -314,7 +314,8 @@ public class LastDepartureViewController {
     private List<LegDisplay> legDisplaysOf(RouteOption option, boolean showRealtimeArrivals) {
         List<LegDisplay> result = new ArrayList<>();
         for (TransitLeg leg : option.legs()) {
-            List<RealtimeArrivalView> arrivals = realtimeArrivalsFor(leg, showRealtimeArrivals);
+            List<RealtimeArrivalView> arrivals = reachableArrivals(
+                    realtimeArrivalsFor(leg, showRealtimeArrivals), leg.transferBufferMinutes());
             if (!leg.isBus()) {
                 result.add(new LegDisplay(arrivals, 0, false));
                 continue;
@@ -347,6 +348,24 @@ public class LastDepartureViewController {
     }
 
     /**
+     * 이 구간 승차 지점까지 걸어가는 데 걸리는 시간(walkMinutes)보다 먼저 오는 차편은 걸어가는
+     * 도중에 이미 떠나버려 탈 수 없다 - 실사용 중 발견: 도보 3분인데 실시간이 "2분 후"라고 떠서
+     * 이미 못 타는 차를 대기시간/도착예정으로 잘못 안내함(지하철·버스 둘 다 같은 문제라 여기서
+     * 공통으로 거른다). 그런 차편은 빼고 그다음 차편을 기준으로 삼는다. 상태 문구만 있는 항목
+     * (운행종료/출발대기 등, secondsUntilArrival == null)은 특정 도착 시각이 없으므로 그대로 둔다.
+     */
+    private List<RealtimeArrivalView> reachableArrivals(List<RealtimeArrivalView> arrivals, int walkMinutes) {
+        if (walkMinutes <= 0) {
+            return arrivals;
+        }
+        int walkSeconds = walkMinutes * 60;
+        return arrivals.stream()
+                .filter(a -> a.secondsUntilArrival() == null || a.secondsUntilArrival() >= walkSeconds)
+                .limit(2)
+                .toList();
+    }
+
+    /**
      * ODsay의 wayCode(1:상행, 2:하행)와 서울시 API의 방향 표기("상행"/"하행")가 일치하는 대부분의
      * 일반 노선에서는 이걸로 실제 타는 방향을 가려낼 수 있다. 2호선처럼 "내선/외선"으로 표기되는
      * 순환선 등 표기 체계가 다른 노선은 아예 안 걸려서(매칭 결과가 없어서) 방향 전체를 보여주는
@@ -362,8 +381,10 @@ public class LastDepartureViewController {
      * 노선 안에서도 방향(상행/하행)이 갈리는데, wayCode 기준으로 실제 타는 방향만 골라지면
      * 그것만 쓰고, 하나도 안 걸리면(순환선처럼 표기 체계가 다르거나 그 방향에 마침 실시간
      * 열차가 없는 경우) 방향을 가려낼 수 없다고 보고 기존처럼 노선 전체를 보여준다 - 정보가
-     * 아예 안 뜨는 것보단 낫다. 어느 쪽이든 방향마다 가장 빠른 2대까지만 골라 실제 승강장
-     * 전광판처럼 행선지를 그대로 보여준다.
+     * 아예 안 뜨는 것보단 낫다. 어느 쪽이든 방향마다 가장 빠른 3대까지 골라 실제 승강장
+     * 전광판처럼 행선지를 그대로 보여준다(2대가 아니라 3대인 이유: 호출부(legDisplaysOf)가
+     * 도보로 못 따라잡는 차편을 걸러내는데, 2대만 받으면 그 둘 다 못 타는 경우 정작 탈 수 있는
+     * 차편이 하나도 안 남을 수 있어서 여유를 하나 더 둔다).
      */
     private List<RealtimeArrivalView> subwayRealtimeArrivals(TransitLeg leg) {
         String legLineName = lineColorResolver.shortNameOf(leg.laneName());
@@ -386,7 +407,7 @@ public class LastDepartureViewController {
                 .peek(arrivals -> arrivals.sort(
                         Comparator.comparing(RealtimeSubwayArrivalLookup.SubwayArrival::secondsUntilArrival)))
                 .sorted(Comparator.comparingInt(arrivals -> arrivals.get(0).secondsUntilArrival()))
-                .flatMap(arrivals -> arrivals.stream().limit(2))
+                .flatMap(arrivals -> arrivals.stream().limit(3))
                 .map(this::toRealtimeArrivalView)
                 .toList();
     }
@@ -408,13 +429,14 @@ public class LastDepartureViewController {
                 .filter(arrival -> leg.busNo().equals(arrival.routeName()))
                 .toList();
 
-        // 오고 있는 버스가 있으면 그것만 (가까운 순 2대까지) 보여준다. 하나도 없으면 왜 없는지를
-        // (운행 종료인지 출발대기인지) 알려주는 게 아무것도 안 띄우는 것보다 낫다 - 실사용에서
-        // "실시간이 왜 안 뜨지?"로 오해를 샀던 부분이다.
+        // 오고 있는 버스가 있으면 그것만 (가까운 순 3대까지, subwayRealtimeArrivals와 같은 이유로
+        // 2대가 아니라 3대) 보여준다. 하나도 없으면 왜 없는지를(운행 종료인지 출발대기인지)
+        // 알려주는 게 아무것도 안 띄우는 것보다 낫다 - 실사용에서 "실시간이 왜 안 뜨지?"로
+        // 오해를 샀던 부분이다.
         List<RealtimeArrivalView> arriving = mine.stream()
                 .filter(RealtimeBusArrival::isArriving)
                 .sorted(Comparator.comparing(RealtimeBusArrival::secondsUntilArrival))
-                .limit(2)
+                .limit(3)
                 .map(this::toRealtimeArrivalView)
                 .toList();
         if (!arriving.isEmpty()) {
