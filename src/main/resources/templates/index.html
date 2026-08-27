@@ -391,6 +391,10 @@
                                             <span class="realtime-chip-lastflag" th:if="${rt.isLastTrain()}">막차</span>
                                         </span>
                                     </div>
+                                    <!-- 버스는 실시간 대신 배차간격을 그대로 보여준다(카카오맵/네이버지도도 버스는
+                                         실시간을 반영하지 않고 배차간격 기준으로만 안내함 - 사용자 요청). -->
+                                    <div class="route-timeline-interval" th:if="${row.intervalMinutes() != null}"
+                                         th:text="'배차간격 약 ' + ${row.intervalMinutes()} + '분'"></div>
                                     <span class="route-timeline-kind" th:text="${row.minutes()} + '분 이동'"></span>
                                     <span class="route-timeline-alight">
                                         <b th:text="${#temporals.format(row.endTime(), 'HH:mm')}"></b>

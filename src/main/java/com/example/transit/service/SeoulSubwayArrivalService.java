@@ -86,6 +86,9 @@ public class SeoulSubwayArrivalService implements RealtimeSubwayArrivalLookup {
         return response.realtimeArrivalList().stream().map(this::toArrival).toList();
     }
 
+    /** "[6]번째 전역 (의정부)"처럼 몇 번째 전역인지만 알려주고 실제 남은 시간은 아직 계산 전인 메시지. */
+    private static final Pattern STATIONS_AWAY_PATTERN = Pattern.compile("^\\[\\d+\\]번째 전역");
+
     private SubwayArrival toArrival(SeoulSubwayArrivalResponse.Arrival arrival) {
         return new SubwayArrival(
                 LINE_NAMES_BY_SUBWAY_ID.get(arrival.subwayId()),
@@ -93,20 +96,22 @@ public class SeoulSubwayArrivalService implements RealtimeSubwayArrivalLookup {
                 arrival.bstatnNm(),
                 arrival.trainLineNm(),
                 arrival.arvlMsg2(),
-                parseSeconds(arrival.barvlDt(), arrival.arvlCd()),
+                parseSeconds(arrival.barvlDt(), arrival.arvlMsg2()),
                 "1".equals(arrival.lstcarAt()));
     }
 
     /**
-     * arvlCd "99"(운행중 - 아직 역에 가까이 온 게 아니라 그냥 노선 어딘가를 달리고 있음)인
-     * 열차는 barvlDt가 실제로 계산 안 된 "0"으로 온다(실사용 중 발견: "창동" 인천행 하행 중
-     * "[6]번째 전역(의정부)"처럼 6개 역이나 남았는데도 barvlDt="0" - 도보로 못 따라잡는 차편
-     * 필터링 로직이 이걸 "지금 당장 도착"으로 잘못 알고 걸러내서, 정작 탈 수 있는 열차가 있는데
-     * 실시간 정보 전체가 안 보이는 문제가 있었다). arvlCd가 진짜 임박 상태(진입/도착/전역출발
-     * 등)일 때만 barvlDt를 신뢰한다.
+     * arvlCd "99"(운행중)는 "아직 역에 안 왔다"는 뜻일 뿐 흔한 정상 상태라, 이 코드 자체로
+     * barvlDt 신뢰 여부를 가릴 수 없다(대부분의 열차가 이 코드이고, barvlDt도 "4분 30초 후"
+     * 같은 실제 메시지와 정확히 일치하는 진짜 값이다 - 처음엔 이 코드를 통째로 못 믿게 했다가
+     * 지하철 실시간 정보가 전부 사라지는 회귀를 만들었다).
+     * <p>
+     * 진짜 문제는 따로 있었다: 몇몇 열차는 아직 남은 시간 계산 전이라 barvlDt가 의미없는 "0"으로
+     * 오면서, 안내 메시지도 시간이 아니라 "[6]번째 전역 (의정부)"처럼 역 개수만 알려준다(실사용
+     * 중 발견 - 창동역 인천행 하행). 그런 경우만 신뢰하지 않는다.
      */
-    private Integer parseSeconds(String barvlDt, String arvlCd) {
-        if (barvlDt == null || "99".equals(arvlCd)) {
+    private Integer parseSeconds(String barvlDt, String arvlMsg2) {
+        if (barvlDt == null || (arvlMsg2 != null && STATIONS_AWAY_PATTERN.matcher(arvlMsg2).find())) {
             return null;
         }
         try {

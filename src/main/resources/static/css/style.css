@@ -1239,6 +1239,13 @@ body {
     color: var(--accent);
 }
 
+.route-timeline-interval {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin: 2px 0;
+}
+
 .route-timeline-alight {
     display: flex;
     align-items: center;
