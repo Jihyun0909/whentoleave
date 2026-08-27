@@ -358,14 +358,8 @@
                                 <span class="route-timeline-time"></span>
                                 <span class="route-timeline-rail"></span>
                                 <span class="route-timeline-body">
-                                    <!-- waitSeconds가 있으면(실시간 기반) 화면 JS가 옆 실시간 칩과 똑같이
-                                         매초 카운트다운해서 이 문구를 갱신한다 - 정적으로 두면 시간이
-                                         지날수록 옆 칩(실시간)과 이 문구(렌더 시점 값 고정)가 어긋나 보인다. -->
-                                    <span class="route-timeline-wait" th:if="${row.waitSeconds() != null}"
-                                          th:attr="data-wait-seconds=${row.waitSeconds()},data-wait-label=${row.fromName()}"
-                                          th:text="${row.fromName()} + ' 대기 약 ' + ${row.minutes()} + '분'"></span>
-                                    <span class="route-timeline-wait" th:if="${row.waitSeconds() == null}"
-                                          th:text="${row.fromName()} + ' 대기 약 ' + ${row.minutes()} + '분'"></span>
+                                    <span class="route-timeline-wait"
+                                          th:text="'예상 대기 약 ' + ${row.minutes()} + '분'"></span>
                                 </span>
                             </th:block>
                             <th:block th:case="'RIDE'">
@@ -376,23 +370,13 @@
                                     <span class="route-timeline-title">
                                         <span class="route-brief-line" th:style="'background-color:' + ${row.color()} + ';'"
                                               th:text="${row.lineLabel()}"></span>
-                                        <span th:text="${row.fromName()} + ' 승차'"></span>
+                                        <!-- 지하철은 시간표가 이미 정해져 있으니 "예정 열차"임을 분명히 하고,
+                                             버스는 배차간격 기반 추정이라 그냥 "승차"로 둔다(사용자 요청). -->
+                                        <span th:if="${row.isBus()}" th:text="${row.fromName()} + ' 승차'"></span>
+                                        <span th:unless="${row.isBus()}" th:text="${row.fromName()} + ' 예정 열차 탑승'"></span>
                                     </span>
-                                    <!-- 이 승차 구간의 실시간 지하철 도착정보. 방향별로 가장 빠른 한 대씩(최대 3개)만
-                                         승강장 전광판처럼 행선지를 그대로 보여줘서 사용자가 자기 방향을 스스로 고르게 한다.
-                                         분:초는 화면 JS(initRealtimeCountdown)가 매초 직접 카운트다운한다. -->
-                                    <div class="realtime-arrivals" th:if="${!row.realtimeArrivals().isEmpty()}">
-                                        <span class="realtime-label">실시간</span>
-                                        <span class="realtime-chip" th:each="rt : ${row.realtimeArrivals()}"
-                                              th:classappend="${rt.isLastTrain()} ? ' realtime-chip-last' : (${rt.isStatusOnly()} ? ' realtime-chip-status' : '')"
-                                              th:attr="data-seconds=${rt.secondsUntilArrival()}">
-                                            <span class="realtime-chip-headsign" th:text="${rt.headsign()}"></span>
-                                            <b class="realtime-chip-eta" th:text="${rt.etaLabel()}"></b>
-                                            <span class="realtime-chip-lastflag" th:if="${rt.isLastTrain()}">막차</span>
-                                        </span>
-                                    </div>
-                                    <!-- 버스는 실시간 대신 배차간격을 그대로 보여준다(카카오맵/네이버지도도 버스는
-                                         실시간을 반영하지 않고 배차간격 기준으로만 안내함 - 사용자 요청). -->
+                                    <!-- 버스는 배차간격을 그대로 보여준다(카카오맵/네이버지도도 버스는 실시간을
+                                         반영하지 않고 배차간격 기준으로만 안내함 - 사용자 요청). -->
                                     <div class="route-timeline-interval" th:if="${row.intervalMinutes() != null}"
                                          th:text="'배차간격 약 ' + ${row.intervalMinutes()} + '분'"></div>
                                     <span class="route-timeline-kind" th:text="${row.minutes()} + '분 이동'"></span>
@@ -837,63 +821,6 @@
         });
     })();
 
-    // 실시간 도착정보 칩의 "분:초"를 매초 직접 카운트다운한다(서버가 페이지 렌더 시점의 초를
-    // 내려주면, 그 다음부턴 다시 요청하지 않고 화면에서만 흘려보낸다). 1분 미만이 되면 "곧 도착"으로
-    // 고정하고 더 이상 줄이지 않는다 - 음수로 흘러가거나 "-1:23" 같은 값이 보이면 안 되기 때문.
-    (function initRealtimeCountdown() {
-        var chips = document.querySelectorAll('.realtime-chip[data-seconds]');
-        if (!chips.length) {
-            return;
-        }
-
-        function format(seconds) {
-            if (seconds < 60) {
-                return '곧 도착';
-            }
-            var minutes = Math.floor(seconds / 60);
-            var rest = seconds % 60;
-            return minutes + ':' + String(rest).padStart(2, '0');
-        }
-
-        setInterval(function () {
-            chips.forEach(function (chip) {
-                var seconds = Number(chip.dataset.seconds);
-                if (!Number.isFinite(seconds) || seconds <= 0) {
-                    return;
-                }
-                seconds -= 1;
-                chip.dataset.seconds = String(seconds);
-                var etaEl = chip.querySelector('.realtime-chip-eta');
-                if (etaEl) {
-                    etaEl.textContent = format(seconds);
-                }
-            });
-        }, 1000);
-    })();
-
-    // "예상 대기" 문구도 옆 실시간 칩과 같은 기준(waitSeconds)으로 매초 다시 계산해서 갱신한다 -
-    // 그대로 두면 페이지 렌더 시점 값에 고정돼, 시간이 지날수록 옆 칩(실시간)과 어긋나 보인다
-    // (실사용 중 발견: "대기 약 15분"인데 옆 칩은 "12:14"). 서버와 같은 올림 계산(초를 분으로
-    // 올림, 최소 1분)을 그대로 써서 두 값이 항상 일치하게 한다.
-    (function initWaitCountdown() {
-        var waits = document.querySelectorAll('.route-timeline-wait[data-wait-seconds]');
-        if (!waits.length) {
-            return;
-        }
-
-        setInterval(function () {
-            waits.forEach(function (el) {
-                var seconds = Number(el.dataset.waitSeconds);
-                if (!Number.isFinite(seconds) || seconds <= 0) {
-                    return;
-                }
-                seconds -= 1;
-                el.dataset.waitSeconds = String(seconds);
-                var minutes = Math.max(1, Math.ceil(seconds / 60));
-                el.textContent = el.dataset.waitLabel + ' 대기 약 ' + minutes + '분';
-            });
-        }, 1000);
-    })();
 </script>
 </body>
 </html>
