@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
@@ -82,46 +84,50 @@ public class LastDepartureCalculator {
 
         Integer requiredArrivalMinutes = targetArrivalMinutes == null ? null : targetArrivalMinutes - finalWalkMinutes;
         int firstLegUsableMinutes = -1;
+        String[] directions = new String[legs.size()];
+        Integer[] boardServiceMinutes = new Integer[legs.size()];
 
         for (int i = legs.size() - 1; i >= 0; i--) {
             TransitLeg leg = legs.get(i);
 
-            List<Integer> reachableMinutes = departureCandidates(leg, date);
-            if (reachableMinutes.isEmpty()) {
+            List<Candidate> reachable = departureCandidates(leg, date);
+            if (reachable.isEmpty()) {
                 log.debug("leg[{}] stationId={} wayCode={} isBus={} busNo={} 운행 정보 없음 - Infeasible",
                         i, leg.stationId(), leg.wayCode(), leg.isBus(), leg.busNo());
                 return new LastDepartureResult.Infeasible(
                         (leg.isBus() ? "버스 " : "역 ") + leg.stationId() + "의 운행 정보를 찾을 수 없습니다.");
             }
 
-            int usableMinutes;
+            Candidate chosen;
             if (requiredArrivalMinutes == null) {
-                usableMinutes = reachableMinutes.stream().mapToInt(Integer::intValue).max().orElseThrow();
+                chosen = reachable.stream().max(Comparator.comparingInt(Candidate::serviceMinutes)).orElseThrow();
                 log.debug("leg[{}] stationId={} wayCode={} 마지막 구간, 선택={}",
-                        i, leg.stationId(), leg.wayCode(), usableMinutes);
+                        i, leg.stationId(), leg.wayCode(), chosen.serviceMinutes());
             } else {
                 int deadline = requiredArrivalMinutes - leg.rideMinutes();
                 // 가장 늦은 후보 하나만 보고 포기하지 않는다 - 그 후보가 마감을 못 맞춰도,
                 // 그보다 이른 다른 후보가 마감 안에 들어올 수 있으므로 그중 제일 늦은 걸 찾는다.
-                Optional<Integer> best = reachableMinutes.stream()
-                        .filter(minutes -> minutes <= deadline)
-                        .max(Integer::compareTo);
+                Optional<Candidate> best = reachable.stream()
+                        .filter(candidate -> candidate.serviceMinutes() <= deadline)
+                        .max(Comparator.comparingInt(Candidate::serviceMinutes));
                 log.debug("leg[{}] stationId={} wayCode={} rideMinutes={} transferBufferMinutes={} "
                                 + "requiredArrivalMinutes={} deadline={} 후보={} 선택={}",
                         i, leg.stationId(), leg.wayCode(), leg.rideMinutes(), leg.transferBufferMinutes(),
-                        requiredArrivalMinutes, deadline, reachableMinutes, best.orElse(null));
+                        requiredArrivalMinutes, deadline, reachable, best.orElse(null));
                 if (best.isEmpty()) {
                     return new LastDepartureResult.Infeasible(
                             "역 " + leg.stationId() + "의 막차로는 다음 환승을 놓칩니다. "
                                     + "더 이른 경로를 확인해주세요.");
                 }
-                usableMinutes = best.get();
+                chosen = best.get();
             }
+            directions[i] = chosen.directionLabel();
+            boardServiceMinutes[i] = chosen.serviceMinutes();
 
             if (i == 0) {
-                firstLegUsableMinutes = usableMinutes;
+                firstLegUsableMinutes = chosen.serviceMinutes();
             } else {
-                requiredArrivalMinutes = usableMinutes - leg.transferBufferMinutes() - transferSafetyMarginMinutes;
+                requiredArrivalMinutes = chosen.serviceMinutes() - leg.transferBufferMinutes() - transferSafetyMarginMinutes;
             }
         }
 
@@ -130,7 +136,15 @@ public class LastDepartureCalculator {
         // 그만큼 더 일찍 출발해야 한다 (이슈: 주소를 출발지로 입력했을 때 그 도보시간이
         // 계산에 전혀 반영되지 않던 문제).
         int departureMinutes = firstLegUsableMinutes - legs.get(0).transferBufferMinutes();
-        return toFeasible(departureMinutes, legs, finalWalkMinutes);
+        // List.of(...)는 null 원소를 거부한다 - directions[i]는 버스 구간·방면 정보 없음일 때
+        // null일 수 있으므로 Arrays.asList로 null을 허용하는 리스트를 만든다.
+        return toFeasible(departureMinutes, legs, finalWalkMinutes,
+                Arrays.asList(directions), Arrays.asList(boardServiceMinutes));
+    }
+
+    /** 이 구간에서 탈 수 있는 차편 후보 하나 - 출발 시각(서비스일 기준 분)과, 지하철이면 그 차편이
+     * 실제로 향하는 방면(예: "당고개행"에 쓸 종착역명). 버스는 방면 개념을 안 써서 항상 null. */
+    private record Candidate(int serviceMinutes, String directionLabel) {
     }
 
     /**
@@ -138,14 +152,17 @@ public class LastDepartureCalculator {
      * 버스는 노선 막차/배차간격 기반 추정치에서 가져온다 - 이 차이를 여기서 흡수해서
      * 역산 로직 자체는 교통수단을 구분하지 않는다.
      */
-    private List<Integer> departureCandidates(TransitLeg leg, LocalDate date) {
+    private List<Candidate> departureCandidates(TransitLeg leg, LocalDate date) {
         if (leg.isBus()) {
-            return busDepartureLookup.departureServiceMinutes(leg, date);
+            return busDepartureLookup.departureServiceMinutes(leg, date).stream()
+                    .map(minutes -> new Candidate(minutes, null))
+                    .toList();
         }
         List<SubwaySchedule> candidates = lastTrainLookup.getLastTrains(
                 leg.stationId(), leg.wayCode(), date, leg.stationName(), leg.laneName());
         return reachableCandidates(candidates, leg).stream()
-                .map(train -> toServiceMinutes(train.getDepartureTime(), train.isNextDay()))
+                .map(train -> new Candidate(
+                        toServiceMinutes(train.getDepartureTime(), train.isNextDay()), train.getEndStationName()))
                 .toList();
     }
 
@@ -169,12 +186,15 @@ public class LastDepartureCalculator {
         return nextDay ? minutes + MINUTES_PER_DAY : minutes;
     }
 
-    private LastDepartureResult.Feasible toFeasible(int serviceMinutes, List<TransitLeg> legs, int finalWalkMinutes) {
+    private LastDepartureResult.Feasible toFeasible(int serviceMinutes, List<TransitLeg> legs, int finalWalkMinutes,
+                                                     List<String> subwayDirections,
+                                                     List<Integer> legBoardServiceMinutes) {
         boolean nextDay = serviceMinutes >= MINUTES_PER_DAY;
         int normalized = nextDay ? serviceMinutes - MINUTES_PER_DAY : serviceMinutes;
         // isLastTrainDeparture는 서비스 레이어(LastDepartureService)가 목표시간 결과와 순수 막차
         // 결과를 비교해서 판단할 몫이라 여기서는 항상 false로 둔다.
         return new LastDepartureResult.Feasible(
-                LocalTime.of(normalized / 60, normalized % 60), nextDay, legs, finalWalkMinutes, false);
+                LocalTime.of(normalized / 60, normalized % 60), nextDay, legs, finalWalkMinutes, false,
+                subwayDirections, legBoardServiceMinutes);
     }
 }

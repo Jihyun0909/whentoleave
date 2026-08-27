@@ -292,35 +292,56 @@ public class LastDepartureViewController {
     }
 
     /**
-     * 버스 구간별 예상 대기시간(배차간격 기반)을 한 번만 계산해 타임라인/구간막대/총소요시간이
-     * 같은 값을 쓰게 한다. 실시간 도착정보는 지하철·버스 둘 다 화면에서 완전히 뺐다(사용자 요청:
-     * 이 서비스는 "몇 시에 출발하면 되는지"를 안내하는 게 목적이고, 정확한 실시간 확인은 다른
-     * 지도 앱에서 하면 된다는 판단 - 지하철은 시간표 기준 역산, 버스는 배차간격 기준 역산으로
-     * 통일한다).
+     * 구간별 대기시간을 한 번만 계산해 타임라인/구간막대/총소요시간이 같은 값을 쓰게 한다.
+     * 실시간 도착정보는 지하철·버스 둘 다 화면에서 완전히 뺐다(사용자 요청: 이 서비스는
+     * "몇 시에 출발하면 되는지"를 안내하는 게 목적이고, 정확한 실시간 확인은 다른 지도 앱에서
+     * 하면 된다는 판단 - 지하철은 시간표 기준 역산, 버스는 배차간격 기준 역산으로 통일한다).
+     * <p>
+     * 버스는 배차간격의 절반을 평균 대기시간으로 추정한다(추정치, isEstimate=true). 지하철은
+     * 환승 도보가 끝나는 시각과 그 구간에서 실제로 선택된 차편의 탑승 시각
+     * ({@link RouteOption#legBoardServiceMinutes()}, {@link LastDepartureCalculator}가 실제
+     * 시간표에서 고른 값) 사이의 차이를 그대로 보여준다(실측치, isEstimate=false) - 예전엔 도보가
+     * 끝나는 시각에 정확히 열차가 온다고 가정해서, "환승 도보 직후 열차가 딱 맞춰 오는 게
+     * 부자연스럽다"는 피드백을 받았다.
      *
      * @param intervalMinutes 버스 구간의 배차간격(분) 원본값 - 화면에 "배차간격 N분"으로
      *                        그대로 보여준다(waitMinutes는 이 값의 절반, 즉 평균 대기시간
      *                        추정치라 서로 다른 숫자다 - 실사용 중 혼란: "대기 15분인데 배차간격은
      *                        11분이라던데?"). 지하철이거나 노선 시드 데이터에 없으면 null.
+     * @param isEstimate      true면 배차간격 기반 추정(버스), false면 실제 시간표 기준 실측(지하철).
+     *                        화면 문구를 "예상 대기"/"환승 대기"로 가른다.
      */
-    private record LegDisplay(int waitMinutes, Integer intervalMinutes) {
+    private record LegDisplay(int waitMinutes, Integer intervalMinutes, boolean isEstimate) {
     }
 
     private List<LegDisplay> legDisplaysOf(RouteOption option) {
         List<LegDisplay> result = new ArrayList<>();
-        for (TransitLeg leg : option.legs()) {
-            if (!leg.isBus()) {
-                result.add(new LegDisplay(0, null));
-                continue;
+        List<TransitLeg> legs = option.legs();
+        List<Integer> boardMinutes = option.legBoardServiceMinutes();
+        int cursor = option.departureServiceMinutes();
+
+        for (int i = 0; i < legs.size(); i++) {
+            TransitLeg leg = legs.get(i);
+            cursor += leg.transferBufferMinutes();
+
+            if (leg.isBus()) {
+                // "배차간격의 절반"을 평균 대기시간으로 추정한다 - 정류장에 무작위로 도착한다고
+                // 보면 평균적으로 배차간격의 절반을 기다리게 된다는 근사치다.
+                Optional<SeoulBusRouteScheduleCatalog.RouteSchedule> schedule =
+                        seoulBusRouteScheduleCatalog.find(leg.busNo());
+                int estimated = schedule.map(s -> Math.max(1, (s.intervalMinutes() + 1) / 2)).orElse(0);
+                Integer intervalMinutes = schedule.map(SeoulBusRouteScheduleCatalog.RouteSchedule::intervalMinutes)
+                        .orElse(null);
+                result.add(new LegDisplay(estimated, intervalMinutes, true));
+                cursor += estimated + leg.rideMinutes();
+            } else {
+                Integer realBoard = boardMinutes == null ? null : boardMinutes.get(i);
+                // realBoard가 cursor보다 이르면(이론상 없어야 하지만 방어적으로) 대기 0으로 둔다 -
+                // 시간을 거꾸로 돌릴 수는 없으니 cursor를 그대로 유지한다.
+                int gap = realBoard == null ? 0 : Math.max(0, realBoard - cursor);
+                result.add(new LegDisplay(gap, null, false));
+                cursor += gap + leg.rideMinutes();
             }
-            // "배차간격의 절반"을 평균 대기시간으로 추정한다 - 정류장에 무작위로 도착한다고
-            // 보면 평균적으로 배차간격의 절반을 기다리게 된다는 근사치다.
-            Optional<SeoulBusRouteScheduleCatalog.RouteSchedule> schedule =
-                    seoulBusRouteScheduleCatalog.find(leg.busNo());
-            int estimated = schedule.map(s -> Math.max(1, (s.intervalMinutes() + 1) / 2)).orElse(0);
-            Integer intervalMinutes = schedule.map(SeoulBusRouteScheduleCatalog.RouteSchedule::intervalMinutes)
-                    .orElse(null);
-            result.add(new LegDisplay(estimated, intervalMinutes));
         }
         return result;
     }
@@ -376,14 +397,15 @@ public class LastDepartureViewController {
                 cursor += leg.transferBufferMinutes();
             }
             if (display.waitMinutes() > 0) {
-                rows.add(RouteTimelineRow.wait(display.waitMinutes()));
+                rows.add(RouteTimelineRow.wait(display.waitMinutes(), display.isEstimate()));
                 cursor += display.waitMinutes();
             }
             LocalTime boardTime = toLocalTime(cursor);
             cursor += leg.rideMinutes();
+            String direction = option.subwayDirections() == null ? null : option.subwayDirections().get(i);
             rows.add(new RouteTimelineRow("RIDE", boardTime, toLocalTime(cursor), leg.rideMinutes(),
                     leg.stationName(), leg.endStationName(), lineLabelOf(leg), colorOf(leg), leg.isBus(),
-                    display.intervalMinutes()));
+                    display.intervalMinutes(), direction));
         }
         if (option.finalWalkMinutes() > 0) {
             rows.add(RouteTimelineRow.walk(option.finalWalkMinutes()));
@@ -452,30 +474,38 @@ public class LastDepartureViewController {
     }
 
     /**
-     * @param type            PLACE(출발/도착) | WALK(도보) | WAIT(버스 예상 대기, 배차간격 기반) | RIDE(승차~하차)
+     * @param type            PLACE(출발/도착) | WALK(도보) | WAIT(대기 - 버스는 배차간격 기반 추정,
+     *                        지하철은 실제 시간표 기준 실측) | RIDE(승차~하차)
      * @param time            PLACE는 그 지점 시각, RIDE는 승차 시각
      * @param endTime         RIDE의 하차 시각
      * @param label           PLACE의 "출발"/"도착"
-     * @param isBus           RIDE 행이 버스 구간인지 - 지하철은 "예정 열차 탑승"(시간표 기준),
-     *                        버스는 "승차"로 문구가 갈린다.
+     * @param isBus           RIDE 행에서는 버스 구간인지(지하철은 "예정 열차 탑승"(시간표 기준),
+     *                        버스는 "승차"로 문구가 갈린다). WAIT 행에서는 isEstimate 의미로 재사용
+     *                        한다(true=버스 배차간격 추정 "예상 대기", false=지하철 실측 "환승 대기").
      * @param intervalMinutes RIDE 행이 버스 구간이고 배차간격을 알 때만 값이 있다("배차간격 N분"
      *                        표시용) - 그 외에는 null.
+     * @param direction       RIDE 행이 지하철 구간이면 실제로 타는 차편의 방면(종착역명, 예: "당고개") -
+     *                        "OO행"으로 화면에 보여준다. 버스거나 방면 정보를 못 구했으면 null.
      */
     public record RouteTimelineRow(String type, LocalTime time, LocalTime endTime, int minutes,
                                     String fromName, String toName, String lineLabel, String color,
-                                    boolean isBus, Integer intervalMinutes) {
+                                    boolean isBus, Integer intervalMinutes, String direction) {
 
         static RouteTimelineRow place(LocalTime time, String label) {
-            return new RouteTimelineRow("PLACE", time, null, 0, label, null, null, null, false, null);
+            return new RouteTimelineRow("PLACE", time, null, 0, label, null, null, null, false, null, null);
         }
 
         static RouteTimelineRow walk(int minutes) {
-            return new RouteTimelineRow("WALK", null, null, minutes, null, null, null, null, false, null);
+            return new RouteTimelineRow("WALK", null, null, minutes, null, null, null, null, false, null, null);
         }
 
-        /** 버스 구간의 배차간격 기반 예상 대기(참고용, 실시간이 아니다). */
-        static RouteTimelineRow wait(int minutes) {
-            return new RouteTimelineRow("WAIT", null, null, minutes, "예상", null, null, null, true, null);
+        /**
+         * 대기 행. 버스는 배차간격 기반 추정(isEstimate=true, "예상 대기"), 지하철은 환승 도보가
+         * 끝난 시각 이후 실제 시간표상 가장 빠른 차편까지의 실측 대기(isEstimate=false, "환승 대기")다.
+         * isBus 필드를 그대로 isEstimate 의미로 재사용한다(문구 분기 용도 외에는 안 쓰는 필드).
+         */
+        static RouteTimelineRow wait(int minutes, boolean isEstimate) {
+            return new RouteTimelineRow("WAIT", null, null, minutes, "예상", null, null, null, isEstimate, null, null);
         }
     }
 

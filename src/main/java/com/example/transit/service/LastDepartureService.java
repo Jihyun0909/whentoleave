@@ -199,7 +199,8 @@ public class LastDepartureService {
         if (bestOf(pathCandidates, null, date).result() instanceof LastDepartureResult.Feasible lastTrainFeasible
                 && toServiceMinutes(targetFeasible) == toServiceMinutes(lastTrainFeasible)) {
             return new Best(new LastDepartureResult.Feasible(targetFeasible.departureTime(), targetFeasible.nextDay(),
-                    targetFeasible.legs(), targetFeasible.finalWalkMinutes(), true), best.fareWon());
+                    targetFeasible.legs(), targetFeasible.finalWalkMinutes(), true,
+                    targetFeasible.subwayDirections(), targetFeasible.legBoardServiceMinutes()), best.fareWon());
         }
         return best;
     }
@@ -267,7 +268,8 @@ public class LastDepartureService {
 
         return new RouteOption(modeLabel, feasible.departureTime(), feasible.nextDay(),
                 feasible.legs(), feasible.finalWalkMinutes(), legsMinutes + feasible.finalWalkMinutes(),
-                hasBus, feasible.isLastTrainDeparture(), fareWon, safeDepartureTime, safeNextDay);
+                hasBus, feasible.isLastTrainDeparture(), fareWon, safeDepartureTime, safeNextDay,
+                feasible.subwayDirections(), feasible.legBoardServiceMinutes());
     }
 
     private String legSignature(RouteOption option) {

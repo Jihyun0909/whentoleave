@@ -15,9 +15,19 @@ public sealed interface LastDepartureResult {
      *                              목표 시각이 밤늦게라 사실상 아무 제약이 안 되는 경우(예: 새벽 2시까지 도착)
      *                              화면에서 "이건 그냥 막차 안내입니다"라고 밝혀주기 위함. 막차 모드(목표 시각 없음)에서는
      *                              항상 false다(그 모드 자체가 이미 막차 기준이라 알려줄 의미가 없음).
+     * @param subwayDirections      legs와 같은 순서·길이. 지하철 구간이면 실제로 선택된 그 차편이
+     *                              향하는 방면(종착역명, 예: "당고개") - 화면에 "OO행"으로 보여주기
+     *                              위함이다. 버스 구간이거나(방면 개념 없음) 방면 정보를 못 구했으면 null.
+     * @param legBoardServiceMinutes legs와 같은 순서·길이. 각 구간에서 실제로 선택된 차편의 탑승
+     *                              시각(서비스일 기준 분, 0시=0·24시 이후는 1440 이상). 화면에서
+     *                              "환승 후 도보시간만큼 지나면 바로 다음 열차가 온다"고 단순
+     *                              가정하지 않고, 그 시각 이후 실제 시간표상 가장 빠른 차편을
+     *                              그대로 보여줄 수 있게 하기 위함(사용자 피드백: 환승 도보 직후
+     *                              열차가 딱 맞춰 오는 것처럼 보이는 게 부자연스럽다).
      */
     record Feasible(LocalTime departureTime, boolean nextDay, List<TransitLeg> legs, int finalWalkMinutes,
-                     boolean isLastTrainDeparture) implements LastDepartureResult {
+                     boolean isLastTrainDeparture, List<String> subwayDirections,
+                     List<Integer> legBoardServiceMinutes) implements LastDepartureResult {
     }
 
     /**
