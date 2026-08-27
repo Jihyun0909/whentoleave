@@ -142,7 +142,8 @@ public class LastDepartureCalculator {
         if (leg.isBus()) {
             return busDepartureLookup.departureServiceMinutes(leg, date);
         }
-        List<SubwaySchedule> candidates = lastTrainLookup.getLastTrains(leg.stationId(), leg.wayCode(), date);
+        List<SubwaySchedule> candidates = lastTrainLookup.getLastTrains(
+                leg.stationId(), leg.wayCode(), date, leg.stationName(), leg.laneName());
         return reachableCandidates(candidates, leg).stream()
                 .map(train -> toServiceMinutes(train.getDepartureTime(), train.isNextDay()))
                 .toList();

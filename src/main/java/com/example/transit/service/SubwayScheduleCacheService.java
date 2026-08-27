@@ -43,8 +43,10 @@ import java.util.stream.StreamSupport;
  * <b>TAGO 데이터 공백 보완(2026-08-25 실사용 중 발견):</b> TAGO가 시간표를 아예 안 주는
  * 서울교통공사 운영 구간 역이 꽤 있다(사당·종합운동장·창동·낙성대·신촌·신도림·잠실·
  * 동대문역사문화공원 등, 실제 조회로 확인). TAGO가 빈 목록을 주면 서울교통공사 자체 API
- * ({@link SeoulSubwayLastTrainApiClient})로 한 번 더 시도한다 - 코레일 위탁 구간(4호선
- * 진접선 등)은 이 보완도 안 통하는 알려진 한계다.
+ * ({@link SeoulSubwayLastTrainApiClient})로 한 번 더 시도하고, 그마저 비어 있으면(예: 코레일
+ * 위탁 구간인 4호선 진접선) 서울교통공사 전수 시간표 정적 시드
+ * ({@link SeoulSubwayTimetableSeedCatalog})로 마지막으로 한 번 더 시도한다. 이 마지막 단계는
+ * 역명+호선으로 찾으므로 stationName/laneName이 없으면(예: 테스트) 건너뛴다.
  */
 @Service
 public class SubwayScheduleCacheService implements LastTrainLookup {
@@ -61,24 +63,43 @@ public class SubwayScheduleCacheService implements LastTrainLookup {
     private final SubwayScheduleRepository repository;
     private final TagoSubwayApiClient tagoSubwayApiClient;
     private final SeoulSubwayLastTrainApiClient seoulSubwayLastTrainApiClient;
+    private final SeoulSubwayTimetableSeedCatalog seedCatalog;
 
     public SubwayScheduleCacheService(SubwayScheduleRepository repository, TagoSubwayApiClient tagoSubwayApiClient,
-                                       SeoulSubwayLastTrainApiClient seoulSubwayLastTrainApiClient) {
+                                       SeoulSubwayLastTrainApiClient seoulSubwayLastTrainApiClient,
+                                       SeoulSubwayTimetableSeedCatalog seedCatalog) {
         this.repository = repository;
         this.tagoSubwayApiClient = tagoSubwayApiClient;
         this.seoulSubwayLastTrainApiClient = seoulSubwayLastTrainApiClient;
+        this.seedCatalog = seedCatalog;
     }
 
     @Override
     @Transactional
-    public List<SubwaySchedule> getLastTrains(String stationId, int wayCode, LocalDate date) {
+    public List<SubwaySchedule> getLastTrains(String stationId, int wayCode, LocalDate date,
+                                               String stationName, String laneName) {
         DayType dayType = DayType.from(date);
 
         if (repository.existsByStationIdAndWayCodeAndDayType(stationId, wayCode, dayType)) {
             return repository.findByStationIdAndWayCodeAndDayType(stationId, wayCode, dayType);
         }
 
-        return fetchAndCache(stationId, wayCode, dayType);
+        List<SubwaySchedule> fetched = fetchAndCache(stationId, wayCode, dayType);
+        if (!fetched.isEmpty()) {
+            return fetched;
+        }
+        return fromSeed(stationId, stationName, laneName, wayCode, dayType);
+    }
+
+    /** 위 두 단계(TAGO, 서울교통공사 API)가 모두 빈 목록을 준 역의 마지막 보완 - DB에 캐싱하지
+     * 않는다(정적 시드라 매번 다시 조회해도 비용이 없다 - 인메모리 Map 조회일 뿐). */
+    private List<SubwaySchedule> fromSeed(String stationId, String stationName, String laneName,
+                                           int wayCode, DayType dayType) {
+        List<SeoulSubwayTimetableSeedCatalog.Entry> entries = seedCatalog.find(stationName, laneName, wayCode, dayType);
+        return entries.stream()
+                .map(entry -> new SubwaySchedule(stationId, wayCode, dayType, entry.endStationName(),
+                        entry.departureTime(), entry.nextDay(), null))
+                .toList();
     }
 
     private List<SubwaySchedule> fetchAndCache(String stationId, int wayCode, DayType dayType) {

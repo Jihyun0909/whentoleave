@@ -32,7 +32,7 @@ class LastDepartureCalculatorTest {
 
     /** stationId -> 그 역의 시간표 후보 목록, 을 그대로 반환하는 람다 페이크. */
     private LastTrainLookup fakeLookup(Map<String, List<SubwaySchedule>> byStation) {
-        return (stationId, wayCode, date) -> byStation.getOrDefault(stationId, List.of());
+        return (stationId, wayCode, date, stationName, laneName) -> byStation.getOrDefault(stationId, List.of());
     }
 
     @Test

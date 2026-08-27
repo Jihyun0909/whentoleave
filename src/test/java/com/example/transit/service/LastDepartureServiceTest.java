@@ -418,7 +418,7 @@ class LastDepartureServiceTest {
     }
 
     private LastTrainLookup fakeLookup(Map<String, List<SubwaySchedule>> byStation) {
-        return (stationId, wayCode, date) -> byStation.getOrDefault(stationId, List.of());
+        return (stationId, wayCode, date, stationName, laneName) -> byStation.getOrDefault(stationId, List.of());
     }
 
     private SubwaySchedule train(LocalTime time, boolean nextDay) {

@@ -52,9 +52,10 @@ class SubwayScheduleCacheServiceTest {
                 throw new AssertionError("TAGO에 데이터가 있으면 서울교통공사 API를 부르면 안 됨");
             }
         };
-        SubwayScheduleCacheService service = new SubwayScheduleCacheService(new InMemoryRepository(), tago, seoul);
+        SubwayScheduleCacheService service = new SubwayScheduleCacheService(
+                new InMemoryRepository(), tago, seoul, new SeoulSubwayTimetableSeedCatalog());
 
-        List<SubwaySchedule> result = service.getLastTrains("MTRS12222", 1, TODAY);
+        List<SubwaySchedule> result = service.getLastTrains("MTRS12222", 1, TODAY, null, null);
 
         assertEquals(1, result.size());
         assertEquals("강남", result.get(0).getEndStationName());
@@ -80,9 +81,10 @@ class SubwayScheduleCacheServiceTest {
                 return seoulResponse(row("서울대입구", "24:56:30"), row("신도림", "24:43:30"));
             }
         };
-        SubwayScheduleCacheService service = new SubwayScheduleCacheService(new InMemoryRepository(), tago, seoul);
+        SubwayScheduleCacheService service = new SubwayScheduleCacheService(
+                new InMemoryRepository(), tago, seoul, new SeoulSubwayTimetableSeedCatalog());
 
-        List<SubwaySchedule> result = service.getLastTrains("MTRS12226", 1, TODAY);
+        List<SubwaySchedule> result = service.getLastTrains("MTRS12226", 1, TODAY, null, null);
 
         assertEquals(2, result.size());
         assertEquals("서울대입구", result.get(0).getEndStationName());
@@ -107,9 +109,10 @@ class SubwayScheduleCacheServiceTest {
                 throw new AssertionError("역번호를 못 뽑으면 서울교통공사 API를 부르면 안 됨");
             }
         };
-        SubwayScheduleCacheService service = new SubwayScheduleCacheService(new InMemoryRepository(), tago, seoul);
+        SubwayScheduleCacheService service = new SubwayScheduleCacheService(
+                new InMemoryRepository(), tago, seoul, new SeoulSubwayTimetableSeedCatalog());
 
-        assertTrue(service.getLastTrains("COORD:127.0,37.0", 1, TODAY).isEmpty());
+        assertTrue(service.getLastTrains("COORD:127.0,37.0", 1, TODAY, null, null).isEmpty());
     }
 
     /** 둘 다 못 찾으면(서울교통공사 API 호출 실패 등) 예외 대신 빈 목록을 준다. */
@@ -129,9 +132,10 @@ class SubwayScheduleCacheServiceTest {
                 throw new IllegalStateException("API 실패");
             }
         };
-        SubwayScheduleCacheService service = new SubwayScheduleCacheService(new InMemoryRepository(), tago, seoul);
+        SubwayScheduleCacheService service = new SubwayScheduleCacheService(
+                new InMemoryRepository(), tago, seoul, new SeoulSubwayTimetableSeedCatalog());
 
-        assertTrue(service.getLastTrains("MTRS12226", 1, TODAY).isEmpty());
+        assertTrue(service.getLastTrains("MTRS12226", 1, TODAY, null, null).isEmpty());
     }
 
     /** 키가 없으면(isConfigured=false) 서울교통공사 폴백을 시도하지 않는다. */
@@ -151,9 +155,63 @@ class SubwayScheduleCacheServiceTest {
                 throw new AssertionError("키 없이 폴백을 시도하면 안 됨");
             }
         };
-        SubwayScheduleCacheService service = new SubwayScheduleCacheService(new InMemoryRepository(), tago, seoul);
+        SubwayScheduleCacheService service = new SubwayScheduleCacheService(
+                new InMemoryRepository(), tago, seoul, new SeoulSubwayTimetableSeedCatalog());
 
-        assertTrue(service.getLastTrains("MTRS12226", 1, TODAY).isEmpty());
+        assertTrue(service.getLastTrains("MTRS12226", 1, TODAY, null, null).isEmpty());
+    }
+
+    /**
+     * TAGO도 서울교통공사 API도 비어 있으면(코레일 위탁 구간 등) 마지막으로 서울교통공사 전수
+     * 시간표 시드({@link SeoulSubwayTimetableSeedCatalog})로 보완한다. 사당역 4호선 상행
+     * 평일 시간표에 실제로 있는 열차(진접행 05:32:30차, 시드 원본 CSV로 확인)로 검증한다.
+     */
+    @Test
+    void 서울교통공사_API도_비어있으면_전수_시간표_시드로_보완한다() throws Exception {
+        TagoSubwayApiClient tago = new TagoSubwayApiClient("http://dummy", "dummy") {
+            @Override
+            public TagoBusArrivalResponse fetchSchedule(String subwayStationId, String upDownTypeCode,
+                                                          String dailyTypeCode) {
+                return emptyTagoResponse();
+            }
+        };
+        SeoulSubwayLastTrainApiClient seoul = new SeoulSubwayLastTrainApiClient("http://dummy", "dummy") {
+            @Override
+            public SeoulSubwayLastTrainResponse findSchedule(String stationCode, String weekTag, String inOutTag,
+                                                               int maxRows) {
+                return seoulResponse(); // 빈 목록
+            }
+        };
+        SubwayScheduleCacheService service = new SubwayScheduleCacheService(
+                new InMemoryRepository(), tago, seoul, new SeoulSubwayTimetableSeedCatalog());
+
+        List<SubwaySchedule> result = service.getLastTrains("MTRS14433", 1, TODAY, "사당", "4호선");
+
+        assertTrue(result.stream().anyMatch(s ->
+                s.getDepartureTime().equals(LocalTime.of(5, 32, 30)) && "진접".equals(s.getEndStationName())));
+    }
+
+    /** 역명/노선명을 못 받으면(테스트 등) 시드 보완도 조용히 건너뛴다. */
+    @Test
+    void 역명이_없으면_시드_보완도_건너뛴다() throws Exception {
+        TagoSubwayApiClient tago = new TagoSubwayApiClient("http://dummy", "dummy") {
+            @Override
+            public TagoBusArrivalResponse fetchSchedule(String subwayStationId, String upDownTypeCode,
+                                                          String dailyTypeCode) {
+                return emptyTagoResponse();
+            }
+        };
+        SeoulSubwayLastTrainApiClient seoul = new SeoulSubwayLastTrainApiClient("http://dummy", "dummy") {
+            @Override
+            public SeoulSubwayLastTrainResponse findSchedule(String stationCode, String weekTag, String inOutTag,
+                                                               int maxRows) {
+                return seoulResponse();
+            }
+        };
+        SubwayScheduleCacheService service = new SubwayScheduleCacheService(
+                new InMemoryRepository(), tago, seoul, new SeoulSubwayTimetableSeedCatalog());
+
+        assertTrue(service.getLastTrains("MTRS14433", 1, TODAY, null, "4호선").isEmpty());
     }
 
     private TagoBusArrivalResponse tagoResponse(String endStationName, String depTime) {
