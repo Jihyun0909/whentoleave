@@ -67,6 +67,70 @@ class LastDepartureCalculatorTest {
         assertFalse(feasible.nextDay());
     }
 
+    /**
+     * 어느 방면 열차를 타야 하는지(사용자 요청) - 실제로 선택된 그 차편의 종착역명이
+     * subwayDirections에 legs와 같은 순서로 담겨야 한다. 두 구간이 서로 다른 방면(종착역)의
+     * 차편을 고르는 상황으로 검증한다(환승역마다 독립적으로 잡히는지 확인).
+     */
+    @Test
+    void 실제로_선택된_차편의_방면을_구간별로_담는다() {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                "100", List.of(lastTrain(LocalTime.of(23, 0), false, "당고개")),
+                "200", List.of(lastTrain(LocalTime.of(23, 30), false, "오이도"))
+        ));
+        LastDepartureCalculator calculator = LastDepartureCalculator.subwayOnly(lookup);
+
+        TransitLeg first = TransitLeg.subway("100", 2, 15, 0, Set.of());
+        TransitLeg second = TransitLeg.subway("200", 2, 10, 3, Set.of());
+        LastDepartureResult result = calculator.calculate(List.of(first, second));
+
+        LastDepartureResult.Feasible feasible = assertInstanceOf(LastDepartureResult.Feasible.class, result);
+        assertEquals(List.of("당고개", "오이도"), feasible.subwayDirections());
+    }
+
+    /** 목표 도착시간 모드에서도 마감을 만족하며 실제로 고른 차편의 방면이 나와야 한다(가장 늦은
+     * 후보를 무조건 고르는 게 아니라 마감 필터를 통과한 후보 중에서 고르므로 별도로 확인). */
+    @Test
+    void 목표_도착시간_모드에서도_마감을_만족한_차편의_방면을_담는다() {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                "300", List.of(
+                        lastTrain(LocalTime.of(23, 0), false, "이른행"),
+                        lastTrain(LocalTime.of(23, 50), false, "늦은행") // 마감(23:40)을 놓침
+                )
+        ));
+        LastDepartureCalculator calculator = LastDepartureCalculator.subwayOnly(lookup);
+
+        TransitLeg leg = TransitLeg.subway("300", 1, 20, 0, Set.of());
+        LastDepartureResult result = calculator.calculate(List.of(leg), 23 * 60 + 40);
+
+        LastDepartureResult.Feasible feasible = assertInstanceOf(LastDepartureResult.Feasible.class, result);
+        assertEquals(List.of("이른행"), feasible.subwayDirections());
+    }
+
+    /**
+     * 사용자 피드백: "환승했을 때 열차의 예상 출발 시각을 그냥 환승 전 열차 하차 후 시각+도보시간
+     * 한 시각으로 계산하고 있는 것 같다" - 실제로 그렇다는 걸 재현하는 테스트다. 역A(leg0)의
+     * 시간표에 22:00·23:00 두 편만 있고, 역B(leg1)행 막차는 23:30이다. 도보(3분)를 더한
+     * "역A 하차+도보 직후 시각"(23:00+15분+3분=23:18)엔 실제로 아무 열차도 없다 - 진짜 탈 수
+     * 있는 건 23:30차이므로, legBoardServiceMinutes는 그 실제 시각(1410분)을 그대로 담아야
+     * 한다(23:18을 그대로 썼다면 화면에 없는 열차를 타는 것처럼 보여준 것이다).
+     */
+    @Test
+    void 각_구간의_탑승시각은_환승도보_직후가_아니라_실제로_선택된_차편의_시각이다() {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                "100", List.of(lastTrain(LocalTime.of(22, 0), false), lastTrain(LocalTime.of(23, 0), false)),
+                "200", List.of(lastTrain(LocalTime.of(23, 30), false))
+        ));
+        LastDepartureCalculator calculator = LastDepartureCalculator.subwayOnly(lookup);
+
+        TransitLeg first = TransitLeg.subway("100", 2, 15, 0, Set.of());
+        TransitLeg second = TransitLeg.subway("200", 2, 10, 3, Set.of());
+        LastDepartureResult result = calculator.calculate(List.of(first, second));
+
+        LastDepartureResult.Feasible feasible = assertInstanceOf(LastDepartureResult.Feasible.class, result);
+        assertEquals(List.of(23 * 60, 23 * 60 + 30), feasible.legBoardServiceMinutes());
+    }
+
     @Test
     void 앞_구간_막차가_다음_환승_마감을_넘기면_Infeasible을_반환한다() {
         LastTrainLookup lookup = fakeLookup(Map.of(

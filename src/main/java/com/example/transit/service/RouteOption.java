@@ -19,11 +19,18 @@ import java.util.List;
  *                             여유를 둘 수 없음(예: 환승이 없거나, 여유를 두면 아예 못 감) - 이 경우
  *                             화면에서는 최단 막차만 보여준다.
  * @param safeNextDay          safeDepartureTime이 "다음날 이 시각"인지. safeDepartureTime이 null이면 의미 없음.
+ * @param subwayDirections     legs와 같은 순서·길이. 지하철 구간이면 실제로 타는 차편의 방면(종착역명,
+ *                              예: "당고개") - 화면에 "OO행"으로 보여준다. 버스 구간이거나 방면
+ *                              정보를 못 구했으면 null.
+ * @param legBoardServiceMinutes legs와 같은 순서·길이. 각 구간에서 실제로 선택된 차편의 탑승
+ *                              시각(서비스일 기준 분) - 환승 도보 직후를 그냥 탑승 시각으로 가정하지
+ *                              않고, 실제 시간표상 그 이후 가장 빠른 차편 시각을 보여주는 데 쓴다.
  */
 public record RouteOption(String modeLabel, LocalTime departureTime, boolean nextDay,
                            List<TransitLeg> legs, int finalWalkMinutes, int totalMinutes,
                            boolean estimated, boolean lastTrainDeparture, int fareWon,
-                           LocalTime safeDepartureTime, boolean safeNextDay) {
+                           LocalTime safeDepartureTime, boolean safeNextDay, List<String> subwayDirections,
+                           List<Integer> legBoardServiceMinutes) {
 
     private static final int MINUTES_PER_DAY = 24 * 60;
 

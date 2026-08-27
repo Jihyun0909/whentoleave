@@ -318,10 +318,15 @@
 
             <!-- 접힌 상태: 어느 노선을 어디서 타고 어디서 내리는지만 -->
             <ul class="route-brief">
-                <li th:each="leg : ${view.option().legs()}">
+                <li th:each="leg, legStat : ${view.option().legs()}">
                     <span class="route-brief-line"
                           th:style="'background-color:' + ${leg.isBus() ? '#3C8A3F' : @lineColorResolver.colorOf(leg.laneName())} + ';'"
                           th:text="${leg.isBus() ? (leg.busNo() != null ? leg.busNo() + '번' : '버스') : @lineColorResolver.shortNameOf(leg.laneName())}"></span>
+                    <!-- 지하철만 방면(실제 타는 차편의 종착역) 표시 - 어느 방향 열차를 타야 하는지
+                         안내하기 위함(사용자 요청). 버스는 노선 자체가 방향이라 필요 없다. -->
+                    <span class="route-brief-direction"
+                          th:if="${!leg.isBus() and view.option().subwayDirections() != null and view.option().subwayDirections()[legStat.index] != null}"
+                          th:text="${view.option().subwayDirections()[legStat.index]} + '행'"></span>
                     <span class="route-brief-station" th:text="${leg.stationName()}"></span>
                 </li>
                 <li>
@@ -358,8 +363,13 @@
                                 <span class="route-timeline-time"></span>
                                 <span class="route-timeline-rail"></span>
                                 <span class="route-timeline-body">
-                                    <span class="route-timeline-wait"
+                                    <!-- 버스는 배차간격 기반 추정("예상 대기"), 지하철은 환승 도보 이후
+                                         실제 시간표상 가장 빠른 차편까지의 실측 대기("환승 대기")다
+                                         (row.isBus()를 isEstimate 의미로 재사용 - RouteTimelineRow 참고). -->
+                                    <span class="route-timeline-wait" th:if="${row.isBus()}"
                                           th:text="'예상 대기 약 ' + ${row.minutes()} + '분'"></span>
+                                    <span class="route-timeline-wait" th:unless="${row.isBus()}"
+                                          th:text="'환승 대기 ' + ${row.minutes()} + '분'"></span>
                                 </span>
                             </th:block>
                             <th:block th:case="'RIDE'">
@@ -370,6 +380,9 @@
                                     <span class="route-timeline-title">
                                         <span class="route-brief-line" th:style="'background-color:' + ${row.color()} + ';'"
                                               th:text="${row.lineLabel()}"></span>
+                                        <!-- 어느 방면 열차를 타야 하는지 (실제 타는 차편의 종착역, 사용자 요청) -->
+                                        <span class="route-timeline-direction" th:if="${row.direction() != null}"
+                                              th:text="${row.direction()} + '행'"></span>
                                         <!-- 버스는 배차간격 기반 추정이라 "승차"로 두고, 지하철은 시간표가
                                              이미 정해져 있으니 역명 옆에 "HH:mm 출발 예정"을 작게 덧붙인다
                                              (사용자 요청 - "역명 예정 열차 탑승"은 부자연스럽다는 피드백). -->
