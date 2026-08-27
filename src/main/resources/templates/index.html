@@ -370,10 +370,15 @@
                                     <span class="route-timeline-title">
                                         <span class="route-brief-line" th:style="'background-color:' + ${row.color()} + ';'"
                                               th:text="${row.lineLabel()}"></span>
-                                        <!-- 지하철은 시간표가 이미 정해져 있으니 "예정 열차"임을 분명히 하고,
-                                             버스는 배차간격 기반 추정이라 그냥 "승차"로 둔다(사용자 요청). -->
+                                        <!-- 버스는 배차간격 기반 추정이라 "승차"로 두고, 지하철은 시간표가
+                                             이미 정해져 있으니 역명 옆에 "HH:mm 출발 예정"을 작게 덧붙인다
+                                             (사용자 요청 - "역명 예정 열차 탑승"은 부자연스럽다는 피드백). -->
                                         <span th:if="${row.isBus()}" th:text="${row.fromName()} + ' 승차'"></span>
-                                        <span th:unless="${row.isBus()}" th:text="${row.fromName()} + ' 예정 열차 탑승'"></span>
+                                        <th:block th:unless="${row.isBus()}">
+                                            <span th:text="${row.fromName()}"></span>
+                                            <span class="route-timeline-departure-note"
+                                                  th:text="${#temporals.format(row.time(), 'HH:mm')} + ' 출발 예정'"></span>
+                                        </th:block>
                                     </span>
                                     <!-- 버스는 배차간격을 그대로 보여준다(카카오맵/네이버지도도 버스는 실시간을
                                          반영하지 않고 배차간격 기준으로만 안내함 - 사용자 요청). -->
