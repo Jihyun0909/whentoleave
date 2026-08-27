@@ -277,10 +277,17 @@ public class LastDepartureService {
     }
 
     /**
-     * ODsay가 추천한 경로 후보마다 역산해보고, 그중 가장 늦게 출발해도 되는 결과를 고른다.
-     * "1순위 추천 경로" 하나만 보면, 그 경로 중간에 배차가 뜸한 구간이 껴 있을 때 막차가
-     * 실제보다 훨씬 이르게 계산되는 문제가 있었다 (이슈 #8 — 가평->신림, 청량리 환승 수인분당선
-     * 연장구간처럼 하루 몇 대 안 다니는 구간을 타는 경로가 1순위로 나온 경우).
+     * 목표 도착시간이 없으면(막차 모드) 경로 후보마다 역산해보고 그중 가장 늦게 출발해도 되는
+     * 결과를 고른다. Google의 "1순위 추천 경로" 하나만 보면, 그 경로 중간에 배차가 뜸한 구간이
+     * 껴 있을 때 막차가 실제보다 훨씬 이르게 계산되는 문제가 있었다 (이슈 #8 — 가평->신림,
+     * 청량리 환승 수인분당선 연장구간처럼 하루 몇 대 안 다니는 구간을 타는 경로가 1순위로 나온
+     * 경우). 이 안전장치는 그대로 둔다.
+     * <p>
+     * 목표 도착시간이 있으면(arrival 모드)는 Google이 준 순서 그대로 첫 번째로 성립하는 경로를
+     * 쓴다 - "환승·도보·대기시간까지 다 포함한 실제 소요시간" 기준의 최적경로 판단은 Google이
+     * 이미 하고 있고(사용자 요청: "구글맵 기준 최적경로로 안내"), 우리가 그 위에 자체 기준
+     * (예: 소요시간만 비교)을 얹으면 오히려 어긋난다 - 실사용 중 발견: 총 소요시간만 비교하는
+     * 기준으로도 여전히 미묘하게 이상한 경로가 골라지는 경우가 있었다.
      */
     private Best bestOf(List<RouteLegExtractor.ExtractedRoute> pathCandidates, Integer targetArrivalMinutes,
                          LocalDate date) {
@@ -291,7 +298,9 @@ public class LastDepartureService {
         for (RouteLegExtractor.ExtractedRoute route : pathCandidates) {
             LastDepartureResult result = calculator.calculate(route.legs(), targetArrivalMinutes, route.finalWalkMinutes());
             if (result instanceof LastDepartureResult.Feasible feasible) {
-                if (best == null || isBetter(feasible, best, targetArrivalMinutes)) {
+                boolean replace = best == null
+                        || (targetArrivalMinutes == null && isLater(feasible, best));
+                if (replace) {
                     best = feasible;
                     bestFareWon = route.fareWon();
                 }
@@ -307,31 +316,8 @@ public class LastDepartureService {
                 fallbackReason != null ? fallbackReason : "가능한 경로를 찾지 못했습니다."), 0);
     }
 
-    /**
-     * 목표 도착시간이 없으면(막차 모드) 더 늦게 출발해도 되는 후보가 낫다 - 어떤 경로든 마지막
-     * 순간까지 여유를 준다. 목표 도착시간이 있으면(arrival 모드) 대신 총 소요시간이 짧은 후보를
-     * 우선한다.
-     * <p>
-     * 이 안쪽 후보 선택도 recommendationOrder(여러 SearchPathType 결과를 화면에 정렬하는 바깥쪽
-     * 기준)와 똑같은 이유로 고쳐야 했다(실사용 중 발견: 번동->광운대에서 Google이 1218 직행을
-     * 후보로 주는데도 환승 경로가 계속 뜸 - 원인이 바깥쪽 정렬이 아니라 여기, 같은
-     * SearchPathType.ALL 안에서 "더 늦게 출발해도 되는" 환승 경로가 "더 일찍 출발해야 하는"
-     * 1218 직행을 내부적으로 먼저 이겨버려서, recommendationOrder까지 갈 후보 자체가 이미
-     * 환승 경로 하나뿐이었다).
-     */
-    private boolean isBetter(LastDepartureResult.Feasible candidate, LastDepartureResult.Feasible current,
-                              Integer targetArrivalMinutes) {
-        if (targetArrivalMinutes == null) {
-            return toServiceMinutes(candidate) > toServiceMinutes(current);
-        }
-        return totalMinutesOf(candidate) < totalMinutesOf(current);
-    }
-
-    private int totalMinutesOf(LastDepartureResult.Feasible feasible) {
-        int legsMinutes = feasible.legs().stream()
-                .mapToInt(leg -> leg.rideMinutes() + leg.transferBufferMinutes())
-                .sum();
-        return legsMinutes + feasible.finalWalkMinutes();
+    private boolean isLater(LastDepartureResult.Feasible candidate, LastDepartureResult.Feasible current) {
+        return toServiceMinutes(candidate) > toServiceMinutes(current);
     }
 
     private int toServiceMinutes(LastDepartureResult.Feasible feasible) {

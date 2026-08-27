@@ -86,6 +86,9 @@ public class SeoulSubwayArrivalService implements RealtimeSubwayArrivalLookup {
         return response.realtimeArrivalList().stream().map(this::toArrival).toList();
     }
 
+    /** "[6]번째 전역 (의정부)"처럼 몇 번째 전역인지만 알려주고 실제 남은 시간은 아직 계산 전인 메시지. */
+    private static final Pattern STATIONS_AWAY_PATTERN = Pattern.compile("^\\[\\d+\\]번째 전역");
+
     private SubwayArrival toArrival(SeoulSubwayArrivalResponse.Arrival arrival) {
         return new SubwayArrival(
                 LINE_NAMES_BY_SUBWAY_ID.get(arrival.subwayId()),
@@ -93,12 +96,22 @@ public class SeoulSubwayArrivalService implements RealtimeSubwayArrivalLookup {
                 arrival.bstatnNm(),
                 arrival.trainLineNm(),
                 arrival.arvlMsg2(),
-                parseSeconds(arrival.barvlDt()),
+                parseSeconds(arrival.barvlDt(), arrival.arvlMsg2()),
                 "1".equals(arrival.lstcarAt()));
     }
 
-    private Integer parseSeconds(String barvlDt) {
-        if (barvlDt == null) {
+    /**
+     * arvlCd "99"(운행중)는 "아직 역에 안 왔다"는 뜻일 뿐 흔한 정상 상태라, 이 코드 자체로
+     * barvlDt 신뢰 여부를 가릴 수 없다(대부분의 열차가 이 코드이고, barvlDt도 "4분 30초 후"
+     * 같은 실제 메시지와 정확히 일치하는 진짜 값이다 - 처음엔 이 코드를 통째로 못 믿게 했다가
+     * 지하철 실시간 정보가 전부 사라지는 회귀를 만들었다).
+     * <p>
+     * 진짜 문제는 따로 있었다: 몇몇 열차는 아직 남은 시간 계산 전이라 barvlDt가 의미없는 "0"으로
+     * 오면서, 안내 메시지도 시간이 아니라 "[6]번째 전역 (의정부)"처럼 역 개수만 알려준다(실사용
+     * 중 발견 - 창동역 인천행 하행). 그런 경우만 신뢰하지 않는다.
+     */
+    private Integer parseSeconds(String barvlDt, String arvlMsg2) {
+        if (barvlDt == null || (arvlMsg2 != null && STATIONS_AWAY_PATTERN.matcher(arvlMsg2).find())) {
             return null;
         }
         try {

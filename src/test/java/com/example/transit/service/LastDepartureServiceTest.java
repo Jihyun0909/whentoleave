@@ -149,15 +149,22 @@ class LastDepartureServiceTest {
 
     /**
      * 위 테스트가 잡아낸 것과 같은 편향이 한 겹 더 안쪽에도 있었다(실사용 중 발견 - 번동->광운대
-     * 검색에서 Google이 버스 1218 직행을 후보로 주는데도 계속 환승 경로만 떴다). 원인은 바깥쪽
-     * 정렬(recommendationOrder)이 아니라, 같은 SearchPathType 안에서 여러 후보 중 하나를 고르는
-     * bestOf()의 내부 선택 로직(isLater)이었다 - "더 늦게 출발해도 되는 후보"를 우선하다 보니,
-     * 총 소요시간이 훨씬 짧은 직행 후보가 recommendationOrder까지 가보지도 못하고 여기서부터
-     * 져버렸다. 하나의 GoogleRoutesResponse 안에 직행(5분)과 환승(33분, 마감에 더 가깝게 출발)
-     * 두 대안을 같이 줘서, bestOf()가 내부적으로 짧은 쪽을 골라야 함을 확인한다.
+     * 검색에서 Google이 버스 1218 직행을 1순위 후보로 주는데도 계속 환승 경로만 떴다). 원인은
+     * 바깥쪽 정렬(recommendationOrder)이 아니라, 같은 SearchPathType 안에서 여러 후보 중 하나를
+     * 고르는 bestOf()의 내부 선택 로직(isLater)이었다 - "더 늦게 출발해도 되는 후보"를 우선하다
+     * 보니, Google이 1순위로 준 직행 후보가 recommendationOrder까지 가보지도 못하고 여기서부터
+     * 져버렸다.
+     * <p>
+     * 처음엔 "총 소요시간이 짧은 후보"로 고쳤는데, 그래도 미묘하게 이상한 경로가 골라지는
+     * 경우가 있었다(사용자 피드백: "구글맵 기준 최적경로로 안내해줘" - 환승·도보·대기시간까지
+     * 포함한 진짜 최적 판단은 Google이 이미 하고 있다). 그래서 목표 도착시간 모드에서는 우리가
+     * 다시 비교하지 않고 Google이 준 순서 그대로 첫 번째로 성립하는 후보를 그냥 쓰도록 바꿨다.
+     * 하나의 GoogleRoutesResponse 안에 Google이 1순위로 준 직행(F)과 2순위인 환승(S1->S2, 마감에
+     * 더 가깝게 출발)을 같이 줘서, bestOf()가 Google 순서 그대로 1순위(직행)를 골라야 함을
+     * 확인한다.
      */
     @Test
-    void 같은_카테고리_안에서도_소요시간이_짧은_후보를_내부적으로_먼저_고른다() throws Exception {
+    void 같은_카테고리_안에서도_google이_1순위로_준_후보를_그대로_고른다() throws Exception {
         LastTrainLookup lookup = fakeLookup(Map.of(
                 "F", List.of(train(LocalTime.of(23, 0), false)),
                 "S1", List.of(train(LocalTime.of(23, 20), false)),
@@ -169,11 +176,11 @@ class LastDepartureServiceTest {
 
         List<RouteOption> options = service.calculateOptions(0, 0, 0, 0, FIXED_TARGET, LocalDate.now());
 
-        assertEquals(1, options.size()); // 직행이 모든 SearchPathType에서 이겨서 하나로 합쳐짐
-        assertEquals(LocalTime.of(23, 0), options.get(0).departureTime()); // 직행(F) - 환승(23:20)보다 일찍 출발하지만 훨씬 빠름
+        assertEquals(1, options.size()); // Google 1순위(직행)가 모든 SearchPathType에서 그대로 골라져 하나로 합쳐짐
+        assertEquals(LocalTime.of(23, 0), options.get(0).departureTime()); // 직행(F, Google 1순위) - 환승(23:20)보다 일찍 출발
     }
 
-    /** 직행(F, 5분) 대 환승(S1->S2, 33분, 마감에 더 가깝게 출발) 두 대안을 같이 주는 응답. */
+    /** Google이 1순위로 주는 직행(F)과 2순위인 환승(S1->S2, 마감에 더 가깝게 출발) 두 대안을 같이 주는 응답. */
     private GoogleRoutesResponse fastAndSlowResponse() {
         GoogleRoutesResponse.Step fastStep = transitStep(5, "역(F)", "1호선");
         GoogleRoutesResponse.Route fastRoute =

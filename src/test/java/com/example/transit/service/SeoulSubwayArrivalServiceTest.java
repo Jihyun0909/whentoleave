@@ -95,6 +95,49 @@ class SeoulSubwayArrivalServiceTest {
     }
 
     /**
+     * 실사용 중 발견한 버그의 회귀 테스트. "몇 번째 전역"이라고만 알려주고 실제 남은 시간은
+     * 아직 계산되지 않은 열차는 barvlDt가 의미없는 "0"으로 온다("창동" 인천행 하행 중
+     * "[6]번째 전역(의정부)"처럼 6개 역이나 남았는데도 barvlDt="0" - 도보로 못 따라잡는 차편을
+     * 거르는 로직이 이걸 "지금 당장 도착"으로 잘못 알고 걸러내서, 탈 수 있는 열차가 있는데도
+     * 실시간 정보 전체가 사라졌다). 이런 경우는 신뢰할 수 있는 초 단위 값이 없는 것으로 봐야 한다.
+     * <p>
+     * 처음엔 이걸 arvlCd "99"(운행중) 전체를 못 믿는 걸로 고쳤다가, arvlCd 99는 그냥 대부분의
+     * 정상 운행 열차가 갖는 흔한 코드일 뿐이라는 걸 놓쳐서 지하철 실시간 정보가 통째로 사라지는
+     * 회귀를 만들었다(아래 두 번째 테스트가 그 경우를 검증한다). 실제 구분 기준은 arvlCd가 아니라
+     * 안내 메시지 형식("[N]번째 전역"인지 vs 실제 시간 문구인지)이다.
+     */
+    @Test
+    void 번째_전역이라고만_나오면_barvlDt를_신뢰하지_않고_null로_준다() {
+        SeoulSubwayArrivalResponse response = new SeoulSubwayArrivalResponse(null, List.of(
+                new SeoulSubwayArrivalResponse.Arrival("1001", "하행", "인천행 - 녹천방면", "창동",
+                        "0", "인천", "[6]번째 전역 (의정부)", "의정부", "99", "0", "2026-08-27 13:16:28")));
+        CountingClient client = new CountingClient("dummy-key", response);
+        SeoulSubwayArrivalService service = new SeoulSubwayArrivalService(client);
+
+        List<RealtimeSubwayArrivalLookup.SubwayArrival> result = service.findArrivals("창동");
+
+        assertNull(result.get(0).secondsUntilArrival());
+    }
+
+    /**
+     * arvlCd "99"(운행중)는 정상 운행 중인 대부분의 열차가 갖는 흔한 코드다 - 실제 시간 문구
+     * ("4분 30초 후")와 함께 오면 barvlDt를 그대로 신뢰해야 한다(수유역 라이브 조회로 확인:
+     * arvlCd 99에 barvlDt=270, 메시지 "4분 30초 후"가 정확히 일치).
+     */
+    @Test
+    void arvlCd가_99여도_실제_시간_문구가_있으면_barvlDt를_신뢰한다() {
+        SeoulSubwayArrivalResponse response = new SeoulSubwayArrivalResponse(null, List.of(
+                new SeoulSubwayArrivalResponse.Arrival("1004", "상행", "불암산행 - 쌍문방면", "수유",
+                        "270", "불암산", "4분 30초 후 (미아사거리)", "미아사거리", "99", "0", "2026-08-27 13:20:00")));
+        CountingClient client = new CountingClient("dummy-key", response);
+        SeoulSubwayArrivalService service = new SeoulSubwayArrivalService(client);
+
+        List<RealtimeSubwayArrivalLookup.SubwayArrival> result = service.findArrivals("수유");
+
+        assertEquals(270, result.get(0).secondsUntilArrival());
+    }
+
+    /**
      * 실사용 검증 중 발견한 버그의 회귀 테스트. ODsay는 부역명을 괄호로 붙여 주는데
      * ("수유(강북구청)") 서울시 API는 순수 역명만 인식해서, 괄호째 넘기면 빈 응답이 와서
      * 실시간 정보가 조용히 사라졌다(실측: "수유(강북구청)" -> 데이터 없음, "수유" -> 정상).
