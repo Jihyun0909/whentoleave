@@ -93,12 +93,20 @@ public class SeoulSubwayArrivalService implements RealtimeSubwayArrivalLookup {
                 arrival.bstatnNm(),
                 arrival.trainLineNm(),
                 arrival.arvlMsg2(),
-                parseSeconds(arrival.barvlDt()),
+                parseSeconds(arrival.barvlDt(), arrival.arvlCd()),
                 "1".equals(arrival.lstcarAt()));
     }
 
-    private Integer parseSeconds(String barvlDt) {
-        if (barvlDt == null) {
+    /**
+     * arvlCd "99"(운행중 - 아직 역에 가까이 온 게 아니라 그냥 노선 어딘가를 달리고 있음)인
+     * 열차는 barvlDt가 실제로 계산 안 된 "0"으로 온다(실사용 중 발견: "창동" 인천행 하행 중
+     * "[6]번째 전역(의정부)"처럼 6개 역이나 남았는데도 barvlDt="0" - 도보로 못 따라잡는 차편
+     * 필터링 로직이 이걸 "지금 당장 도착"으로 잘못 알고 걸러내서, 정작 탈 수 있는 열차가 있는데
+     * 실시간 정보 전체가 안 보이는 문제가 있었다). arvlCd가 진짜 임박 상태(진입/도착/전역출발
+     * 등)일 때만 barvlDt를 신뢰한다.
+     */
+    private Integer parseSeconds(String barvlDt, String arvlCd) {
+        if (barvlDt == null || "99".equals(arvlCd)) {
             return null;
         }
         try {

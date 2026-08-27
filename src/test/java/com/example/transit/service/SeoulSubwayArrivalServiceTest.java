@@ -95,6 +95,26 @@ class SeoulSubwayArrivalServiceTest {
     }
 
     /**
+     * 실사용 중 발견한 버그의 회귀 테스트. arvlCd "99"(운행중 - 아직 역 근처가 아니라 노선 어딘가를
+     * 달리고 있음)인 열차는 barvlDt가 실제로 계산 안 된 "0"으로 온다("창동" 인천행 하행 중
+     * "[6]번째 전역(의정부)"처럼 6개 역이나 남았는데도 barvlDt="0" - 도보로 못 따라잡는 차편을
+     * 거르는 로직이 이걸 "지금 당장 도착"으로 잘못 알고 걸러내서, 탈 수 있는 열차가 있는데도
+     * 실시간 정보 전체가 사라졌다). 이런 경우는 신뢰할 수 있는 초 단위 값이 없는 것으로 봐야 한다.
+     */
+    @Test
+    void arvlCd가_99면_barvlDt를_신뢰하지_않고_null로_준다() {
+        SeoulSubwayArrivalResponse response = new SeoulSubwayArrivalResponse(null, List.of(
+                new SeoulSubwayArrivalResponse.Arrival("1001", "하행", "인천행 - 녹천방면", "창동",
+                        "0", "인천", "[6]번째 전역 (의정부)", "의정부", "99", "0", "2026-08-27 13:16:28")));
+        CountingClient client = new CountingClient("dummy-key", response);
+        SeoulSubwayArrivalService service = new SeoulSubwayArrivalService(client);
+
+        List<RealtimeSubwayArrivalLookup.SubwayArrival> result = service.findArrivals("창동");
+
+        assertNull(result.get(0).secondsUntilArrival());
+    }
+
+    /**
      * 실사용 검증 중 발견한 버그의 회귀 테스트. ODsay는 부역명을 괄호로 붙여 주는데
      * ("수유(강북구청)") 서울시 API는 순수 역명만 인식해서, 괄호째 넘기면 빈 응답이 와서
      * 실시간 정보가 조용히 사라졌다(실측: "수유(강북구청)" -> 데이터 없음, "수유" -> 정상).
