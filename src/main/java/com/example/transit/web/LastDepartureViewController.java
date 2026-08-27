@@ -4,7 +4,6 @@ import com.example.transit.domain.DayType;
 import com.example.transit.domain.KoreanHolidays;
 import com.example.transit.service.LastDepartureResult;
 import com.example.transit.service.LastDepartureService;
-import com.example.transit.service.RealtimeSubwayArrivalLookup;
 import com.example.transit.service.RouteOption;
 import com.example.transit.service.SeoulBusRouteScheduleCatalog;
 import com.example.transit.service.StationResolution;
@@ -21,11 +20,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 @Controller
 public class LastDepartureViewController {
@@ -40,20 +36,17 @@ public class LastDepartureViewController {
     private final LastDepartureService lastDepartureService;
     private final StationSearchService stationSearchService;
     private final LineColorResolver lineColorResolver;
-    private final RealtimeSubwayArrivalLookup subwayArrivalLookup;
     private final TaxiFareEstimator taxiFareEstimator;
     private final SeoulBusRouteScheduleCatalog seoulBusRouteScheduleCatalog;
 
     public LastDepartureViewController(LastDepartureService lastDepartureService,
                                         StationSearchService stationSearchService,
                                         LineColorResolver lineColorResolver,
-                                        RealtimeSubwayArrivalLookup subwayArrivalLookup,
                                         TaxiFareEstimator taxiFareEstimator,
                                         SeoulBusRouteScheduleCatalog seoulBusRouteScheduleCatalog) {
         this.lastDepartureService = lastDepartureService;
         this.stationSearchService = stationSearchService;
         this.lineColorResolver = lineColorResolver;
-        this.subwayArrivalLookup = subwayArrivalLookup;
         this.taxiFareEstimator = taxiFareEstimator;
         this.seoulBusRouteScheduleCatalog = seoulBusRouteScheduleCatalog;
     }
@@ -154,12 +147,9 @@ public class LastDepartureViewController {
             return "index";
         }
 
-        // 실시간 도착정보는 "지금 이 순간"의 값이라 오늘 화면에서만 의미가 있다 (다른날 막차 보기는
-        // 미래 시간표 기준 계산이라 실시간 값을 붙이면 오해를 준다).
-        boolean showRealtimeArrivals = selectedDate.equals(LocalDate.now());
         model.addAttribute("feasible", true);
         model.addAttribute("routeOptions",
-                options.stream().map(o -> toView(o, showRealtimeArrivals, selectedDate)).toList());
+                options.stream().map(o -> toView(o, selectedDate)).toList());
         // "가장 늦게 출발해도 되는 경로"에 배지를 달기 위한 기준값 (동점이면 둘 다 표시된다).
         model.addAttribute("latestDepartureMinutes", options.stream()
                 .mapToInt(RouteOption::departureServiceMinutes)
@@ -274,14 +264,13 @@ public class LastDepartureViewController {
      * 화면에서 쓰기 쉬운 형태로 펼친다 (예상 도착 시각, 이미 지난 시각 여부처럼 "지금"에 의존하는
      * 값은 계산 결과가 아니라 표시 시점의 관심사라 여기서 만든다).
      */
-    private RouteOptionView toView(RouteOption option, boolean showRealtimeArrivals, LocalDate selectedDate) {
-        // 버스 구간의 "예상 대기"(실시간 또는 배차간격/2 추정, estimatedWaitMinutes 참고)를 총
-        // 소요시간/도착시각/구간 막대에도 반영해야 앞뒤가 맞는다 - 상세 타임라인에만 대기를
-        // 보여주고 이 숫자들은 그대로 두면, "3+13+10=26분"인데 타임라인엔 "대기 13분"까지 있어
-        // 산수가 안 맞는 것처럼 보인다는 신고를 받았다(실사용 중 발견). 막차로 잡는 특정
-        // 차편(추천 출발 시각)은 그대로 시간표 기준이라 안전성엔 영향 없다 - 그 차편을 탄 뒤의
-        // "체감 소요시간"을 더 정확하게 보여주는 것뿐이다.
-        List<LegDisplay> legDisplays = legDisplaysOf(option, showRealtimeArrivals);
+    private RouteOptionView toView(RouteOption option, LocalDate selectedDate) {
+        // 버스 구간의 "예상 대기"(배차간격/2 추정, legDisplaysOf 참고)를 총 소요시간/도착시각/구간
+        // 막대에도 반영해야 앞뒤가 맞는다 - 상세 타임라인에만 대기를 보여주고 이 숫자들은 그대로
+        // 두면, "3+13+10=26분"인데 타임라인엔 "대기 13분"까지 있어 산수가 안 맞는 것처럼 보인다는
+        // 신고를 받았다(실사용 중 발견). 막차로 잡는 특정 차편(추천 출발 시각)은 그대로 시간표
+        // 기준이라 안전성엔 영향 없다 - 그 차편을 탄 뒤의 "체감 소요시간"을 더 정확하게 보여주는 것뿐이다.
+        List<LegDisplay> legDisplays = legDisplaysOf(option);
         int waitMinutesTotal = legDisplays.stream().mapToInt(LegDisplay::waitMinutes).sum();
         int totalMinutes = option.totalMinutes() + waitMinutesTotal;
 
@@ -303,39 +292,35 @@ public class LastDepartureViewController {
     }
 
     /**
-     * 구간별 실시간 도착정보(지하철) + 예상 대기시간(버스, 배차간격 기반)을 한 번만 계산해
-     * 타임라인/구간막대/총소요시간이 같은 값을 쓰게 한다.
+     * 버스 구간별 예상 대기시간(배차간격 기반)을 한 번만 계산해 타임라인/구간막대/총소요시간이
+     * 같은 값을 쓰게 한다. 실시간 도착정보는 지하철·버스 둘 다 화면에서 완전히 뺐다(사용자 요청:
+     * 이 서비스는 "몇 시에 출발하면 되는지"를 안내하는 게 목적이고, 정확한 실시간 확인은 다른
+     * 지도 앱에서 하면 된다는 판단 - 지하철은 시간표 기준 역산, 버스는 배차간격 기준 역산으로
+     * 통일한다).
      *
      * @param intervalMinutes 버스 구간의 배차간격(분) 원본값 - 화면에 "배차간격 N분"으로
      *                        그대로 보여준다(waitMinutes는 이 값의 절반, 즉 평균 대기시간
      *                        추정치라 서로 다른 숫자다 - 실사용 중 혼란: "대기 15분인데 배차간격은
      *                        11분이라던데?"). 지하철이거나 노선 시드 데이터에 없으면 null.
      */
-    private record LegDisplay(List<RealtimeArrivalView> arrivals, int waitMinutes, boolean waitFromRealtime,
-                               Integer waitSeconds, Integer intervalMinutes) {
+    private record LegDisplay(int waitMinutes, Integer intervalMinutes) {
     }
 
-    private List<LegDisplay> legDisplaysOf(RouteOption option, boolean showRealtimeArrivals) {
+    private List<LegDisplay> legDisplaysOf(RouteOption option) {
         List<LegDisplay> result = new ArrayList<>();
         for (TransitLeg leg : option.legs()) {
             if (!leg.isBus()) {
-                // 지하철은 기존대로 실시간 도착정보를 그대로 보여준다(방향별 최대 2대).
-                List<RealtimeArrivalView> arrivals = reachableArrivals(
-                        realtimeArrivalsFor(leg, showRealtimeArrivals), leg.transferBufferMinutes(), 2);
-                result.add(new LegDisplay(arrivals, 0, false, null, null));
+                result.add(new LegDisplay(0, null));
                 continue;
             }
-            // 버스는 실시간을 안 쓰고 배차간격 기반 추정만 쓴다(사용자 요청: 카카오맵/네이버지도도
-            // 버스는 실시간을 반영하지 않고 배차간격 기준으로만 안내함 - 실사용 중 검증한 것처럼
-            // 서울시 버스 API의 실시간 예측(특히 두 번째 차편, PR #20)이 신뢰도가 낮았던 문제도
-            // 이 API 자체의 한계였다). "배차간격의 절반"을 평균 대기시간으로 추정한다 - 정류장에
-            // 무작위로 도착한다고 보면 평균적으로 배차간격의 절반을 기다리게 된다는 근사치다.
+            // "배차간격의 절반"을 평균 대기시간으로 추정한다 - 정류장에 무작위로 도착한다고
+            // 보면 평균적으로 배차간격의 절반을 기다리게 된다는 근사치다.
             Optional<SeoulBusRouteScheduleCatalog.RouteSchedule> schedule =
                     seoulBusRouteScheduleCatalog.find(leg.busNo());
             int estimated = schedule.map(s -> Math.max(1, (s.intervalMinutes() + 1) / 2)).orElse(0);
             Integer intervalMinutes = schedule.map(SeoulBusRouteScheduleCatalog.RouteSchedule::intervalMinutes)
                     .orElse(null);
-            result.add(new LegDisplay(List.of(), estimated, false, null, intervalMinutes));
+            result.add(new LegDisplay(estimated, intervalMinutes));
         }
         return result;
     }
@@ -343,98 +328,6 @@ public class LastDepartureViewController {
     private int nowServiceMinutes() {
         LocalTime now = LocalTime.now();
         return now.getHour() * 60 + now.getMinute();
-    }
-
-    /** 지하철 승차 구간에만 실시간 도착정보를 붙인다. 버스는 배차간격 기반 추정만 쓴다(legDisplaysOf 참고). */
-    private List<RealtimeArrivalView> realtimeArrivalsFor(TransitLeg leg, boolean showRealtimeArrivals) {
-        if (!showRealtimeArrivals || leg.isBus()) {
-            return List.of();
-        }
-        return subwayRealtimeArrivals(leg);
-    }
-
-    /**
-     * 이 구간 승차 지점까지 걸어가는 데 걸리는 시간(walkMinutes)보다 먼저 오는 차편은 걸어가는
-     * 도중에 이미 떠나버려 탈 수 없다 - 실사용 중 발견: 도보 3분인데 실시간이 "2분 후"라고 떠서
-     * 이미 못 타는 차를 대기시간/도착예정으로 잘못 안내함(지하철·버스 둘 다 같은 문제라 여기서
-     * 공통으로 거른다). 그런 차편은 빼고 그다음 차편을 기준으로 삼는다. 상태 문구만 있는 항목
-     * (운행종료/출발대기 등, secondsUntilArrival == null)은 특정 도착 시각이 없으므로 그대로 둔다.
-     */
-    private List<RealtimeArrivalView> reachableArrivals(List<RealtimeArrivalView> arrivals, int walkMinutes,
-                                                          int maxResults) {
-        int walkSeconds = walkMinutes * 60;
-        return arrivals.stream()
-                .filter(a -> walkMinutes <= 0 || a.secondsUntilArrival() == null
-                        || a.secondsUntilArrival() >= walkSeconds)
-                .limit(maxResults)
-                .toList();
-    }
-
-    /**
-     * ODsay의 wayCode(1:상행, 2:하행)와 서울시 API의 방향 표기("상행"/"하행")가 일치하는 대부분의
-     * 일반 노선에서는 이걸로 실제 타는 방향을 가려낼 수 있다. 2호선처럼 "내선/외선"으로 표기되는
-     * 순환선 등 표기 체계가 다른 노선은 아예 안 걸려서(매칭 결과가 없어서) 방향 전체를 보여주는
-     * 쪽으로 자연히 폴백된다 - subwayRealtimeArrivals 참고.
-     */
-    private static final Map<Integer, String> DIRECTION_TEXT_BY_WAY_CODE = Map.of(1, "상행", 2, "하행");
-
-    /**
-     * 환승역은 서울시 API 응답 하나에 여러 호선 열차가 섞여 온다(실측 확인: 충무로역이면
-     * 3호선/4호선 열차가 같이 옴) - 이 구간이 타는 노선(leg.laneName())과 다른 호선 열차를
-     * 섞어서 보여주면 승객이 헷갈린다. 노선을 먼저 걸러낸다.
-     * <p>
-     * 노선 안에서도 방향(상행/하행)이 갈리는데, wayCode 기준으로 실제 타는 방향만 골라지면
-     * 그것만 쓰고, 하나도 안 걸리면(순환선처럼 표기 체계가 다르거나 그 방향에 마침 실시간
-     * 열차가 없는 경우) 방향을 가려낼 수 없다고 보고 기존처럼 노선 전체를 보여준다 - 정보가
-     * 아예 안 뜨는 것보단 낫다. 어느 쪽이든 방향마다 가장 빠른 3대까지 골라 실제 승강장
-     * 전광판처럼 행선지를 그대로 보여준다(2대가 아니라 3대인 이유: 호출부(legDisplaysOf)가
-     * 도보로 못 따라잡는 차편을 걸러내는데, 2대만 받으면 그 둘 다 못 타는 경우 정작 탈 수 있는
-     * 차편이 하나도 안 남을 수 있어서 여유를 하나 더 둔다).
-     */
-    private List<RealtimeArrivalView> subwayRealtimeArrivals(TransitLeg leg) {
-        String legLineName = lineColorResolver.shortNameOf(leg.laneName());
-        List<RealtimeSubwayArrivalLookup.SubwayArrival> sameLine =
-                subwayArrivalLookup.findArrivals(leg.stationName()).stream()
-                        .filter(arrival -> arrival.secondsUntilArrival() != null)
-                        .filter(arrival -> legLineName.equals(arrival.lineName()))
-                        .toList();
-
-        String expectedDirection = DIRECTION_TEXT_BY_WAY_CODE.get(leg.wayCode());
-        List<RealtimeSubwayArrivalLookup.SubwayArrival> sameDirection = expectedDirection == null
-                ? List.of()
-                : sameLine.stream().filter(arrival -> expectedDirection.equals(arrival.direction())).toList();
-        List<RealtimeSubwayArrivalLookup.SubwayArrival> candidates = sameDirection.isEmpty() ? sameLine : sameDirection;
-
-        Map<String, List<RealtimeSubwayArrivalLookup.SubwayArrival>> byDirection =
-                candidates.stream().collect(Collectors.groupingBy(RealtimeSubwayArrivalLookup.SubwayArrival::direction));
-
-        return byDirection.values().stream()
-                .peek(arrivals -> arrivals.sort(
-                        Comparator.comparing(RealtimeSubwayArrivalLookup.SubwayArrival::secondsUntilArrival)))
-                .sorted(Comparator.comparingInt(arrivals -> arrivals.get(0).secondsUntilArrival()))
-                .flatMap(arrivals -> arrivals.stream().limit(3))
-                .map(this::toRealtimeArrivalView)
-                .toList();
-    }
-
-    // 버스 실시간 도착정보(TAGO/경기/인천 통합조회)는 더 이상 화면에 쓰지 않는다(RegionalBusArrivalLookup
-    // 참고 - 서비스 자체는 남겨둔다). 실사용 중 검증: 카카오맵/네이버지도조차 버스는 실시간을 반영하지
-    // 않고 배차간격 기준으로만 안내한다 - 우리 쪽 두 번째 차편 예측이 신뢰도 낮았던 문제(PR #20)도
-    // 결국 이 API 자체의 한계였다. 첫 번째 차편은 맞았지만, "확실히 맞는 값만 보여준다"는 원칙에서
-    // 아예 배차간격 기반 추정으로 통일한다({@link #legDisplaysOf} 참고). 지하철은 실시간이 계속
-    // 안정적으로 맞아서 그대로 둔다.
-
-    /** 1분 미만이면 "곧 도착", 그 외엔 "분:초" - 화면 JS가 이 초를 이어받아 매초 카운트다운한다. */
-    private RealtimeArrivalView toRealtimeArrivalView(RealtimeSubwayArrivalLookup.SubwayArrival arrival) {
-        int seconds = arrival.secondsUntilArrival();
-        return new RealtimeArrivalView(arrival.headsign(), etaLabel(seconds), seconds, arrival.isLastTrain());
-    }
-
-    private String etaLabel(int seconds) {
-        if (seconds < 60) {
-            return "곧 도착";
-        }
-        return (seconds / 60) + ":" + String.format("%02d", seconds % 60);
     }
 
     /**
@@ -483,14 +376,14 @@ public class LastDepartureViewController {
                 cursor += leg.transferBufferMinutes();
             }
             if (display.waitMinutes() > 0) {
-                rows.add(RouteTimelineRow.wait(display.waitMinutes(), display.waitFromRealtime(), display.waitSeconds()));
+                rows.add(RouteTimelineRow.wait(display.waitMinutes()));
                 cursor += display.waitMinutes();
             }
             LocalTime boardTime = toLocalTime(cursor);
             cursor += leg.rideMinutes();
             rows.add(new RouteTimelineRow("RIDE", boardTime, toLocalTime(cursor), leg.rideMinutes(),
-                    leg.stationName(), leg.endStationName(), lineLabelOf(leg), colorOf(leg), display.arrivals(),
-                    null, display.intervalMinutes()));
+                    leg.stationName(), leg.endStationName(), lineLabelOf(leg), colorOf(leg), leg.isBus(),
+                    display.intervalMinutes()));
         }
         if (option.finalWalkMinutes() > 0) {
             rows.add(RouteTimelineRow.walk(option.finalWalkMinutes()));
@@ -539,25 +432,6 @@ public class LastDepartureViewController {
     public record RouteSegmentView(int minutes, String color, boolean walk) {
     }
 
-    /**
-     * @param headsign            "OO행 - OO방면" 형태의 종착지 설명 (실제 승강장 전광판과 같은 표기라
-     *                            사용자가 자기 방향을 스스로 알아볼 수 있다)
-     * @param etaLabel            초기 렌더링용 "분:초" 또는 "곧 도착" - 이후 화면 JS가 secondsUntilArrival을
-     *                            이어받아 매초 직접 카운트다운하며 이 텍스트를 갱신한다. 오고 있는 차가
-     *                            없는 버스에서는 대신 상태 문구가 들어간다("운행 종료 · 막차 18:49" 등).
-     * @param secondsUntilArrival 도착까지 남은 시간(초). 화면 JS 카운트다운의 시작값이며, 카운트다운할
-     *                            대상이 아니면(상태 문구) null이다 - 화면 JS는 이 값이 있는 칩만 줄인다.
-     * @param isLastTrain         이 열차가 막차인지
-     */
-    public record RealtimeArrivalView(String headsign, String etaLabel, Integer secondsUntilArrival,
-                                       boolean isLastTrain) {
-
-        /** 카운트다운이 아니라 상태만 알려주는 칩인지 (화면에서 다르게 스타일링한다). */
-        public boolean isStatusOnly() {
-            return secondsUntilArrival == null;
-        }
-    }
-
     /** 후보 선택 라디오가 넘기는 "경도,위도". 형식이 어긋나면 무시하고 이름으로 다시 찾는다. */
     private record Point(double x, double y) {
 
@@ -578,37 +452,30 @@ public class LastDepartureViewController {
     }
 
     /**
-     * @param type              PLACE(출발/도착) | WALK(도보) | WAIT(버스 예상 대기, 참고용) | RIDE(승차~하차)
-     * @param time              PLACE는 그 지점 시각, RIDE는 승차 시각
-     * @param endTime           RIDE의 하차 시각
-     * @param label             PLACE의 "출발"/"도착", WAIT은 실시간 기반이면 "실시간", 배차간격
-     *                          추정이면 "예상"
-     * @param realtimeArrivals  RIDE 중 첫 승차 행(지하철)에만 붙는 실시간 도착정보 (그 외에는 빈 목록)
-     * @param waitSeconds       WAIT 행이 실시간 기반일 때만 원본 초 단위 값(화면 JS 카운트다운용).
-     *                          그 외 행 타입이나 배차간격 추정 WAIT 행은 null.
-     * @param intervalMinutes   RIDE 행이 버스 구간이고 배차간격을 알 때만 값이 있다("배차간격 N분"
-     *                          표시용) - 그 외에는 null.
+     * @param type            PLACE(출발/도착) | WALK(도보) | WAIT(버스 예상 대기, 배차간격 기반) | RIDE(승차~하차)
+     * @param time            PLACE는 그 지점 시각, RIDE는 승차 시각
+     * @param endTime         RIDE의 하차 시각
+     * @param label           PLACE의 "출발"/"도착"
+     * @param isBus           RIDE 행이 버스 구간인지 - 지하철은 "예정 열차 탑승"(시간표 기준),
+     *                        버스는 "승차"로 문구가 갈린다.
+     * @param intervalMinutes RIDE 행이 버스 구간이고 배차간격을 알 때만 값이 있다("배차간격 N분"
+     *                        표시용) - 그 외에는 null.
      */
     public record RouteTimelineRow(String type, LocalTime time, LocalTime endTime, int minutes,
                                     String fromName, String toName, String lineLabel, String color,
-                                    List<RealtimeArrivalView> realtimeArrivals, Integer waitSeconds,
-                                    Integer intervalMinutes) {
+                                    boolean isBus, Integer intervalMinutes) {
 
         static RouteTimelineRow place(LocalTime time, String label) {
-            return new RouteTimelineRow("PLACE", time, null, 0, label, null, null, null, List.of(), null, null);
+            return new RouteTimelineRow("PLACE", time, null, 0, label, null, null, null, false, null);
         }
 
         static RouteTimelineRow walk(int minutes) {
-            return new RouteTimelineRow("WALK", null, null, minutes, null, null, null, null, List.of(), null, null);
+            return new RouteTimelineRow("WALK", null, null, minutes, null, null, null, null, false, null);
         }
 
-        /**
-         * @param fromRealtime true면 실시간 도착정보 기준, false면 배차간격 절반 추정치
-         * @param waitSeconds  실시간 기반일 때 원본 초 단위 값(카운트다운용), 아니면 null
-         */
-        static RouteTimelineRow wait(int minutes, boolean fromRealtime, Integer waitSeconds) {
-            return new RouteTimelineRow("WAIT", null, null, minutes,
-                    fromRealtime ? "실시간" : "예상", null, null, null, List.of(), waitSeconds, null);
+        /** 버스 구간의 배차간격 기반 예상 대기(참고용, 실시간이 아니다). */
+        static RouteTimelineRow wait(int minutes) {
+            return new RouteTimelineRow("WAIT", null, null, minutes, "예상", null, null, null, true, null);
         }
     }
 
