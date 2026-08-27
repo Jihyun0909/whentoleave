@@ -107,6 +107,36 @@ class LastDepartureServiceTest {
     }
 
     /**
+     * 목표 도착시간 모드도 막차 모드의 "안전 막차"와 같은 이유로 환승마다 여유(7분)를 둬야 한다
+     * (실사용 중 발견: "내려서 걸은 시간이 다음 환승 열차 출발 시각에 정확히 맞아떨어지는" 결과가
+     * 나와서 이상하다는 피드백 - 실제로 그렇게 딱 맞춰 타면 놓치기 딱 좋다). 막차 모드는 "최단
+     * 막차"라는 이름 그대로 정확히 맞춰 타는 걸 의도한 거라 그대로 두고, 대신 목표 도착시간
+     * 모드의 기본 계산 자체에 여유를 둔다.
+     * <p>
+     * 역A(leg0) 후보를 1분 간격으로 촘촘히 둬서(양자화 오차 없이) 정확히 7분 차이가 나는지 본다.
+     */
+    @Test
+    void 목표_도착시간_모드도_환승마다_여유시간을_둔다() throws Exception {
+        List<SubwaySchedule> denseTrains = new java.util.ArrayList<>();
+        for (int m = 0; m <= 29; m++) {
+            denseTrains.add(train(LocalTime.of(23, m), false));
+        }
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                "100", denseTrains,
+                "200", List.of(train(LocalTime.of(23, 30), false))
+        ));
+        LastDepartureService service = newTransferService(lookup);
+
+        LastDepartureResult result = service.calculate(0, 0, 0, 0, FIXED_TARGET);
+
+        // 역B(200)행 23:30차를 타야 하는데, 환승 도보(3분+기본 여유 2분=5분) + 안전 여유 7분을
+        // 두면 역A(100)는 23:30 - 5 - 7 - (역A 소요 5분) = 23:13차를 타야 한다(안전 여유
+        // 없이 계산하면 23:20차).
+        LastDepartureResult.Feasible feasible = assertInstanceOf(LastDepartureResult.Feasible.class, result);
+        assertEquals(LocalTime.of(23, 13), feasible.departureTime());
+    }
+
+    /**
      * 목표 도착시간 모드(출발 시간 계산 탭)에서는 "안전"이라는 개념을 적용하지 않는다 - 환승이
      * 있는 경로(safe 계산이 실제로 다른 값을 낼 수 있는 경로)로 확인해서, 단순히 "환승이 없어서
      * 안 나온 것"이 아니라 모드 자체 때문에 안 나온다는 걸 확인한다.

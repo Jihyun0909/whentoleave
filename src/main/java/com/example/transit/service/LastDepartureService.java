@@ -295,8 +295,16 @@ public class LastDepartureService {
         int bestFareWon = 0;
         String fallbackReason = null;
 
+        // 목표 도착시간 모드는 환승마다 여유(SAFE_TRANSFER_MARGIN_MINUTES)를 두고 계산한다 -
+        // 실사용 중 발견: "내려서 도보한 시간이 다음 환승 열차 출발 시각에 정확히 맞아떨어지는"
+        // 결과가 나와서 이상하다는 피드백. 안 두면 실제로 놓치기 딱 좋은 빠듯한 환승을 아무렇지
+        //않게 추천하게 된다. 막차 모드(목표 시각 없음)는 "최단 막차"라는 이름 그대로 정확히
+        // 맞춰 타는 걸 의도한 거라 그대로 0으로 둔다 - 그 대신 별도의 "안전 막차"를 toOption()에서
+        // 추가로 계산해 보여준다.
+        int transferMargin = targetArrivalMinutes != null ? SAFE_TRANSFER_MARGIN_MINUTES : 0;
         for (RouteLegExtractor.ExtractedRoute route : pathCandidates) {
-            LastDepartureResult result = calculator.calculate(route.legs(), targetArrivalMinutes, route.finalWalkMinutes());
+            LastDepartureResult result = calculator.calculate(
+                    route.legs(), targetArrivalMinutes, route.finalWalkMinutes(), date, transferMargin);
             if (result instanceof LastDepartureResult.Feasible feasible) {
                 boolean replace = best == null
                         || (targetArrivalMinutes == null && isLater(feasible, best));
