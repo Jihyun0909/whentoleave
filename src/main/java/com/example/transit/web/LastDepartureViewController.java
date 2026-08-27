@@ -325,8 +325,13 @@ public class LastDepartureViewController {
     private List<LegDisplay> legDisplaysOf(RouteOption option, boolean showRealtimeArrivals) {
         List<LegDisplay> result = new ArrayList<>();
         for (TransitLeg leg : option.legs()) {
+            // 버스는 "두 번째로 오는 차" 예측을 1대만 보여준다(실사용 중 발견 - 카카오맵/네이버지도는
+            // 6분/17분(배차간격 11분과 일치)으로 뜨는데, 서울시 API 자체의 두 번째 차 예측 필드가
+            // 46분 후처럼 실제와 동떨어진 값을 준다 - 첫 번째 차는 여러 번 비교해도 맞았지만 두
+            // 번째는 신뢰도가 낮다). 지하철은 아직 이런 불일치가 확인된 적 없어 기존대로 2대 유지.
+            int maxArrivals = leg.isBus() ? 1 : 2;
             List<RealtimeArrivalView> arrivals = reachableArrivals(
-                    realtimeArrivalsFor(leg, showRealtimeArrivals), leg.transferBufferMinutes());
+                    realtimeArrivalsFor(leg, showRealtimeArrivals), leg.transferBufferMinutes(), maxArrivals);
             if (!leg.isBus()) {
                 result.add(new LegDisplay(arrivals, 0, false, null));
                 continue;
@@ -366,14 +371,13 @@ public class LastDepartureViewController {
      * 공통으로 거른다). 그런 차편은 빼고 그다음 차편을 기준으로 삼는다. 상태 문구만 있는 항목
      * (운행종료/출발대기 등, secondsUntilArrival == null)은 특정 도착 시각이 없으므로 그대로 둔다.
      */
-    private List<RealtimeArrivalView> reachableArrivals(List<RealtimeArrivalView> arrivals, int walkMinutes) {
-        if (walkMinutes <= 0) {
-            return arrivals;
-        }
+    private List<RealtimeArrivalView> reachableArrivals(List<RealtimeArrivalView> arrivals, int walkMinutes,
+                                                          int maxResults) {
         int walkSeconds = walkMinutes * 60;
         return arrivals.stream()
-                .filter(a -> a.secondsUntilArrival() == null || a.secondsUntilArrival() >= walkSeconds)
-                .limit(2)
+                .filter(a -> walkMinutes <= 0 || a.secondsUntilArrival() == null
+                        || a.secondsUntilArrival() >= walkSeconds)
+                .limit(maxResults)
                 .toList();
     }
 
