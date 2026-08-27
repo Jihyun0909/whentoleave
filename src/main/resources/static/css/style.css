@@ -1197,6 +1197,14 @@ body {
     margin: 2px 0;
 }
 
+/* 지하철 승차 행의 "HH:mm 출발 예정" - 역명 옆에 작고 옅게 덧붙인다(시간표 기준임을 알려주는 참고용). */
+.route-timeline-departure-note {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-left: 4px;
+}
+
 .route-timeline-alight {
     display: flex;
     align-items: center;
