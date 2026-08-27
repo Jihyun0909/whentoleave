@@ -291,7 +291,7 @@ public class LastDepartureService {
         for (RouteLegExtractor.ExtractedRoute route : pathCandidates) {
             LastDepartureResult result = calculator.calculate(route.legs(), targetArrivalMinutes, route.finalWalkMinutes());
             if (result instanceof LastDepartureResult.Feasible feasible) {
-                if (best == null || isLater(feasible, best)) {
+                if (best == null || isBetter(feasible, best, targetArrivalMinutes)) {
                     best = feasible;
                     bestFareWon = route.fareWon();
                 }
@@ -307,8 +307,31 @@ public class LastDepartureService {
                 fallbackReason != null ? fallbackReason : "가능한 경로를 찾지 못했습니다."), 0);
     }
 
-    private boolean isLater(LastDepartureResult.Feasible candidate, LastDepartureResult.Feasible current) {
-        return toServiceMinutes(candidate) > toServiceMinutes(current);
+    /**
+     * 목표 도착시간이 없으면(막차 모드) 더 늦게 출발해도 되는 후보가 낫다 - 어떤 경로든 마지막
+     * 순간까지 여유를 준다. 목표 도착시간이 있으면(arrival 모드) 대신 총 소요시간이 짧은 후보를
+     * 우선한다.
+     * <p>
+     * 이 안쪽 후보 선택도 recommendationOrder(여러 SearchPathType 결과를 화면에 정렬하는 바깥쪽
+     * 기준)와 똑같은 이유로 고쳐야 했다(실사용 중 발견: 번동->광운대에서 Google이 1218 직행을
+     * 후보로 주는데도 환승 경로가 계속 뜸 - 원인이 바깥쪽 정렬이 아니라 여기, 같은
+     * SearchPathType.ALL 안에서 "더 늦게 출발해도 되는" 환승 경로가 "더 일찍 출발해야 하는"
+     * 1218 직행을 내부적으로 먼저 이겨버려서, recommendationOrder까지 갈 후보 자체가 이미
+     * 환승 경로 하나뿐이었다).
+     */
+    private boolean isBetter(LastDepartureResult.Feasible candidate, LastDepartureResult.Feasible current,
+                              Integer targetArrivalMinutes) {
+        if (targetArrivalMinutes == null) {
+            return toServiceMinutes(candidate) > toServiceMinutes(current);
+        }
+        return totalMinutesOf(candidate) < totalMinutesOf(current);
+    }
+
+    private int totalMinutesOf(LastDepartureResult.Feasible feasible) {
+        int legsMinutes = feasible.legs().stream()
+                .mapToInt(leg -> leg.rideMinutes() + leg.transferBufferMinutes())
+                .sum();
+        return legsMinutes + feasible.finalWalkMinutes();
     }
 
     private int toServiceMinutes(LastDepartureResult.Feasible feasible) {

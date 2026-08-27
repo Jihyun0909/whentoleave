@@ -147,6 +147,47 @@ class LastDepartureServiceTest {
         assertEquals(LocalTime.of(23, 0), options.get(1).departureTime()); // 50분 소요, 23:50 도착
     }
 
+    /**
+     * 위 테스트가 잡아낸 것과 같은 편향이 한 겹 더 안쪽에도 있었다(실사용 중 발견 - 번동->광운대
+     * 검색에서 Google이 버스 1218 직행을 후보로 주는데도 계속 환승 경로만 떴다). 원인은 바깥쪽
+     * 정렬(recommendationOrder)이 아니라, 같은 SearchPathType 안에서 여러 후보 중 하나를 고르는
+     * bestOf()의 내부 선택 로직(isLater)이었다 - "더 늦게 출발해도 되는 후보"를 우선하다 보니,
+     * 총 소요시간이 훨씬 짧은 직행 후보가 recommendationOrder까지 가보지도 못하고 여기서부터
+     * 져버렸다. 하나의 GoogleRoutesResponse 안에 직행(5분)과 환승(33분, 마감에 더 가깝게 출발)
+     * 두 대안을 같이 줘서, bestOf()가 내부적으로 짧은 쪽을 골라야 함을 확인한다.
+     */
+    @Test
+    void 같은_카테고리_안에서도_소요시간이_짧은_후보를_내부적으로_먼저_고른다() throws Exception {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                "F", List.of(train(LocalTime.of(23, 0), false)),
+                "S1", List.of(train(LocalTime.of(23, 20), false)),
+                "S2", List.of(train(LocalTime.of(23, 30), false))
+        ));
+        GoogleRoutesClient googleClient = googleStub(fastAndSlowResponse());
+        LastDepartureService service = new LastDepartureService(googleClient, newExtractor(),
+                LastDepartureCalculator.subwayOnly(lookup), noNightBus());
+
+        List<RouteOption> options = service.calculateOptions(0, 0, 0, 0, FIXED_TARGET, LocalDate.now());
+
+        assertEquals(1, options.size()); // 직행이 모든 SearchPathType에서 이겨서 하나로 합쳐짐
+        assertEquals(LocalTime.of(23, 0), options.get(0).departureTime()); // 직행(F) - 환승(23:20)보다 일찍 출발하지만 훨씬 빠름
+    }
+
+    /** 직행(F, 5분) 대 환승(S1->S2, 33분, 마감에 더 가깝게 출발) 두 대안을 같이 주는 응답. */
+    private GoogleRoutesResponse fastAndSlowResponse() {
+        GoogleRoutesResponse.Step fastStep = transitStep(5, "역(F)", "1호선");
+        GoogleRoutesResponse.Route fastRoute =
+                new GoogleRoutesResponse.Route(List.of(new GoogleRoutesResponse.Leg(List.of(fastStep), 0, "0s")));
+
+        GoogleRoutesResponse.Step slow1 = transitStep(5, "역(S1)", "2호선");
+        GoogleRoutesResponse.Step slowWalk = walkStep(3);
+        GoogleRoutesResponse.Step slow2 = transitStep(25, "역(S2)", "4호선");
+        GoogleRoutesResponse.Route slowRoute = new GoogleRoutesResponse.Route(
+                List.of(new GoogleRoutesResponse.Leg(List.of(slow1, slowWalk, slow2), 0, "0s")));
+
+        return new GoogleRoutesResponse(List.of(fastRoute, slowRoute));
+    }
+
     /** 막차 모드(목표 시각 없음)에서는 기존대로 소요시간이 짧은 순이어야 한다. */
     @Test
     void 막차_모드에서는_소요시간이_짧은_경로가_맨_위다() throws Exception {
