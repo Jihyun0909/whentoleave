@@ -60,6 +60,7 @@ public class RouteLegExtractor {
     private final TagoBusRouteDetailApiClient tagoBusRouteDetailApiClient;
     private final TagoCityCodeResolver tagoCityCodeResolver;
     private final SeoulBusStopCatalog seoulBusStopCatalog;
+    private final SeoulSubwayTimetableSeedCatalog seoulSubwayTimetableSeedCatalog;
 
     /**
      * 역명/노선명 -> TAGO 역 매칭, (역ID+방향) -> 종착역 집합 캐시. 실사용 중 발견: 환승이 많은
@@ -76,11 +77,13 @@ public class RouteLegExtractor {
     public RouteLegExtractor(TagoSubwayApiClient tagoSubwayApiClient,
                               TagoBusRouteDetailApiClient tagoBusRouteDetailApiClient,
                               TagoCityCodeResolver tagoCityCodeResolver,
-                              SeoulBusStopCatalog seoulBusStopCatalog) {
+                              SeoulBusStopCatalog seoulBusStopCatalog,
+                              SeoulSubwayTimetableSeedCatalog seoulSubwayTimetableSeedCatalog) {
         this.tagoSubwayApiClient = tagoSubwayApiClient;
         this.tagoBusRouteDetailApiClient = tagoBusRouteDetailApiClient;
         this.tagoCityCodeResolver = tagoCityCodeResolver;
         this.seoulBusStopCatalog = seoulBusStopCatalog;
+        this.seoulSubwayTimetableSeedCatalog = seoulSubwayTimetableSeedCatalog;
     }
 
     /** 가장 첫 번째 추천 경로만 뽑는다 (하위 호환용). 여러 경로를 다 시도하려면 {@link #extractAll}을 쓴다. */
@@ -194,11 +197,12 @@ public class RouteLegExtractor {
         StationMatch boarding = resolveSubwayStation(departureStop.name(), lineNameShort)
                 .orElseThrow(() -> new NoSubwayRouteFoundException(
                         "지하철역 정보를 찾지 못했습니다: " + departureStop.name() + "(" + lineNameShort + ")"));
-        int wayCode = resolveWayCode(boarding.id(), details.headsign());
+        int wayCode = resolveWayCode(boarding.id(), departureStop.name(), lineNameShort, details.headsign());
         log.debug("subwayLeg station={} lineNameShort={} headsign={} -> wayCode={}",
                 departureStop.name(), lineNameShort, details.headsign(), wayCode);
         Set<String> earlierStopNames = resolveEarlierStopNames(
-                boarding.id(), wayCode, arrivalStop == null ? null : arrivalStop.name(), lineNameShort);
+                boarding.id(), departureStop.name(), wayCode,
+                arrivalStop == null ? null : arrivalStop.name(), lineNameShort);
 
         return TransitLeg.subway(boarding.id(), wayCode, rideMinutes, pendingWalkMinutes,
                 earlierStopNames, departureStop.name(), arrivalStop == null ? null : arrivalStop.name(), lineNameShort);
@@ -243,7 +247,7 @@ public class RouteLegExtractor {
      * 도착역의 TAGO 역을 못 찾으면(역명 불일치 등) 안전하게 빈 Set을 반환한다 - 걸러내는
      * 근거가 불확실할 땐 아무것도 안 거르는 게 "탈 수 있는데 못 탄다"고 하는 것보다 낫다.
      */
-    private Set<String> resolveEarlierStopNames(String boardingStationId, int wayCode,
+    private Set<String> resolveEarlierStopNames(String boardingStationId, String boardingStationName, int wayCode,
                                                  String arrivalStopName, String lineNameShort) {
         if (arrivalStopName == null) {
             return Set.of();
@@ -253,8 +257,8 @@ public class RouteLegExtractor {
             return Set.of();
         }
         String upDownTypeCode = wayCode == 1 ? "U" : "D";
-        Set<String> earlier = new HashSet<>(terminiOf(boardingStationId, upDownTypeCode));
-        earlier.removeAll(terminiOf(alight.get().id(), upDownTypeCode));
+        Set<String> earlier = new HashSet<>(terminiOf(boardingStationId, boardingStationName, lineNameShort, upDownTypeCode));
+        earlier.removeAll(terminiOf(alight.get().id(), arrivalStopName, lineNameShort, upDownTypeCode));
         // 도착역 자신이 종착역인 열차는 도착역 TERMINI(그 역에서 "출발"하는 열차 기준)에는
         // 안 잡히지만 도착역까지는 정상적으로 데려다주므로, 걸러야 할 이름에서 명시적으로 뺀다.
         if (alight.get().tagoName() != null) {
@@ -264,13 +268,23 @@ public class RouteLegExtractor {
     }
 
     /** subwayStationId·방향의 시간표에서 실제 쓰이는 종착역 이름 집합(중복 제거). */
-    private Set<String> terminiOf(String subwayStationId, String upDownTypeCode) {
+    private Set<String> terminiOf(String subwayStationId, String stationName, String lineNameShort,
+                                   String upDownTypeCode) {
         return terminiCache.computeIfAbsent(
                 subwayStationId + ":" + upDownTypeCode,
-                key -> terminiOfUncached(subwayStationId, upDownTypeCode));
+                key -> terminiOfUncached(subwayStationId, stationName, lineNameShort, upDownTypeCode));
     }
 
-    private Set<String> terminiOfUncached(String subwayStationId, String upDownTypeCode) {
+    /**
+     * TAGO가 이 역의 시간표를 아예 안 주는 역(gap station)이면 빈 Set을 준다 - 그러면
+     * directionMatches()가 항상 실패해서 resolveWayCode()가 "정보 없음"을 "하행"으로 잘못
+     * 단정짓는다(2026-08-27 실사용 중 발견: 동대문역사문화공원 2호선에서 을지로입구 방면
+     * (내선순환)이 왕십리 방면(외선순환)인 것처럼 반대로 안내됨). 그래서 TAGO가 비어 있으면
+     * 서울교통공사 전수 시간표 시드로 한 번 더 시도한다 - 이 시드가 이미 SubwayScheduleCacheService의
+     * 막차 계산 폴백으로 검증된 것과 같은 데이터라 신뢰할 수 있다.
+     */
+    private Set<String> terminiOfUncached(String subwayStationId, String stationName, String lineNameShort,
+                                           String upDownTypeCode) {
         try {
             TagoBusArrivalResponse response =
                     tagoSubwayApiClient.fetchSchedule(subwayStationId, upDownTypeCode, DIRECTION_CHECK_DAILY_TYPE);
@@ -281,10 +295,14 @@ public class RouteLegExtractor {
                     names.add(endName);
                 }
             }
-            return names;
+            if (!names.isEmpty()) {
+                return names;
+            }
         } catch (RuntimeException e) {
-            return Set.of();
+            // TAGO 조회 실패 - 아래 시드 폴백으로 넘어간다
         }
+        int wayCode = upDownTypeCode.equals("U") ? 1 : 2;
+        return seoulSubwayTimetableSeedCatalog.terminiOf(stationName, lineNameShort, wayCode);
     }
 
     /** "2호선"/"2호"/"신분당선"/"신분당"처럼 표기가 갈리는 노선명을 "선/호선" 접미사를 떼고 비교한다. */
@@ -318,7 +336,7 @@ public class RouteLegExtractor {
      * 종착역들(성수·삼성·신도림)은 감소하는 방향에 있다 - 이는 "역번호가 증가하는 방향이
      * 외선순환"이라는 서울교통공사 공식 규칙과 일치한다.
      */
-    private int resolveWayCode(String subwayStationId, String headsign) {
+    private int resolveWayCode(String subwayStationId, String stationName, String lineNameShort, String headsign) {
         if (headsign != null) {
             if (headsign.contains("외선")) {
                 return 1;
@@ -328,7 +346,8 @@ public class RouteLegExtractor {
             }
         }
         String normalizedHeadsign = normalizeHeadsign(headsign);
-        if (normalizedHeadsign != null && directionMatches(subwayStationId, "U", normalizedHeadsign)) {
+        if (normalizedHeadsign != null
+                && directionMatches(subwayStationId, stationName, lineNameShort, "U", normalizedHeadsign)) {
             return 1;
         }
         return 2;
@@ -350,8 +369,9 @@ public class RouteLegExtractor {
      * 수유역(4호선)처럼 멀쩡한 노선까지 방향 판별이 안 돼 하행으로 잘못 떨어졌다. 종착역명을
      * 괄호 기준으로 분해해("불암산(당고개)" -> "불암산", "당고개") 어느 쪽이든 맞으면 인정한다.
      */
-    private boolean directionMatches(String subwayStationId, String upDownTypeCode, String normalizedHeadsign) {
-        return terminiOf(subwayStationId, upDownTypeCode).stream()
+    private boolean directionMatches(String subwayStationId, String stationName, String lineNameShort,
+                                      String upDownTypeCode, String normalizedHeadsign) {
+        return terminiOf(subwayStationId, stationName, lineNameShort, upDownTypeCode).stream()
                 .flatMap(terminus -> terminusAliases(terminus).stream())
                 .anyMatch(alias -> normalizedHeadsign.contains(alias) || alias.contains(normalizedHeadsign));
     }

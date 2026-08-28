@@ -3,17 +3,23 @@ package com.example.transit.service;
 import com.example.transit.service.client.GoogleRoutesClient;
 import com.example.transit.service.client.SearchPathType;
 import com.example.transit.service.client.dto.GoogleRoutesResponse;
+import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 /**
@@ -26,6 +32,15 @@ public class LastDepartureService {
     private static final int MINUTES_PER_DAY = 24 * 60;
     /** 목표 시각이 이 시각 이전(0시~새벽 6시)이면 "오늘 밤 자정 넘어서"로 해석한다. 그 이후 시각인데 이미 지났으면 진짜로 지난 것으로 본다. */
     private static final int EARLY_MORNING_CUTOFF_MINUTES = 6 * 60;
+    private static final ZoneId SEOUL_ZONE = ZoneId.of("Asia/Seoul");
+    /**
+     * 막차 모드(목표 도착시간이 없는 경우)에서 Google Routes에 넘길 기준 시각. 막차 계산은
+     * 애초에 심야 시간대 얘기라, 이 시각 기준으로 물어야 심야버스처럼 그 시간에만 다니는
+     * 경로도 후보에 섞여 나온다(2026-08-30 실사용 중 발견: Google 조회에 시각을 아예 안
+     * 넘겨서 항상 "지금" 기준으로 계산되고 있었다 - 낮에 조회하면 밤에는 안 다니는 경로가,
+     * 다른 날짜를 조회해도 오늘 지금 기준 경로가 나오는 문제였다).
+     */
+    private static final int GOOGLE_LATE_NIGHT_REFERENCE_MINUTES = 23 * 60;
 
     /** 심야버스는 SearchPathType으로 표현되지 않는 별도 경로원이라 라벨을 따로 둔다. */
     private static final String NIGHT_BUS_LABEL = "심야버스";
@@ -60,6 +75,15 @@ public class LastDepartureService {
     private final RouteLegExtractor routeLegExtractor;
     private final LastDepartureCalculator calculator;
     private final NightBusRouteFinder nightBusRouteFinder;
+    /**
+     * calculateOptions()가 지하철/지하철+버스/버스/심야버스 네 갈래를 검색하는데, 이게 전부
+     * 서로 독립적인데도(각자 Google Routes 호출 + TAGO 시간표 조회) 순서대로 하나씩 기다리고
+     * 있었다 - 검색 한 번에 10초 넘게 걸린다는 실사용 피드백의 원인이다. 네 갈래를 동시에
+     * 돌리면 전체 소요시간이 "합"이 아니라 "가장 오래 걸리는 하나"에 가까워진다.
+     * 가상 스레드를 쓰는 이유: 여기서 도는 작업은 전부 블로킹 I/O(HTTP 호출)라 스레드 수를
+     * 미리 정해둘 필요가 없다 - 요청마다 최대 4개뿐이라 부담도 적다.
+     */
+    private final ExecutorService routeSearchExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     public LastDepartureService(GoogleRoutesClient googleRoutesClient,
                                  RouteLegExtractor routeLegExtractor,
@@ -69,6 +93,11 @@ public class LastDepartureService {
         this.routeLegExtractor = routeLegExtractor;
         this.calculator = calculator;
         this.nightBusRouteFinder = nightBusRouteFinder;
+    }
+
+    @PreDestroy
+    void shutdownExecutor() {
+        routeSearchExecutor.shutdown();
     }
 
     public LastDepartureResult calculate(double sx, double sy, double ex, double ey) {
@@ -87,15 +116,17 @@ public class LastDepartureService {
     public LastDepartureResult calculate(double sx, double sy, double ex, double ey,
                                           LocalTime targetArrivalTime, LocalDate date) {
         Integer targetArrivalMinutes = null;
+        LocalDate diagramDate = date;
         if (targetArrivalTime != null) {
-            OptionalInt resolved = resolveTargetArrivalMinutes(targetArrivalTime);
+            Optional<ResolvedTarget> resolved = resolveTargetArrivalMinutes(targetArrivalTime, date);
             if (resolved.isEmpty()) {
                 return new LastDepartureResult.Infeasible(
                         "목표 도착 시각(" + targetArrivalTime + ")이 이미 지난 시각입니다. 아직 오지 않은 시각을 입력해주세요.");
             }
-            targetArrivalMinutes = resolved.getAsInt();
+            targetArrivalMinutes = resolved.get().minutes();
+            diagramDate = resolved.get().diagramDate();
         }
-        return calculateFor(SearchPathType.SUBWAY_ONLY, sx, sy, ex, ey, targetArrivalMinutes, date).result();
+        return calculateFor(SearchPathType.SUBWAY_ONLY, sx, sy, ex, ey, targetArrivalMinutes, diagramDate).result();
     }
 
     /**
@@ -106,28 +137,44 @@ public class LastDepartureService {
     public List<RouteOption> calculateOptions(double sx, double sy, double ex, double ey,
                                                LocalTime targetArrivalTime, LocalDate date) {
         Integer targetArrivalMinutes = null;
+        LocalDate diagramDate = date;
         if (targetArrivalTime != null) {
-            OptionalInt resolved = resolveTargetArrivalMinutes(targetArrivalTime);
+            Optional<ResolvedTarget> resolved = resolveTargetArrivalMinutes(targetArrivalTime, date);
             if (resolved.isEmpty()) {
                 return List.of();
             }
-            targetArrivalMinutes = resolved.getAsInt();
+            targetArrivalMinutes = resolved.get().minutes();
+            diagramDate = resolved.get().diagramDate();
         }
+        Integer finalTargetArrivalMinutes = targetArrivalMinutes;
+        LocalDate finalDiagramDate = diagramDate;
 
-        List<RouteOption> options = new ArrayList<>();
-        for (SearchPathType pathType : List.of(
-                SearchPathType.SUBWAY_ONLY, SearchPathType.ALL, SearchPathType.BUS_ONLY)) {
-            Best best = calculateFor(pathType, sx, sy, ex, ey, targetArrivalMinutes, date);
-            if (best.result() instanceof LastDepartureResult.Feasible feasible) {
-                options.add(toOption(pathType.label(), feasible, best.fareWon(), targetArrivalMinutes, date));
-            }
-        }
+        // 지하철/지하철+버스/버스/심야버스 네 갈래는 서로 완전히 독립적인 검색이라(각자 Google
+        // Routes 호출 + TAGO 시간표 조회) 동시에 돌린다 - 순서대로 기다리면 넷의 소요시간을
+        // 그대로 다 더하게 된다("검색이 10초 넘게 걸린다"는 피드백의 원인이었다).
+        List<SearchPathType> pathTypes = List.of(
+                SearchPathType.SUBWAY_ONLY, SearchPathType.ALL, SearchPathType.BUS_ONLY);
+        List<CompletableFuture<Best>> pathFutures = pathTypes.stream()
+                .map(pathType -> CompletableFuture.supplyAsync(
+                        () -> calculateFor(pathType, sx, sy, ex, ey, finalTargetArrivalMinutes, finalDiagramDate),
+                        routeSearchExecutor))
+                .toList();
         // 심야버스는 ODsay 경로탐색에 아예 안 나와서 따로 찾아 붙인다. 지하철/버스가 다 끊긴
         // 시간대에는 이게 유일한 답인 경우가 많아, 막차 앱에서는 빠지면 안 되는 정보다.
-        Integer finalTargetArrivalMinutes = targetArrivalMinutes;
-        bestNightBus(sx, sy, ex, ey, targetArrivalMinutes, date)
+        CompletableFuture<Optional<LastDepartureResult.Feasible>> nightBusFuture = CompletableFuture.supplyAsync(
+                () -> bestNightBus(sx, sy, ex, ey, finalTargetArrivalMinutes, finalDiagramDate), routeSearchExecutor);
+
+        List<RouteOption> options = new ArrayList<>();
+        for (int i = 0; i < pathTypes.size(); i++) {
+            Best best = pathFutures.get(i).join();
+            if (best.result() instanceof LastDepartureResult.Feasible feasible) {
+                options.add(toOption(pathTypes.get(i).label(), feasible, best.fareWon(),
+                        finalTargetArrivalMinutes, finalDiagramDate));
+            }
+        }
+        nightBusFuture.join()
                 .ifPresent(feasible -> options.add(
-                        toOption(NIGHT_BUS_LABEL, feasible, 0, finalTargetArrivalMinutes, date)));
+                        toOption(NIGHT_BUS_LABEL, feasible, 0, finalTargetArrivalMinutes, finalDiagramDate)));
 
         return options.stream()
                 .collect(Collectors.toMap(
@@ -165,7 +212,12 @@ public class LastDepartureService {
         try {
             GoogleRoutesResponse response;
             try {
-                response = googleRoutesClient.computeTransitRoutes(sx, sy, ex, ey, allowedTravelModes(pathType));
+                String departureTime = targetArrivalMinutes == null
+                        ? toRfc3339(date, GOOGLE_LATE_NIGHT_REFERENCE_MINUTES) : null;
+                String arrivalTime = targetArrivalMinutes == null
+                        ? null : toRfc3339(date, targetArrivalMinutes);
+                response = googleRoutesClient.computeTransitRoutes(
+                        sx, sy, ex, ey, allowedTravelModes(pathType), departureTime, arrivalTime);
             } catch (RestClientException e) {
                 // Google이 HTTP 오류(쿼터 초과, 잘못된 요청 등)를 준 상황 - 경로가 없는 게 아니라
                 // 조회 자체를 못 한 것이므로 "운행 종료"류 문구로 바뀌면 안 된다.
@@ -335,17 +387,70 @@ public class LastDepartureService {
         return feasible.nextDay() ? minutes + MINUTES_PER_DAY : minutes;
     }
 
-    private OptionalInt resolveTargetArrivalMinutes(LocalTime targetArrivalTime) {
-        int targetMinutes = targetArrivalTime.getHour() * 60 + targetArrivalTime.getMinute();
-        int nowMinutes = LocalTime.now().getHour() * 60 + LocalTime.now().getMinute();
+    /**
+     * @param minutes     서비스일(다이어그램 기준일) 자정을 0으로 하는 목표 시각(분). 새벽대
+     *                    재해석이 적용되면 1440 이상이다.
+     * @param diagramDate 실제로 시간표를 조회해야 할 날짜(다이어그램 기준일) - 항상 사용자가
+     *                    고른 날짜와 같지는 않다({@link #resolveTargetArrivalMinutes} 참고).
+     */
+    private record ResolvedTarget(int minutes, LocalDate diagramDate) {
+    }
 
+    /**
+     * 목표 도착 시각과, 실제 시간표 조회에 쓸 "다이어그램 기준일"을 함께 정한다. 지하철/버스
+     * 심야 운행은 자정을 넘겨도 전날 시간표(다이어그램)로 취급되는 게 실제 운영 관행이라,
+     * 새벽 시간대(EARLY_MORNING_CUTOFF 이전) 목표는 다이어그램 기준일이 리터럴 날짜보다
+     * 하루 이를 수 있다.
+     * <p>
+     * "오늘"과 "다른 날짜"(미래)는 이 새벽대 재해석을 다르게 적용한다:
+     * <ul>
+     *   <li>오늘: 사용자가 날짜를 직접 고른 게 아니라 그냥 "지금" 기준이므로, 새벽 시각은
+     *       "오늘 밤이 지나 내일 새벽"으로 읽는다 - 다이어그램 기준일은 오늘 그대로 두고
+     *       시각만 1440을 더한다(기존부터 있던 동작).</li>
+     *   <li>미래 날짜(달력에서 명시적으로 고름): "8/30 오전 1시"처럼 날짜·시각을 함께 명시적으로
+     *       골랐으므로 리터럴 달력 시각으로 읽어야 한다 - 그 순간을 실제로 지배하는 시간표는
+     *       하루 전날(8/29) 밤의 연장이므로, 다이어그램 기준일을 하루 앞당긴다(2026-08-30
+     *       실사용 중 발견 - 이걸 안 해서 8/30 새벽 1시 목표가 일요일 시간표로 조회되고 있었다.
+     *       실제로는 토요일 심야 시간표를 봐야 한다).
+     * </ul>
+     * "이미 지난 시각인지"도 오늘 날짜를 고른 경우에만 의미가 있다 - 미래 날짜는 지금이 몇 시든
+     * 그 날짜의 그 시각이 아직 안 지났으므로 항상 허용한다(2026-08-30 실사용 중 발견 - 예전엔
+     * date를 아예 안 받아서, 미래 날짜에 "오전 10시까지"를 물어도 지금(오후)보다 이르다는
+     * 이유로 "이미 지났다"고 잘못 거절하고 있었다).
+     */
+    private Optional<ResolvedTarget> resolveTargetArrivalMinutes(LocalTime targetArrivalTime, LocalDate date) {
+        int targetMinutes = targetArrivalTime.getHour() * 60 + targetArrivalTime.getMinute();
+        LocalDate today = LocalDate.now();
+
+        if (date.isAfter(today)) {
+            if (targetMinutes < EARLY_MORNING_CUTOFF_MINUTES) {
+                return Optional.of(new ResolvedTarget(targetMinutes + MINUTES_PER_DAY, date.minusDays(1)));
+            }
+            return Optional.of(new ResolvedTarget(targetMinutes, date));
+        }
+        if (date.isBefore(today)) {
+            return Optional.empty(); // 과거 날짜 - UI에서 막고 있지만 방어적으로
+        }
+
+        int nowMinutes = LocalTime.now().getHour() * 60 + LocalTime.now().getMinute();
         if (targetMinutes >= nowMinutes) {
-            return OptionalInt.of(targetMinutes);
+            return Optional.of(new ResolvedTarget(targetMinutes, date));
         }
         if (targetMinutes < EARLY_MORNING_CUTOFF_MINUTES) {
-            return OptionalInt.of(targetMinutes + MINUTES_PER_DAY); // 오늘 밤 자정 넘어서
+            return Optional.of(new ResolvedTarget(targetMinutes + MINUTES_PER_DAY, date)); // 오늘 밤 자정 넘어서 - 기준일은 그대로
         }
-        return OptionalInt.empty(); // 이미 지난 시각
+        return Optional.empty(); // 이미 지난 시각
+    }
+
+    /**
+     * (date, 서비스일 기준 분)을 Google Routes가 요구하는 RFC3339 타임스탬프로 바꾼다.
+     * serviceMinutes가 1440 이상이면(다음날 새벽) date+1일로 넘어간다.
+     */
+    private String toRfc3339(LocalDate date, int serviceMinutes) {
+        int dayOffset = Math.floorDiv(serviceMinutes, MINUTES_PER_DAY);
+        int minutesOfDay = Math.floorMod(serviceMinutes, MINUTES_PER_DAY);
+        LocalDateTime local = date.plusDays(dayOffset).atStartOfDay().plusMinutes(minutesOfDay);
+        return local.atZone(SEOUL_ZONE).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
     }
 
     /** 가까운 거리가 아니면 null - 그러면 화면은 원래 실패 사유(reason) 문구를 그대로 보여준다. */
