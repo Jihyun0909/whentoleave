@@ -1,8 +1,7 @@
 package com.example.transit.api;
 
+import com.example.transit.api.dto.ErrorResponse;
 import com.example.transit.service.auth.AuthException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -12,17 +11,15 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.util.stream.Collectors;
 
 /**
- * {@code /api/**} 응답을 JSON 에러 본문으로 통일한다. 화면(web) 쪽 에러 처리
+ * {@code /api/**} 응답을 JSON 에러 본문({@link ErrorResponse})으로 통일한다. 화면(web) 쪽 에러 처리
  * ({@code GlobalWebExceptionHandler}, redirect 반환)와 분리해서, 이 advice는
  * {@code com.example.transit.api} 패키지 컨트롤러에만 적용한다.
+ * <p>
+ * SecurityFilterChain 단계에서 나는 401/403은 이 advice까지 오지 않으므로
+ * {@code RestAuthenticationEntryPoint}/{@code RestAccessDeniedHandler}가 같은 형태로 처리한다.
  */
 @RestControllerAdvice(basePackages = "com.example.transit.api")
 public class ApiExceptionHandler {
-
-    private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
-
-    public record ErrorResponse(String code, String message) {
-    }
 
     @ExceptionHandler(AuthException.class)
     public ResponseEntity<ErrorResponse> onAuth(AuthException e) {

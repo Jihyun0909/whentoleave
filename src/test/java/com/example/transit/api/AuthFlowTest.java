@@ -8,6 +8,12 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -45,6 +51,41 @@ class AuthFlowTest {
                                 {"email":"%s","password":"password123"}""".formatted(email)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
+    }
+
+    @Test
+    void 같은_이메일로_동시_가입해도_하나만_성공하고_나머지는_409() throws Exception {
+        String email = uniqueEmail();
+        int threads = 8;
+        var statusCounts = new ConcurrentHashMap<Integer, AtomicInteger>();
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(threads);
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+
+        for (int i = 0; i < threads; i++) {
+            pool.submit(() -> {
+                try {
+                    start.await();
+                    int status = mockMvc.perform(post("/api/v1/auth/signup")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content("""
+                                            {"email":"%s","password":"password123"}""".formatted(email)))
+                            .andReturn().getResponse().getStatus();
+                    statusCounts.computeIfAbsent(status, k -> new AtomicInteger()).incrementAndGet();
+                } catch (Exception e) {
+                    statusCounts.computeIfAbsent(-1, k -> new AtomicInteger()).incrementAndGet();
+                } finally {
+                    done.countDown();
+                }
+            });
+        }
+        start.countDown();
+        done.await();
+        pool.shutdown();
+
+        assertEquals(1, statusCounts.getOrDefault(201, new AtomicInteger()).get(), "성공은 정확히 1건");
+        assertEquals(threads - 1, statusCounts.getOrDefault(409, new AtomicInteger()).get(), "나머지는 전부 409");
+        assertEquals(0, statusCounts.getOrDefault(500, new AtomicInteger()).get(), "500은 없어야 함");
     }
 
     @Test
@@ -87,12 +128,25 @@ class AuthFlowTest {
     void 토큰_없이_보호자원에_접근하면_401_토큰이_있으면_통과() throws Exception {
         String accessToken = JsonPath.read(signupAndLogin(uniqueEmail()), "$.accessToken");
 
-        mockMvc.perform(get("/api/v1/me")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/me"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
 
         mockMvc.perform(get("/api/v1/me")
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.role").value("USER"));
+    }
+
+    @Test
+    void 권한이_부족하면_403_JSON() throws Exception {
+        String accessToken = JsonPath.read(signupAndLogin(uniqueEmail()), "$.accessToken");
+
+        // USER 토큰으로 ADMIN 전용 경로 접근 (핸들러가 없어도 Security 단계에서 먼저 막힌다)
+        mockMvc.perform(get("/api/v1/admin/anything")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
     @Test

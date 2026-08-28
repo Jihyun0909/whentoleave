@@ -4,6 +4,7 @@ import com.example.transit.domain.AppUser;
 import com.example.transit.repository.AppUserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,8 +41,14 @@ public class AuthService {
         if (users.existsByEmail(normalizedEmail)) {
             throw new AuthException(AuthException.Reason.EMAIL_ALREADY_USED, "이미 가입된 이메일입니다");
         }
-        AppUser saved = users.save(AppUser.newUser(normalizedEmail, passwordEncoder.encode(rawPassword)));
-        return saved.getId();
+        try {
+            // saveAndFlush로 여기서 INSERT를 강제한다. existsByEmail 통과와 저장 사이 경합이 나면
+            // app_user.email 유니크 제약이 최종 방어선이고, 그 위반을 500이 아니라 409로 되돌린다.
+            AppUser saved = users.saveAndFlush(AppUser.newUser(normalizedEmail, passwordEncoder.encode(rawPassword)));
+            return saved.getId();
+        } catch (DataIntegrityViolationException e) {
+            throw new AuthException(AuthException.Reason.EMAIL_ALREADY_USED, "이미 가입된 이메일입니다");
+        }
     }
 
     public TokenPair login(String email, String rawPassword) {

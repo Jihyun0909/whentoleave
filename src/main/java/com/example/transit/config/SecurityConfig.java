@@ -1,8 +1,9 @@
 package com.example.transit.config;
 
 import com.example.transit.security.JwtAuthenticationFilter;
+import com.example.transit.security.RestAccessDeniedHandler;
+import com.example.transit.security.RestAuthenticationEntryPoint;
 import com.example.transit.service.auth.JwtProperties;
-import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -29,7 +30,9 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
-                                                   JwtAuthenticationFilter jwtAuthenticationFilter) throws Exception {
+                                                   JwtAuthenticationFilter jwtAuthenticationFilter,
+                                                   RestAuthenticationEntryPoint authenticationEntryPoint,
+                                                   RestAccessDeniedHandler accessDeniedHandler) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
                 .formLogin(form -> form.disable())
@@ -52,10 +55,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/partner/**").hasRole("PARTNER_ADMIN")
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((request, response, authException) ->
-                                response.sendError(HttpServletResponse.SC_UNAUTHORIZED))
-                        .accessDeniedHandler((request, response, accessDeniedException) ->
-                                response.sendError(HttpServletResponse.SC_FORBIDDEN)))
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler))
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
