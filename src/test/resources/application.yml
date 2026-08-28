@@ -43,6 +43,14 @@ app:
     issuer: whentoleave
   refresh-token:
     store: memory
+  settlement:
+    # 테스트는 스케줄러 안 돈다 (배치는 JobLauncherTestUtils로 직접 실행).
+    scheduler-enabled: false
+  staff:
+    admin-email: admin@test.local
+    admin-password: admin-test-password
+    partner-admin-email: partner-admin@test.local
+    partner-admin-password: partner-test-password
 
 # 실제 호출은 테스트에서 전부 페이크로 막지만, 값이 비어 있으면 설정 주입이 실패하므로 더미를 둔다.
 google-routes:

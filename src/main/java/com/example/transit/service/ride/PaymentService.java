@@ -2,7 +2,10 @@ package com.example.transit.service.ride;
 
 import com.example.transit.domain.Payment;
 import com.example.transit.domain.TaxiRide;
+import com.example.transit.domain.ledger.AccountKind;
+import com.example.transit.domain.ledger.AccountOwnerType;
 import com.example.transit.repository.PaymentRepository;
+import com.example.transit.service.ledger.LedgerAccountService;
 import com.example.transit.service.point.PointService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,10 +24,13 @@ public class PaymentService {
 
     private final PaymentRepository payments;
     private final PointService pointService;
+    private final LedgerAccountService ledgerAccounts;
 
-    public PaymentService(PaymentRepository payments, PointService pointService) {
+    public PaymentService(PaymentRepository payments, PointService pointService,
+                          LedgerAccountService ledgerAccounts) {
         this.payments = payments;
         this.pointService = pointService;
+        this.ledgerAccounts = ledgerAccounts;
     }
 
     @Transactional
@@ -43,6 +49,10 @@ public class PaymentService {
         Payment payment = payments.save(new Payment(
                 ride.getId(), ride.getUserId(), ride.getPartnerId(),
                 ride.getFareAmount(), pointToUse, pointEarned));
+
+        // 제휴사 CASH 계정을 이 시점에 provisioning한다(첫 매출 발생 시). 정산 배치는
+        // "생성 후 같은 트랜잭션에서 재조회"가 곤란하므로, 배치가 아니라 여기서 미리 만든다.
+        ledgerAccounts.getOrCreate(AccountOwnerType.PARTNER, ride.getPartnerId(), AccountKind.CASH);
 
         if (pointToUse > 0) {
             pointService.spend(ride.getUserId(), pointToUse,

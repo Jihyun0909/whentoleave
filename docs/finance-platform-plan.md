@@ -137,10 +137,35 @@ audit_log         (id, actor_user_id?, event, ref_type, ref_id, detail_json, cre
    `AuthController`, `SecurityConfig`. 기존 공개 엔드포인트 전부 `permitAll` 유지, 경로조회 무변경.
 2. **PR B — 원장 + 포인트 페이백** ✅: `partner` · `taxi_ride` · `payment` · `ledger_*`, 복식부기 서비스,
    적립 · 차감, 비관적 락, 동시성 테스트, `audit_log` 기초.
-3. **PR C — 정산 + 감사**: `settlement`, Spring Batch Job, 부분 실패 · 롤백, admin/partner 엔드포인트,
+3. **PR C — 정산 + 감사** ✅: `settlement`, Spring Batch Job, 부분 실패 · 롤백, admin/partner 엔드포인트,
    스케줄러, `audit-logs` 조회.
 
 의존 순서 A → B → C.
+
+## PR C 구현 메모 (설계에서 조정된 것)
+
+- **정산 분개**: DEBIT `FARE_CLEARING`(시스템, 정산 자금원) / CREDIT 제휴사 `CASH` payout /
+  CREDIT `COMMISSION_INCOME`(시스템) commission. 결제의 현금 흐름은 외부 PG로 처리했다고 가정해
+  원장 밖. 제휴사 `CASH` 계정은 정산이 아니라 **첫 매출(결제) 시점**에 provisioning한다
+  (배치는 "생성 후 같은 트랜잭션 재조회"가 곤란 - 아래).
+- **Spring Batch 6 / Boot 4는 인메모리 JobRepository가 기본**: `BATCH_*` 테이블 없음,
+  `spring.batch.jdbc.*` / `spring.batch.job.enabled` 속성도 없어짐. 실행 이력·재시작은
+  도메인 레벨로 대체 - `Settlement` 유니크 `(partner, period)` + `settled_at` 마킹.
+- **멱등성은 `payment.settled_at`으로**: `calculate`가 미정산 결제만 조회하므로, 재실행하면
+  이미 정산된 건은 자동으로 빠진다. "이미 DONE이면 스킵" 같은 별도 플래그 안 씀.
+- **정산은 누적**: 열린 기간을 조기 정산한 뒤 결제가 더 들어와 재실행해도, 같은 `Settlement`
+  행에 `addSettledBatch`로 더해진다. 실사용은 마감된 과거 날짜만 정산해 사실상 1회.
+- **부분 실패 처리**: chunk 크기 1 = 제휴사 하나가 트랜잭션 하나. `SettlementException`(비활성
+  제휴사·수수료율 이상) → 그 청크만 롤백(정산행·분개·`settled_at`이 하나도 안 남음) →
+  `SettlementSkipListener`가 `REQUIRES_NEW`로 `FAILED` 기록 + `SETTLEMENT_FAILED` 감사 →
+  다음 제휴사 진행. 잡 자체는 `COMPLETED`. 이미 `DONE`인 회차는 `FAILED`로 뒤집지 않는다.
+- **계정 최초 생성**: `ledger_account` 유니크 위반을 무조건 삼키던 걸, 삼킨 뒤 재확인해서
+  진짜 없으면(스키마 오류 등) 다시 던지도록 고침. `AccountKind`/`AccountOwnerType`은
+  `@Enumerated` 대신 `@Converter`로 저장 - `@Enumerated`가 만드는 `check` 제약이
+  `ddl-auto=update`로 갱신되지 않아, enum에 값을 추가하면 INSERT가 깨지기 때문.
+- **엔드포인트**: `POST /api/v1/admin/settlements/run`, `GET /api/v1/admin/settlements`,
+  `GET /api/v1/admin/audit-logs`, `GET /api/v1/partner/settlements`(본인 것만),
+  `GET|POST /api/v1/admin/partners[/{id}/{activate,deactivate}]`.
 
 ## PR B 구현 메모 (설계에서 조정된 것)
 

@@ -44,8 +44,9 @@ com.example.transit
  ├─ api/          # @RestController, /api/v1/** JSON 응답
  ├─ service/      # 순수 비즈니스 로직 (HTTP 개념을 몰라야 함)
  ├─ security/     # JWT 필터·Refresh Token 저장소 (Spring Security 연동)
- ├─ config/       # SecurityConfig 등 프레임워크 설정
- ├─ domain/       # JPA Entity
+ ├─ batch/        # Spring Batch Job/Step (제휴사 정산)
+ ├─ config/       # SecurityConfig·스케줄러·시드 등 프레임워크 설정
+ ├─ domain/       # JPA Entity (ledger/ 서브패키지: 복식부기 원장)
  └─ repository/   # Spring Data JPA Repository
 ```
 
@@ -106,6 +107,34 @@ com.example.transit
 | `POST /api/v1/rides/{id}/start` · `/complete` · `/cancel` | 상태 전이. `complete` 시 결제 + 5% 페이백 |
 | `GET /api/v1/rides` · `/{id}` | 내 이용 내역 |
 | `GET /api/v1/points` · `/history` | 내 포인트 잔액 · 적립/차감 이력 |
+
+## 제휴사 수수료 정산 (B2B) + Spring Batch
+
+제휴사별 하루치 거래의 수수료를 일괄 정산한다. 매일 새벽 크론으로 어제 거래를 정산하고,
+운영자가 수동 실행할 수도 있다.
+
+- **Spring Batch chunk job**: reader(미정산 결제 보유 제휴사) → processor(제휴사별 합계·수수료 계산)
+  → writer(`settlement` 저장 + 정산 분개 + `payment.settled_at` 마킹). chunk 크기 1 =
+  제휴사 하나가 트랜잭션 하나.
+- **부분 실패 + `@Transactional` 롤백**: 한 제휴사가 실패해도(`SettlementException` - 비활성 등)
+  그 청크만 롤백되어 정산행·분개·마킹이 하나도 안 남고, `SettlementSkipListener`가 별도
+  트랜잭션으로 `FAILED`를 기록한 뒤 다음 제휴사로 넘어간다. 잡 자체는 `COMPLETED`.
+- **정산 분개**: DEBIT `FARE_CLEARING`(자금원) / CREDIT 제휴사 `CASH`(지급 몫) /
+  CREDIT `COMMISSION_INCOME`(수수료 수익). 차변 = 대변.
+- **멱등성**: `payment.settled_at` 마킹 — 재실행하면 이미 정산된 건은 조회에서 빠진다.
+  `Settlement`는 `(partner, period)` 유니크이고 재실행 시 누적 갱신된다.
+- **Spring Batch 6 / Boot 4 참고**: JobRepository가 인메모리 기본이라 `BATCH_*` 테이블이 없다.
+  실행 이력·재시작은 위 도메인 레벨 멱등성으로 대체한다.
+
+| 엔드포인트 | 권한 | 설명 |
+|---|---|---|
+| `POST /api/v1/admin/settlements/run` | ADMIN | 정산 배치 실행 (기본: 어제) |
+| `GET /api/v1/admin/settlements` | ADMIN | 전체 정산 내역 |
+| `GET /api/v1/admin/audit-logs` | ADMIN | 감사 로그 |
+| `GET /api/v1/admin/partners`, `POST .../{id}/{activate,deactivate}` | ADMIN | 제휴사 관리 |
+| `GET /api/v1/partner/settlements` | PARTNER_ADMIN | 본인 제휴사 정산 내역만 |
+
+운영자·제휴사 관리자 계정은 `StaffSeedInitializer`가 기동 시 시드한다(자격증명은 환경변수, 기본값은 데모용).
 
 ## 외부 API 연동 (ODsay)
 

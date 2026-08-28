@@ -22,6 +22,9 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: true
+  # Spring Batch 6 / Boot 4는 기본이 인메모리(resourceless) JobRepository라 BATCH_* 테이블이
+  # 없다. 기동 시 Job 자동 실행도 spring.batch.job.name이 없으면 안 한다(정산은 스케줄러/관리자
+  # API로만 트리거). 실행 이력·재시작은 도메인 레벨(Settlement 유니크 + DONE 스킵)로 대체한다.
   web:
     resources:
       chain:
@@ -44,6 +47,16 @@ app:
   refresh-token:
     # redis | memory. 운영은 redis(탈취 대비 서버측 저장·즉시 폐기), 테스트/로컬은 memory.
     store: ${REFRESH_TOKEN_STORE:redis}
+  settlement:
+    # false면 정산 스케줄러 미등록(수동 운영/테스트). 크론은 매일 03:00, 어제 거래 대상.
+    scheduler-enabled: ${SETTLEMENT_SCHEDULER_ENABLED:true}
+    cron: "0 0 3 * * *"
+  staff:
+    # 운영자·제휴사 관리자 시드 계정. 운영에서는 반드시 환경변수로 덮어쓴다(로그로 경고).
+    admin-email: ${ADMIN_EMAIL:admin@whentoleave.local}
+    admin-password: ${ADMIN_PASSWORD:admin-dev-password-change-me}
+    partner-admin-email: ${PARTNER_ADMIN_EMAIL:partner-admin@whentoleave.local}
+    partner-admin-password: ${PARTNER_ADMIN_PASSWORD:partner-dev-password-change-me}
 
 google-routes:
   # 대중교통 경로탐색(환승 조합)용. Google Cloud Console에서 Routes API 활성화 후 발급.

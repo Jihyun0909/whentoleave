@@ -2,8 +2,6 @@ package com.example.transit.domain.ledger;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -40,14 +38,13 @@ public class LedgerAccount {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Enumerated(EnumType.STRING)
+    // @Enumerated 대신 autoApply 컨버터로 저장한다(AccountKindConverter 주석: enum check 제약 회피).
     @Column(name = "owner_type", nullable = false, length = 10)
     private AccountOwnerType ownerType;
 
     @Column(name = "owner_id", nullable = false)
     private long ownerId;
 
-    @Enumerated(EnumType.STRING)
     @Column(name = "kind", nullable = false, length = 20)
     private AccountKind kind;
 

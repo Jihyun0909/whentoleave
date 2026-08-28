@@ -51,8 +51,11 @@ public class LedgerAccountService {
         }
         try {
             creator.create(ownerType, ownerId, kind);
-        } catch (DataIntegrityViolationException | UnexpectedRollbackException concurrentCreate) {
-            // 다른 트랜잭션이 먼저 만들었다. REQUIRES_NEW라 주 트랜잭션은 영향 없음.
+        } catch (DataIntegrityViolationException | UnexpectedRollbackException e) {
+            // 경합으로 이미 만들어졌으면 존재할 것이다. 그게 아니면 진짜 오류(스키마 등)이므로 다시 던진다.
+            if (!accounts.existsByOwnerTypeAndOwnerIdAndKind(ownerType, ownerId, kind)) {
+                throw e;
+            }
         }
     }
 
