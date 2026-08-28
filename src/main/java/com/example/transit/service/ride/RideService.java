@@ -8,6 +8,7 @@ import com.example.transit.domain.TaxiRide;
 import com.example.transit.repository.PartnerRepository;
 import com.example.transit.repository.TaxiRideRepository;
 import com.example.transit.service.audit.AuditLogWriter;
+import com.example.transit.service.support.RetryingTransactionRunner;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,13 +26,16 @@ public class RideService {
     private final PartnerRepository partners;
     private final PaymentService paymentService;
     private final AuditLogWriter audit;
+    private final RetryingTransactionRunner retryRunner;
 
     public RideService(TaxiRideRepository rides, PartnerRepository partners,
-                       PaymentService paymentService, AuditLogWriter audit) {
+                       PaymentService paymentService, AuditLogWriter audit,
+                       RetryingTransactionRunner retryRunner) {
         this.rides = rides;
         this.partners = partners;
         this.paymentService = paymentService;
         this.audit = audit;
+        this.retryRunner = retryRunner;
     }
 
     public record CompletionResult(TaxiRide ride, Payment payment) {
@@ -56,12 +60,19 @@ public class RideService {
         return ride;
     }
 
-    @Transactional
+    /**
+     * 이용 완료 + 결제 + 포인트 정산을 한 트랜잭션으로 처리한다. 포인트 원장의 공유 계정
+     * 충돌로 롤백되면 {@link RetryingTransactionRunner}가 전체를 다시 시도한다 - 그래서
+     * {@code @Transactional}이 아니라 {@code retryRunner.run}으로 트랜잭션 경계를 잡는다
+     * (재시도가 트랜잭션 바깥에 있어야 매번 새 트랜잭션으로 돈다).
+     */
     public CompletionResult complete(long userId, long rideId, long pointToUse) {
-        TaxiRide ride = load(userId, rideId);
-        transition(ride, RideStatus.COMPLETED);
-        Payment payment = paymentService.settleCompletion(ride, pointToUse);
-        return new CompletionResult(ride, payment);
+        return retryRunner.run(() -> {
+            TaxiRide ride = load(userId, rideId);
+            transition(ride, RideStatus.COMPLETED);
+            Payment payment = paymentService.settleCompletion(ride, pointToUse);
+            return new CompletionResult(ride, payment);
+        });
     }
 
     @Transactional

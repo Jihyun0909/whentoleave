@@ -4,6 +4,9 @@ import com.example.transit.api.dto.ErrorResponse;
 import com.example.transit.service.auth.AuthException;
 import com.example.transit.service.point.InsufficientPointException;
 import com.example.transit.service.ride.RideException;
+import com.example.transit.service.support.RetryExhaustedException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -22,6 +25,15 @@ import java.util.stream.Collectors;
  */
 @RestControllerAdvice(basePackages = "com.example.transit.api")
 public class ApiExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
+    @ExceptionHandler(RetryExhaustedException.class)
+    public ResponseEntity<ErrorResponse> onRetryExhausted(RetryExhaustedException e) {
+        log.warn("동시성 재시도 소진", e);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new ErrorResponse("CONCURRENCY_RETRY_EXHAUSTED", "잠시 후 다시 시도해 주세요"));
+    }
 
     @ExceptionHandler(AuthException.class)
     public ResponseEntity<ErrorResponse> onAuth(AuthException e) {

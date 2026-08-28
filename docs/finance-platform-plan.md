@@ -150,9 +150,16 @@ audit_log         (id, actor_user_id?, event, ref_type, ref_id, detail_json, cre
 - **`PointLockStrategy` 구현함**: `executeGuarded(userId, op)` 인터페이스 + `DbLockPointLockStrategy`
   (`TransactionTemplate`로 트랜잭션 경계만 열고, 실제 락은 `LedgerAccountRepository.findForUpdate`).
   `app.point.lock-strategy=redisson`으로 교체 지점 확보.
-- **알려진 한계**: 모든 포인트 연산이 `POINT_CONTRA` 단일 행에 비관적 락을 걸어 사용자 간에도
-  직렬화된다. 정합성 우선. 처리량이 문제면 CONTRA 샤딩 또는 (사용자 계정만 비관적 락 +
-  CONTRA는 낙관적 락 + 재시도).
+- **CONTRA 경합 처리 (리뷰 반영)**: 공유 `POINT_CONTRA` 계정은 비관적 락 대신 `@Version`
+  낙관적 락 + `RetryingTransactionRunner`(트랜잭션째 재시도, decorrelated jitter 백오프, 12회)로
+  바꿨다. 느린 트랜잭션 하나가 전체를 막는 head-of-line blocking이 사라진다.
+  - `RideService.complete`는 `@Transactional` 대신 `retryRunner.run`으로 경계를 잡는다
+    (재시도가 트랜잭션 바깥에 있어야 매 시도가 새 트랜잭션).
+  - 계정 최초 생성 경합은 `LedgerAccountCreator`(`REQUIRES_NEW`)로 격리 - 주 트랜잭션 세션이
+    예외로 오염되는 `AssertionFailure: null identifier` 방지. `POINT_CONTRA`는 기동 시 선점 시드.
+  - **남은 한계**: 낙관적 락도 결국 같은 행을 갱신하므로, 수십 개가 같은 ms에 몰리는 극단적
+    경합에선 재시도 소진(→ 503 `CONCURRENCY_RETRY_EXHAUSTED`) 가능. 그 규모면 CONTRA를
+    샤딩(N개 하위계정 합산)하거나 잔액을 비-materialized로 전환한다.
 - **감사 로그와 락**: 잔액 부족 감사는 락/트랜잭션을 벗어난 뒤 기록한다 - 락을 쥔 채
   `REQUIRES_NEW`로 감사 테이블에 쓰면 커넥션 풀이 빠듯할 때 2번째 커넥션을 못 얻어 교착.
 - **테스트 환경**: H2 `LOCK_TIMEOUT=15000`(기본 1초로는 동시성 테스트에서 락 대기 초과),

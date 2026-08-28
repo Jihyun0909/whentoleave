@@ -16,6 +16,9 @@ public interface LedgerAccountRepository extends JpaRepository<LedgerAccount, Lo
     Optional<LedgerAccount> findByOwnerTypeAndOwnerIdAndKind(
             AccountOwnerType ownerType, long ownerId, AccountKind kind);
 
+    boolean existsByOwnerTypeAndOwnerIdAndKind(
+            AccountOwnerType ownerType, long ownerId, AccountKind kind);
+
     /**
      * 잔액 갱신 전 이 행을 {@code SELECT ... FOR UPDATE}로 잡는다. 같은 계정을 동시에 건드리는
      * 트랜잭션들을 여기서 직렬화해 잔액이 음수가 되거나 분개가 유실되는 걸 막는다.

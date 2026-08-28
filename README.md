@@ -88,10 +88,13 @@ com.example.transit
   사용자별 `POINT` 계정(대변 정상)과 시스템 `POINT_CONTRA` 계정(차변 정상) 두 개로 닫히고,
   `ledger_transaction`/`ledger_entry`는 불변(`@Immutable`, delete 미노출) — 정정은 역분개로만.
   적립: `DEBIT POINT_CONTRA / CREDIT 사용자 POINT`. 차감: 그 반대.
-- **동시성 제어**: 한 사용자의 포인트 연산은 `LedgerAccountRepository.findForUpdate`
-  (`SELECT ... FOR UPDATE`)로 계정 행을 잡아 직렬화 → 초과 인출·분개 유실 방지.
-  락 방식은 `PointLockStrategy` 인터페이스로 추상화(`app.point.lock-strategy=db`(기본)|`redisson`).
-  검증: `PointServiceConcurrencyTest` — 스레드 30개 동시 차감 시 잔액 음수 불가·최종 잔액 정확.
+- **동시성 제어 (2층)**:
+  - 사용자별 `POINT` 계정 — `findForUpdate`(`SELECT ... FOR UPDATE`) 비관적 락으로 직렬화
+    → 초과 인출·분개 유실 방지. (`PointServiceConcurrencyTest`: 30스레드 동시 차감 검증)
+  - 전 사용자 공유 `POINT_CONTRA` 계정 — `@Version` 낙관적 락 + 트랜잭션 재시도
+    (`RetryingTransactionRunner`, decorrelated jitter). 비관적으로 잡지 않아 느린 트랜잭션이
+    전체를 막지 않는다. (`PointCrossUserConcurrencyTest`: 다수 사용자 동시 적립/차감 + 불변식 검증)
+  - 락 방식은 `PointLockStrategy` 인터페이스로 추상화(`app.point.lock-strategy=db`(기본)|`redisson`).
 - **멱등성**: 적립·차감 분개는 `ledger_transaction.idempotency_key`(예 `PAYBACK:ride:42`) 유니크로
   재시도 이중 반영 차단.
 - **감사 로그**: 잔액 부족·중복 분개·불균형 시도를 `audit_log`(불변)에 남긴다.

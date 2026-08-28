@@ -9,8 +9,9 @@ import com.example.transit.domain.ledger.LedgerTransactionType;
 import com.example.transit.repository.LedgerAccountRepository;
 import com.example.transit.repository.LedgerEntryRepository;
 import com.example.transit.service.audit.AuditLogWriter;
+import com.example.transit.service.ledger.LedgerAccountService;
 import com.example.transit.service.ledger.LedgerService;
-import org.springframework.dao.DataIntegrityViolationException;
+import com.example.transit.service.support.RetryingTransactionRunner;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -21,25 +22,32 @@ import java.util.List;
  *   <li>적립(5% 페이백): DEBIT {@code POINT_CONTRA} / CREDIT 사용자 {@code POINT}</li>
  *   <li>차감(결제): DEBIT 사용자 {@code POINT} / CREDIT {@code POINT_CONTRA}</li>
  * </ul>
- * 한 사용자의 연산은 {@link PointLockStrategy}로 직렬화하고, 그 안에서 사용자 포인트 계정 행을
- * {@code SELECT ... FOR UPDATE}로 잡아 잔액이 음수가 되거나 분개가 유실되는 경합을 막는다.
- * <p>
- * 알려진 한계: {@code POINT_CONTRA}는 모든 포인트 연산이 공유하는 단일 행이라, 여기에도 락을
- * 걸면 사용자 간에도 직렬화된다. 정합성 우선 설계이며, 처리량이 문제되면 이 계정을 샤딩하거나
- * (사용자 계정만 비관적 락 + CONTRA는 낙관적 락 + 재시도)로 바꾼다.
+ * 동시성 제어는 두 층이다:
+ * <ol>
+ *   <li>사용자별 {@code POINT} 계정 - {@code findForUpdate}({@code SELECT ... FOR UPDATE}) 비관적 락.
+ *       한 사용자의 연산은 여기서 직렬화되어 잔액이 음수가 되지 않는다.</li>
+ *   <li>전 사용자 공유 {@code POINT_CONTRA} 계정 - {@code @Version} 낙관적 락. 다른 사용자와
+ *       부딪히면 {@link RetryingTransactionRunner}가 트랜잭션째로 다시 시도한다. 공유 행을
+ *       비관적으로 잡지 않으므로 느린 트랜잭션 하나가 전체를 막지 않는다.</li>
+ * </ol>
  */
 @Service
 public class PointService {
 
     private final PointLockStrategy lockStrategy;
+    private final RetryingTransactionRunner retryRunner;
+    private final LedgerAccountService ledgerAccounts;
     private final LedgerAccountRepository accounts;
     private final LedgerEntryRepository entries;
     private final LedgerService ledger;
     private final AuditLogWriter audit;
 
-    public PointService(PointLockStrategy lockStrategy, LedgerAccountRepository accounts,
+    public PointService(PointLockStrategy lockStrategy, RetryingTransactionRunner retryRunner,
+                        LedgerAccountService ledgerAccounts, LedgerAccountRepository accounts,
                         LedgerEntryRepository entries, LedgerService ledger, AuditLogWriter audit) {
         this.lockStrategy = lockStrategy;
+        this.retryRunner = retryRunner;
+        this.ledgerAccounts = ledgerAccounts;
         this.accounts = accounts;
         this.entries = entries;
         this.ledger = ledger;
@@ -54,13 +62,14 @@ public class PointService {
         if (amount <= 0) {
             return;
         }
-        lockStrategy.executeGuarded(userId, () -> {
-            LedgerAccount userPoint = lockOrCreate(AccountOwnerType.USER, userId, AccountKind.POINT);
-            LedgerAccount contra = lockOrCreateSystemContra();
+        retryRunner.run(() -> lockStrategy.executeGuarded(userId, () -> {
+            LedgerAccount userPoint = lockUserPoint(userId);
+            LedgerAccount contra = systemContra();
             ledger.post(LedgerTransactionType.PAYBACK, idempotencyKey, refType, refId, "이용 완료 5% 적립",
                     List.of(new LedgerService.Posting(contra, EntryDirection.DEBIT, amount),
                             new LedgerService.Posting(userPoint, EntryDirection.CREDIT, amount)));
-        });
+            return null;
+        }));
     }
 
     /**
@@ -71,19 +80,20 @@ public class PointService {
             return;
         }
         try {
-            lockStrategy.executeGuarded(userId, () -> {
-                LedgerAccount userPoint = lockOrCreate(AccountOwnerType.USER, userId, AccountKind.POINT);
+            retryRunner.run(() -> lockStrategy.executeGuarded(userId, () -> {
+                LedgerAccount userPoint = lockUserPoint(userId);
                 if (userPoint.getBalance() < amount) {
                     throw new InsufficientPointException(amount, userPoint.getBalance());
                 }
-                LedgerAccount contra = lockOrCreateSystemContra();
+                LedgerAccount contra = systemContra();
                 ledger.post(LedgerTransactionType.SPEND, idempotencyKey, refType, refId, "선불 포인트 차감",
                         List.of(new LedgerService.Posting(userPoint, EntryDirection.DEBIT, amount),
                                 new LedgerService.Posting(contra, EntryDirection.CREDIT, amount)));
-            });
+                return null;
+            }));
         } catch (InsufficientPointException e) {
-            // 락·트랜잭션을 벗어난 뒤에 기록한다. 락을 쥔 채로 감사 테이블에 REQUIRES_NEW로 쓰면
-            // (커넥션 풀이 빠듯할 때) 2번째 커넥션을 못 얻어 교착에 빠질 수 있다.
+            // 락·트랜잭션을 벗어난 뒤에 기록한다(락을 쥔 채 REQUIRES_NEW로 감사 테이블에 쓰면
+            // 커넥션 풀이 빠듯할 때 2번째 커넥션을 못 얻어 교착).
             audit.record(AuditEvent.INSUFFICIENT_POINT, userId, refType, refId,
                     "요청 " + amount + " / 잔액 " + e.balance());
             throw e;
@@ -103,21 +113,14 @@ public class PointService {
                 .orElseGet(List::of);
     }
 
-    private LedgerAccount lockOrCreateSystemContra() {
-        return lockOrCreate(AccountOwnerType.SYSTEM, LedgerAccount.SYSTEM_OWNER_ID, AccountKind.POINT_CONTRA);
+    /** 사용자 POINT 계정을 비관적 락으로 잡는다(없으면 만든다). */
+    private LedgerAccount lockUserPoint(long userId) {
+        return ledgerAccounts.getForUpdate(AccountOwnerType.USER, userId, AccountKind.POINT);
     }
 
-    private LedgerAccount lockOrCreate(AccountOwnerType ownerType, long ownerId, AccountKind kind) {
-        return accounts.findForUpdate(ownerType, ownerId, kind).orElseGet(() -> {
-            try {
-                accounts.saveAndFlush(ownerType == AccountOwnerType.SYSTEM
-                        ? LedgerAccount.forSystem(kind)
-                        : LedgerAccount.forUser(ownerId, kind));
-            } catch (DataIntegrityViolationException concurrentCreate) {
-                // 다른 트랜잭션이 먼저 같은 계정을 만들었다 - 아래에서 다시 읽어 락을 잡는다.
-            }
-            return accounts.findForUpdate(ownerType, ownerId, kind)
-                    .orElseThrow(() -> new IllegalStateException("계정 생성 직후 재조회 실패"));
-        });
+    /** 공유 CONTRA 계정은 락 없이 읽는다. 갱신 충돌은 {@code @Version} + 재시도로 처리한다. */
+    private LedgerAccount systemContra() {
+        return ledgerAccounts.getOrCreate(
+                AccountOwnerType.SYSTEM, LedgerAccount.SYSTEM_OWNER_ID, AccountKind.POINT_CONTRA);
     }
 }

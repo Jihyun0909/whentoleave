@@ -79,8 +79,20 @@ public class LedgerAccount {
         return new LedgerAccount(AccountOwnerType.USER, userId, kind);
     }
 
+    public static LedgerAccount forPartner(long partnerId, AccountKind kind) {
+        return new LedgerAccount(AccountOwnerType.PARTNER, partnerId, kind);
+    }
+
     public static LedgerAccount forSystem(AccountKind kind) {
         return new LedgerAccount(AccountOwnerType.SYSTEM, SYSTEM_OWNER_ID, kind);
+    }
+
+    public static LedgerAccount of(AccountOwnerType ownerType, long ownerId, AccountKind kind) {
+        return switch (ownerType) {
+            case USER -> forUser(ownerId, kind);
+            case PARTNER -> forPartner(ownerId, kind);
+            case SYSTEM -> forSystem(kind);
+        };
     }
 
     /**
