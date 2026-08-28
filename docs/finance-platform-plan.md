@@ -133,14 +133,32 @@ audit_log         (id, actor_user_id?, event, ref_type, ref_id, detail_json, cre
 
 ## PR 분할
 
-1. **PR A — 인증 토대**: 의존성, `app_user`, `RefreshTokenStore`(Redis + 인메모리), JWT 필터/프로바이더,
+1. **PR A — 인증 토대** ✅: 의존성, `app_user`, `RefreshTokenStore`(Redis + 인메모리), JWT 필터/프로바이더,
    `AuthController`, `SecurityConfig`. 기존 공개 엔드포인트 전부 `permitAll` 유지, 경로조회 무변경.
-2. **PR B — 원장 + 포인트 페이백**: `partner` · `taxi_ride` · `payment` · `ledger_*`, 복식부기 서비스,
-   적립 · 차감, 비관적 락, 50스레드 동시성 테스트, `audit_log` 기초.
+2. **PR B — 원장 + 포인트 페이백** ✅: `partner` · `taxi_ride` · `payment` · `ledger_*`, 복식부기 서비스,
+   적립 · 차감, 비관적 락, 동시성 테스트, `audit_log` 기초.
 3. **PR C — 정산 + 감사**: `settlement`, Spring Batch Job, 부분 실패 · 롤백, admin/partner 엔드포인트,
    스케줄러, `audit-logs` 조회.
 
 의존 순서 A → B → C.
+
+## PR B 구현 메모 (설계에서 조정된 것)
+
+- **CONTRA 계정 모델**: 포인트 시스템을 사용자별 `POINT`(대변 정상) + 시스템 단일 `POINT_CONTRA`
+  (차변 정상) 두 계정으로 닫았다. 불변식 `POINT_CONTRA.balance == Σ(모든 POINT.balance)`를
+  테스트로 검증한다. `POINT_LIABILITY`/`COMMISSION_INCOME` 등은 PR C에서 추가.
+- **`PointLockStrategy` 구현함**: `executeGuarded(userId, op)` 인터페이스 + `DbLockPointLockStrategy`
+  (`TransactionTemplate`로 트랜잭션 경계만 열고, 실제 락은 `LedgerAccountRepository.findForUpdate`).
+  `app.point.lock-strategy=redisson`으로 교체 지점 확보.
+- **알려진 한계**: 모든 포인트 연산이 `POINT_CONTRA` 단일 행에 비관적 락을 걸어 사용자 간에도
+  직렬화된다. 정합성 우선. 처리량이 문제면 CONTRA 샤딩 또는 (사용자 계정만 비관적 락 +
+  CONTRA는 낙관적 락 + 재시도).
+- **감사 로그와 락**: 잔액 부족 감사는 락/트랜잭션을 벗어난 뒤 기록한다 - 락을 쥔 채
+  `REQUIRES_NEW`로 감사 테이블에 쓰면 커넥션 풀이 빠듯할 때 2번째 커넥션을 못 얻어 교착.
+- **테스트 환경**: H2 `LOCK_TIMEOUT=15000`(기본 1초로는 동시성 테스트에서 락 대기 초과),
+  Hikari `maximum-pool-size=40`. 운영 Postgres는 해당 없음.
+- **엔드포인트**: `POST /api/v1/rides`, `/{id}/{start,complete,cancel}`, `GET /api/v1/rides[/{id}]`,
+  `GET /api/v1/partners`, `GET /api/v1/points[/history]`.
 
 ## 완료 후 문서화
 

@@ -80,6 +80,30 @@ com.example.transit
 **로컬 실행**: `run-dev.bat`이 `REFRESH_TOKEN_STORE=memory`와 개발용 `JWT_SECRET`을 넣어줘서 Redis 없이
 바로 뜬다. Redis 경로로 확인하려면 `docker compose up -d redis` 후 그 두 환경변수를 지운다.
 
+## 선불 포인트 페이백 + 복식부기 원장 (B2C)
+
+가상 택시 이용을 시뮬레이션하고(요청 → 시작 → 완료), 완료 시 결제·포인트 정산이 한 트랜잭션에서 일어난다.
+
+- **복식부기**: 모든 포인트 이동은 균형 잡힌 분개(차변 합 == 대변 합)로만 기록한다. 잔액은
+  사용자별 `POINT` 계정(대변 정상)과 시스템 `POINT_CONTRA` 계정(차변 정상) 두 개로 닫히고,
+  `ledger_transaction`/`ledger_entry`는 불변(`@Immutable`, delete 미노출) — 정정은 역분개로만.
+  적립: `DEBIT POINT_CONTRA / CREDIT 사용자 POINT`. 차감: 그 반대.
+- **동시성 제어**: 한 사용자의 포인트 연산은 `LedgerAccountRepository.findForUpdate`
+  (`SELECT ... FOR UPDATE`)로 계정 행을 잡아 직렬화 → 초과 인출·분개 유실 방지.
+  락 방식은 `PointLockStrategy` 인터페이스로 추상화(`app.point.lock-strategy=db`(기본)|`redisson`).
+  검증: `PointServiceConcurrencyTest` — 스레드 30개 동시 차감 시 잔액 음수 불가·최종 잔액 정확.
+- **멱등성**: 적립·차감 분개는 `ledger_transaction.idempotency_key`(예 `PAYBACK:ride:42`) 유니크로
+  재시도 이중 반영 차단.
+- **감사 로그**: 잔액 부족·중복 분개·불균형 시도를 `audit_log`(불변)에 남긴다.
+
+| 엔드포인트 | 설명 |
+|---|---|
+| `GET /api/v1/partners` | 이용 가능한 (가상) 제휴사 목록 |
+| `POST /api/v1/rides` | 이용 요청 (partnerId, origin, destination, fareAmount) |
+| `POST /api/v1/rides/{id}/start` · `/complete` · `/cancel` | 상태 전이. `complete` 시 결제 + 5% 페이백 |
+| `GET /api/v1/rides` · `/{id}` | 내 이용 내역 |
+| `GET /api/v1/points` · `/history` | 내 포인트 잔액 · 적립/차감 이력 |
+
 ## 외부 API 연동 (ODsay)
 
 ### 1. 경로 탐색 — `searchPubTransPathT`

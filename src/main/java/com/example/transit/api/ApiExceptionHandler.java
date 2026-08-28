@@ -2,6 +2,8 @@ package com.example.transit.api;
 
 import com.example.transit.api.dto.ErrorResponse;
 import com.example.transit.service.auth.AuthException;
+import com.example.transit.service.point.InsufficientPointException;
+import com.example.transit.service.ride.RideException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -28,6 +30,22 @@ public class ApiExceptionHandler {
             case INVALID_CREDENTIALS, INVALID_REFRESH_TOKEN, REFRESH_TOKEN_REUSE_DETECTED -> HttpStatus.UNAUTHORIZED;
         };
         return ResponseEntity.status(status).body(new ErrorResponse(e.reason().name(), e.getMessage()));
+    }
+
+    @ExceptionHandler(RideException.class)
+    public ResponseEntity<ErrorResponse> onRide(RideException e) {
+        HttpStatus status = switch (e.reason()) {
+            case RIDE_NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case PARTNER_NOT_AVAILABLE, INVALID_FARE, INVALID_POINT_AMOUNT -> HttpStatus.BAD_REQUEST;
+            case ILLEGAL_STATE -> HttpStatus.CONFLICT;
+        };
+        return ResponseEntity.status(status).body(new ErrorResponse(e.reason().name(), e.getMessage()));
+    }
+
+    @ExceptionHandler(InsufficientPointException.class)
+    public ResponseEntity<ErrorResponse> onInsufficientPoint(InsufficientPointException e) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
+                .body(new ErrorResponse("INSUFFICIENT_POINT", e.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
