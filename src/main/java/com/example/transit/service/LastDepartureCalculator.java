@@ -86,11 +86,14 @@ public class LastDepartureCalculator {
         int firstLegUsableMinutes = -1;
         String[] directions = new String[legs.size()];
         Integer[] boardServiceMinutes = new Integer[legs.size()];
+        @SuppressWarnings("unchecked")
+        List<Candidate>[] candidatesByLeg = new List[legs.size()];
 
         for (int i = legs.size() - 1; i >= 0; i--) {
             TransitLeg leg = legs.get(i);
 
             List<Candidate> reachable = departureCandidates(leg, date);
+            candidatesByLeg[i] = reachable;
             if (reachable.isEmpty()) {
                 log.debug("leg[{}] stationId={} wayCode={} isBus={} busNo={} 운행 정보 없음 - Infeasible",
                         i, leg.stationId(), leg.wayCode(), leg.isBus(), leg.busNo());
@@ -128,6 +131,27 @@ public class LastDepartureCalculator {
                 firstLegUsableMinutes = chosen.serviceMinutes();
             } else {
                 requiredArrivalMinutes = chosen.serviceMinutes() - leg.transferBufferMinutes() - transferSafetyMarginMinutes;
+            }
+        }
+
+        // 지금까지는 "역산"(뒤에서부터, 각 구간마다 마감을 만족하는 가장 늦은 후보)이라 legs.get(0)의
+        // 출발 시각(=몇 시까지 집에서 나가면 되는지, 헤드라인 숫자)은 이미 맞지만, 그 뒤 구간들의
+        // boardServiceMinutes는 "그 구간 자체의 마감을 만족하는 가장 늦은 차편"이 담겨 있다 - 즉
+        // 뒷 구간이 하나 걸러 늦은 차를 타도록 고정되어, 정작 그 앞 구간(환승 전)은 일찍 출발해서
+        // 불필요하게 오래 기다리는 것처럼 보일 수 있다(사용자 피드백: 4호선→2호선 환승, 도보 후
+        // 18:35인데 18:38이 아니라 두 편 뒤인 18:46 열차 탑승으로 안내됨 - 18:38을 타도 첫 구간
+        // 출발 시각은 똑같이 18:14라 바꿀 이유가 없었다). 첫 구간은 그대로 두고, 그 뒤 구간부터는
+        // "환승 도보 후 도착한 시각 이후 실제로 탈 수 있는 가장 빠른 차편"으로 다시 계산한다 -
+        // 이렇게 골라도 역산 때 확인한 마감(그보다 이전 차편)은 항상 만족한다.
+        for (int i = 1; i < legs.size(); i++) {
+            int arrivalAtBoardingPoint = boardServiceMinutes[i - 1] + legs.get(i - 1).rideMinutes()
+                    + legs.get(i).transferBufferMinutes();
+            Optional<Candidate> earliest = candidatesByLeg[i].stream()
+                    .filter(candidate -> candidate.serviceMinutes() >= arrivalAtBoardingPoint)
+                    .min(Comparator.comparingInt(Candidate::serviceMinutes));
+            if (earliest.isPresent()) {
+                boardServiceMinutes[i] = earliest.get().serviceMinutes();
+                directions[i] = earliest.get().directionLabel();
             }
         }
 
