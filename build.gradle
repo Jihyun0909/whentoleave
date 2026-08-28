@@ -19,18 +19,29 @@ repositories {
 
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	runtimeOnly 'org.postgresql:postgresql'
+
+	// JWT(Access/Refresh) 발급·검증. jjwt는 api만 컴파일 의존이고 impl/jackson은 런타임에만 필요.
+	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+
 	// 테스트는 인메모리 H2로 돈다 (src/test/resources/application.yml).
 	// 로컬 Docker Postgres가 없어도 되게 해서, 클라우드 샌드박스(모바일에서 쓰는
 	// Claude Code on the web 등)나 CI에서도 그대로 실행된다.
+	// Redis도 마찬가지로 테스트에선 안 띄운다 - RefreshTokenStore를 인터페이스로 두고
+	// 테스트 프로파일에선 인메모리 구현으로 바꾼다 (application.yml의 spring.autoconfigure.exclude).
 	testRuntimeOnly 'com.h2database:h2'
 	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-thymeleaf-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testImplementation 'org.springframework.security:spring-security-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 

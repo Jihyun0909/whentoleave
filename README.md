@@ -43,14 +43,42 @@ com.example.transit
  ├─ web/          # Thymeleaf 컨트롤러 (화면 담당, 얇게 유지)
  ├─ api/          # @RestController, /api/v1/** JSON 응답
  ├─ service/      # 순수 비즈니스 로직 (HTTP 개념을 몰라야 함)
+ ├─ security/     # JWT 필터·Refresh Token 저장소 (Spring Security 연동)
+ ├─ config/       # SecurityConfig 등 프레임워크 설정
  ├─ domain/       # JPA Entity
  └─ repository/   # Spring Data JPA Repository
 ```
 
 **원칙**
 - `service` 패키지 안에는 `HttpServletRequest`, `Model` 등 HTTP 관련 타입이 절대 들어가지 않는다.
+  (Spring Security의 `Authentication`도 마찬가지 — 컨트롤러가 `AuthenticatedUser`로 풀어서 넘긴다.)
 - API 응답에는 Entity를 직접 노출하지 않고 DTO로 감싼다.
 - 인증 기능이 필요해지면 세션 기반이 아니라 JWT로 간다 (앱 클라이언트 재사용을 위해).
+
+## 인증 (JWT)
+
+금융 백엔드 확장(포인트·정산)의 토대. 전체 설계는 [docs/finance-platform-plan.md](docs/finance-platform-plan.md).
+
+- **Stateless JWT**: `Authorization: Bearer <access token>`만 쓴다. 세션·CSRF 토큰·폼 로그인은 끔.
+- **토큰 수명**: Access 15분, Refresh 7일 (`app.jwt.*`).
+- **Refresh Token 회전 + 탈취 대비**: Refresh Token은 그 해시를 서버(Redis)에 저장하고, 재발급 때마다
+  회전한다. 이미 회전·폐기된 Refresh Token이 다시 들어오면 탈취로 보고 그 사용자의 **모든** Refresh
+  Token을 폐기한다. 저장소는 `RefreshTokenStore` 인터페이스라, 운영은 Redis / 테스트·로컬은 인메모리
+  구현으로 바꿔 낀다 (기존 `LastTrainLookup` 페이크 패턴과 동일 — 테스트가 외부 인프라를 안 탄다).
+- **권한**: `ROLE_USER`(B2C) / `ROLE_PARTNER_ADMIN`(B2B) / `ROLE_ADMIN`. `app_user` 단일 테이블 +
+  `role` 컬럼으로만 가른다 (실제 제휴 심사·사업자 등록은 스코프 밖 — 전부 "가상").
+- **경로조회는 무관**: `/`, `/api/v1/last-departure`, `/api/v1/stations**`는 로그인 없이 그대로 열려 있다.
+
+| 엔드포인트 | 설명 |
+|---|---|
+| `POST /api/v1/auth/signup` | B2C 회원가입 |
+| `POST /api/v1/auth/login` | Access/Refresh 발급 |
+| `POST /api/v1/auth/refresh` | Refresh 회전 → 새 쌍 발급 |
+| `POST /api/v1/auth/logout` | 해당 Refresh Token 폐기 |
+| `GET /api/v1/me` | 현재 토큰 주체 확인 (인증 필요) |
+
+**로컬 실행**: `run-dev.bat`이 `REFRESH_TOKEN_STORE=memory`와 개발용 `JWT_SECRET`을 넣어줘서 Redis 없이
+바로 뜬다. Redis 경로로 확인하려면 `docker compose up -d redis` 후 그 두 환경변수를 지운다.
 
 ## 외부 API 연동 (ODsay)
 

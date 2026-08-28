@@ -8,6 +8,12 @@
 spring:
   application:
     name: transit
+  # 테스트는 Redis를 안 띄운다. Refresh Token은 인메모리 저장소로 바꿔 끼우고(app.refresh-token.store),
+  # Redis 자동설정 자체를 꺼서 연결 시도가 없게 한다.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
+      - org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
   datasource:
     # MODE=PostgreSQL: 운영 DB와 방언 차이를 줄인다. 이 프로젝트는 native query 없이
     # JPA만 써서 H2로도 충분하다 (native query가 생기면 Testcontainers로 옮겨야 한다).
@@ -20,6 +26,16 @@ spring:
     hibernate:
       ddl-auto: create-drop
     show-sql: false
+
+app:
+  jwt:
+    # 테스트 전용 시크릿(32바이트 이상). 운영 키와 무관하다.
+    secret: test-only-jwt-secret-0123456789-abcdefghij
+    access-token-ttl: 15m
+    refresh-token-ttl: 7d
+    issuer: whentoleave
+  refresh-token:
+    store: memory
 
 # 실제 호출은 테스트에서 전부 페이크로 막지만, 값이 비어 있으면 설정 주입이 실패하므로 더미를 둔다.
 google-routes:

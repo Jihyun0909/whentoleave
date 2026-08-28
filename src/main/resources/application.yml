@@ -1,6 +1,18 @@
 spring:
   application:
     name: transit
+  autoconfigure:
+    # JWT stateless 인증이라 Spring Boot 기본 폼로그인 유저(랜덤 비번 로그 출력)는 불필요.
+    exclude: org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
+  data:
+    redis:
+      # Refresh Token 저장소(app.refresh-token.store=redis일 때). 운영은 compose의 redis 서비스,
+      # 로컬 bootRun은 REFRESH_TOKEN_STORE=memory로 두면 Redis 없이도 돈다.
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # StringRedisTemplate만 쓰고 Redis Repository는 안 쓴다(JPA 레포를 Redis로 오인 스캔하는 로그 방지).
+      repositories:
+        enabled: false
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5433/transit}
     username: ${DB_USERNAME:transit}
@@ -20,6 +32,18 @@ spring:
           content:
             enabled: true
             paths: /**
+
+app:
+  jwt:
+    # HS256 서명 키. 32바이트 이상이어야 하며 운영에서는 반드시 JWT_SECRET 환경변수로 덮어쓴다
+    # (아래 기본값은 로컬/CI 전용). 키가 바뀌면 발급된 모든 토큰이 무효가 된다.
+    secret: ${JWT_SECRET:dev-insecure-jwt-secret-override-in-production-0001}
+    access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:15m}
+    refresh-token-ttl: ${JWT_REFRESH_TOKEN_TTL:7d}
+    issuer: whentoleave
+  refresh-token:
+    # redis | memory. 운영은 redis(탈취 대비 서버측 저장·즉시 폐기), 테스트/로컬은 memory.
+    store: ${REFRESH_TOKEN_STORE:redis}
 
 google-routes:
   # 대중교통 경로탐색(환승 조합)용. Google Cloud Console에서 Routes API 활성화 후 발급.
