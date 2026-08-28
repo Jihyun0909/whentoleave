@@ -383,6 +383,42 @@ class LastDepartureCalculatorTest {
         assertInstanceOf(LastDepartureResult.Infeasible.class, withMargin);
     }
 
+    /**
+     * 실사용 회귀 테스트 (사용자 피드백, 2026-08-28): 4호선→2호선 환승에서 도보 후 18:35에
+     * 도착하는데, 2호선 시간표엔 18:38에 바로 열차가 있는데도 두 편 지난 18:46 열차 탑승으로
+     * 안내됐다. 원인은 "역산"이 마지막 구간(2호선)의 마감(18:47) 안에서 가장 늦은 후보(18:46)를
+     * 고르고, 그걸 기준으로 첫 구간(4호선) 출발 시각(18:14)을 정하다 보니, 정작 4호선을 18:14에
+     * 타면 2호선 플랫폼엔 18:35에 도착해서 18:38 열차를 탈 수 있는데도 legBoardServiceMinutes엔
+     * 뒤에 고른 18:46이 그대로 남아 있었다는 것. 첫 구간 출발 시각(헤드라인, 18:14)은 바뀌면
+     * 안 되고, 환승 후 탑승 시각만 실제로 탈 수 있는 가장 빠른 열차(18:38)로 고쳐져야 한다.
+     */
+    @Test
+    void 환승_후_탑승시각은_마감을_만족하는_가장_늦은_열차가_아니라_실제로_탈_수_있는_가장_빠른_열차다() {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                "SUYU4", List.of(lastTrain(LocalTime.of(18, 14), false, "사당행")),
+                "DDM2", List.of(
+                        lastTrain(LocalTime.of(18, 38), false, "신당행"),
+                        lastTrain(LocalTime.of(18, 43), false, "신당행"),
+                        lastTrain(LocalTime.of(18, 46), false, "신당행"),
+                        lastTrain(LocalTime.of(18, 49), false, "신당행")
+                )
+        ));
+        LastDepartureCalculator calculator = LastDepartureCalculator.subwayOnly(lookup);
+
+        TransitLeg line4 = TransitLeg.subway("SUYU4", 2, 17, 0, Set.of());     // 수유->동대문, 17분
+        TransitLeg line2 = TransitLeg.subway("DDM2", 1, 13, 4, Set.of());      // 도보 4분 환승, 13분
+        int targetArrivalMinutes = 19 * 60; // 19:00까지 도착
+
+        LastDepartureResult result = calculator.calculate(List.of(line4, line2), targetArrivalMinutes);
+
+        LastDepartureResult.Feasible feasible = assertInstanceOf(LastDepartureResult.Feasible.class, result);
+        // 헤드라인 출발 시각은 그대로 18:14 - 어차피 4호선엔 다른 후보가 없어 바뀔 이유가 없다.
+        assertEquals(LocalTime.of(18, 14), feasible.departureTime());
+        // 하지만 2호선 탑승 시각은 마감(18:47) 안에서 가장 늦은 18:46이 아니라, 도보 후 도착하는
+        // 18:35 이후 실제로 탈 수 있는 가장 빠른 18:38이어야 한다.
+        assertEquals(List.of(18 * 60 + 14, 18 * 60 + 38), feasible.legBoardServiceMinutes());
+    }
+
     @Test
     void 목표_도착시간_역산도_환승_구간까지_제대로_전파된다() {
         LastTrainLookup lookup = fakeLookup(Map.of(
