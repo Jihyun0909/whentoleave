@@ -5,7 +5,8 @@
       "name": "whentoleave-dev",
       "runtimeExecutable": "C:\\Users\\quswl\\projects\\whentoleave\\run-dev.bat",
       "runtimeArgs": [],
-      "port": 8090
+      "port": 8090,
+      "autoPort": true
     }
   ]
 }
