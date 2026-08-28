@@ -11,8 +11,12 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -40,6 +44,14 @@ import java.util.stream.StreamSupport;
  * 항상 비어 있으므로(RouteLegExtractor 참고), 이 경우 {@link SeoulBusRouteScheduleCatalog}(정적
  * 시드)로 대체한다. 노선 전체(기점) 기준 첫차/막차라 승차 정류장 offset은 못 구하지만, 없는 것보다
  * 이르게(안전하게) 추정되는 값이라도 있는 게 낫다.
+ * <p>
+ * <b>그 "이르게 추정"이 실제로 얼마나 벌어지는지(2026-08-30 실사용 중 발견):</b> 번동->압구정로데오
+ * 검색에서 구글맵은 23:37 출발도 가능하다고 하는데, 이 앱은 22:24까지밖에 못 갔다(73분 차이) -
+ * 기점에서 승차 정류장(수유3동우체국)까지 오는 데 걸리는 시간을 전혀 반영 못 해서였다. 그래서
+ * Google이 이 구간에 준 자체 예정 출발 시각({@link TransitLeg#googleDepartureTime()}, 실시간 GPS가
+ * 아니라 Google의 정적 시간표 기반 추정치라 "실시간은 안 쓴다" 원칙과 안 부딪힌다)을 배차간격
+ * 후보 목록에 추가 후보로 얹는다 - 기존 후보들을 대체하지 않고 더하기만 하므로, 이 값이 더 늦게까지
+ * 갈 수 있다고 하면 그걸 쓰고, 뭔가 잘못돼도(파싱 실패 등) 기존 후보만으로 폴백된다.
  * <p>
  * 노선 하나당 API를 두 번(상세+경유정류소) 호출해야 해서, 구간당 조회하는 노선 수를
  * {@link #MAX_LANES_PER_LEG}개로 제한하고, (노선, 정류장, 요일유형)별로 캐싱한다
@@ -84,17 +96,38 @@ public class BusDepartureCacheService implements BusDepartureLookup {
 
     @Override
     public List<Integer> departureServiceMinutes(TransitLeg leg, LocalDate date) {
-        if (leg.busIds().isEmpty()) {
-            return seoulFallbackDepartureMinutes(leg);
-        }
-        DayType dayType = DayType.from(date);
         List<Integer> all = new ArrayList<>();
-
-        for (String routeId : leg.busIds().stream().limit(MAX_LANES_PER_LEG).toList()) {
-            resolve(routeId, leg, dayType)
-                    .ifPresent(departure -> all.addAll(toDepartureMinutes(departure)));
+        if (leg.busIds().isEmpty()) {
+            all.addAll(seoulFallbackDepartureMinutes(leg));
+        } else {
+            DayType dayType = DayType.from(date);
+            for (String routeId : leg.busIds().stream().limit(MAX_LANES_PER_LEG).toList()) {
+                resolve(routeId, leg, dayType)
+                        .ifPresent(departure -> all.addAll(toDepartureMinutes(departure)));
+            }
         }
+        googleAnchorServiceMinutes(leg, date).ifPresent(all::add);
         return all;
+    }
+
+    /**
+     * Google이 이 구간에 준 예정 출발 시각을, date(다이어그램 기준일) 자정을 0으로 하는 서비스일
+     * 분으로 바꾼다. 자정을 넘기면(다음날 새벽) 1440 이상이 된다 - 기존 후보들과 같은 스케일이라
+     * LastDepartureCalculator가 그냥 섞어서 비교할 수 있다.
+     */
+    private Optional<Integer> googleAnchorServiceMinutes(TransitLeg leg, LocalDate date) {
+        if (leg.googleDepartureTime() == null) {
+            return Optional.empty();
+        }
+        try {
+            ZonedDateTime seoul = Instant.parse(leg.googleDepartureTime()).atZone(ZoneId.of("Asia/Seoul"));
+            long dayOffset = ChronoUnit.DAYS.between(date, seoul.toLocalDate());
+            int minutesOfDay = seoul.getHour() * 60 + seoul.getMinute();
+            return Optional.of((int) (minutesOfDay + dayOffset * MINUTES_PER_DAY));
+        } catch (RuntimeException e) {
+            log.debug("googleDepartureTime 파싱 실패 - 이 후보는 건너뜀: {}", leg.googleDepartureTime(), e);
+            return Optional.empty();
+        }
     }
 
     /** TAGO routeId를 못 구한 경우(주로 서울) 노선번호로 정적 시드에서 찾는다. */
