@@ -94,7 +94,7 @@ class BusDepartureCacheServiceTest {
         BusDepartureCacheService service = service(details, stops);
 
         TransitLeg leg = TransitLeg.bus(BOARDING_NODE_ID, 0, 0, "정류장", "하차정류장", "간선",
-                List.of("R1", "R2"), "146", 0, null, null, CITY_CODE);
+                List.of("R1", "R2"), "146", 0, null, null, CITY_CODE, null);
         List<Integer> minutes = service.departureServiceMinutes(leg, TODAY);
 
         assertEquals(23 * 60 + 40, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
@@ -209,11 +209,64 @@ class BusDepartureCacheServiceTest {
                         new TagoBusRouteDetailApiClient("http://dummy", "dummy"),
                         new SeoulBusRouteScheduleCatalog());
         TransitLeg leg = TransitLeg.bus("COORD:127.0,37.0", 10, 0, "정류장", "하차정류장", "146",
-                List.of(), "146", 0, null, null, null);
+                List.of(), "146", 0, null, null, null, null);
 
         List<Integer> minutes = service.departureServiceMinutes(leg, TODAY);
 
         assertFalse(minutes.isEmpty());
+        assertEquals(23 * 60, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
+    }
+
+    /**
+     * 사용자 피드백(2026-08-30): 번동->압구정로데오 검색에서 구글맵은 23:37 출발도 가능하다는데
+     * 이 앱은 22:24까지밖에 못 갔다. 원인 확인: TOPIS 시드의 "막차"는 노선 기점 기준이라, 기점에서
+     * 승차 정류장(수유3동우체국)까지 오는 시간을 못 빼서 실제보다 훨씬 이르게(23:00) 나온다 -
+     * Google이 이 구간에 준 자체 예정 출발 시각(23:30, RFC3339 "...T14:30:00Z")을 후보로 추가하면
+     * 그 시각까지 후보에 잡혀야 한다.
+     */
+    @Test
+    void google이_준_예정_출발_시각을_기점_막차_시각보다_늦은_후보로_추가한다() {
+        BusDepartureCacheService service =
+                new BusDepartureCacheService(new InMemoryRepository(),
+                        new TagoBusRouteDetailApiClient("http://dummy", "dummy"),
+                        new SeoulBusRouteScheduleCatalog());
+        // "146" 시드 막차는 23:00(1380분) - google이 그보다 늦은 23:30(1410분, UTC 14:30 = KST 23:30)을 줌.
+        TransitLeg leg = TransitLeg.bus("COORD:127.0,37.0", 10, 0, "정류장", "하차정류장", "146",
+                List.of(), "146", 0, null, null, null, "2026-08-13T14:30:00Z");
+
+        List<Integer> minutes = service.departureServiceMinutes(leg, TODAY);
+
+        assertEquals(23 * 60 + 30, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
+    }
+
+    /** 자정을 넘는 google 예정 시각(다음날 새벽)은 1440을 더한 값으로 들어와야 한다. */
+    @Test
+    void google_예정_출발_시각이_자정을_넘으면_1440을_더한다() {
+        BusDepartureCacheService service =
+                new BusDepartureCacheService(new InMemoryRepository(),
+                        new TagoBusRouteDetailApiClient("http://dummy", "dummy"),
+                        new SeoulBusRouteScheduleCatalog());
+        // UTC 16:05 = KST 2026-08-14 01:05 (TODAY 다음날 새벽) -> 65 + 1440 = 1505.
+        TransitLeg leg = TransitLeg.bus("COORD:127.0,37.0", 10, 0, "정류장", "하차정류장", "146",
+                List.of(), "146", 0, null, null, null, "2026-08-13T16:05:00Z");
+
+        List<Integer> minutes = service.departureServiceMinutes(leg, TODAY);
+
+        assertEquals(24 * 60 + 65, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
+    }
+
+    /** googleDepartureTime이 없거나(null) 깨진 형식이면 기존 후보만으로 조용히 폴백한다. */
+    @Test
+    void google_예정_출발_시각이_깨진_형식이면_그_후보만_무시한다() {
+        BusDepartureCacheService service =
+                new BusDepartureCacheService(new InMemoryRepository(),
+                        new TagoBusRouteDetailApiClient("http://dummy", "dummy"),
+                        new SeoulBusRouteScheduleCatalog());
+        TransitLeg leg = TransitLeg.bus("COORD:127.0,37.0", 10, 0, "정류장", "하차정류장", "146",
+                List.of(), "146", 0, null, null, null, "이거-rfc3339-아님");
+
+        List<Integer> minutes = service.departureServiceMinutes(leg, TODAY);
+
         assertEquals(23 * 60, minutes.stream().mapToInt(Integer::intValue).max().orElseThrow());
     }
 
@@ -224,14 +277,14 @@ class BusDepartureCacheServiceTest {
                         new TagoBusRouteDetailApiClient("http://dummy", "dummy"),
                         new SeoulBusRouteScheduleCatalog());
         TransitLeg leg = TransitLeg.bus("COORD:127.0,37.0", 10, 0, "정류장", "하차정류장", "존재안함",
-                List.of(), "존재안함", 0, null, null, null);
+                List.of(), "존재안함", 0, null, null, null, null);
 
         assertTrue(service.departureServiceMinutes(leg, TODAY).isEmpty());
     }
 
     private TransitLeg busLeg(int distanceMeters, int rideMinutes) {
         return TransitLeg.bus(BOARDING_NODE_ID, rideMinutes, 0, "정류장", "하차정류장", "간선",
-                List.of(ROUTE_ID), "120", distanceMeters, null, null, CITY_CODE);
+                List.of(ROUTE_ID), "120", distanceMeters, null, null, CITY_CODE, null);
     }
 
     /** getRouteInfoIem 응답. 시간은 "HHMM" 4자리, 배차간격은 분 단위 정수. */

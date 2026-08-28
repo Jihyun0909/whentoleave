@@ -86,9 +86,10 @@ public class NightBusRouteFinder {
 
         // busIds는 비워둔다 - TAGO가 서울 버스를 안 커버해서 이 노선의 TAGO routeId를 모른다
         // (클래스 상단 주석 참고). 그래도 "이 노선을 타면 갈 수 있다"는 정보 자체는 유효하다.
+        // Google Routes를 아예 안 거치는 경로라(직접 구성) googleDepartureTime도 null.
         TransitLeg leg = TransitLeg.bus(boarding.stationId(), rideMinutes, walkMinutes(boarding.distanceMeters()),
                 boarding.stationName(), alighting.stationName(), "심야버스",
-                List.of(), busNo, rideMeters, boarding.x(), boarding.y(), null);
+                List.of(), busNo, rideMeters, boarding.x(), boarding.y(), null, null);
         return Optional.of(new RouteLegExtractor.ExtractedRoute(
                 List.of(leg), walkMinutes(alighting.distanceMeters())));
     }

@@ -41,6 +41,12 @@ public class LastDepartureService {
      * 다른 날짜를 조회해도 오늘 지금 기준 경로가 나오는 문제였다).
      */
     private static final int GOOGLE_LATE_NIGHT_REFERENCE_MINUTES = 23 * 60;
+    /**
+     * 목표 도착시간 모드에서 "최적경로"(소요시간 최단)와 "가장 늦게 출발하는 경로"가 다른
+     * 경로일 때, 이 비율 이상 소요시간 차이가 나면 둘 다 보여준다(사용자 요청, 2026-08-30).
+     * 차이가 작으면 가장 늦게 출발하는 쪽만 보여줘도 충분하다 - 어차피 소요시간도 비슷하다.
+     */
+    private static final double DURATION_SPLIT_RATIO = 0.30;
 
     /** 심야버스는 SearchPathType으로 표현되지 않는 별도 경로원이라 라벨을 따로 둔다. */
     private static final String NIGHT_BUS_LABEL = "심야버스";
@@ -126,7 +132,11 @@ public class LastDepartureService {
             targetArrivalMinutes = resolved.get().minutes();
             diagramDate = resolved.get().diagramDate();
         }
-        return calculateFor(SearchPathType.SUBWAY_ONLY, sx, sy, ex, ey, targetArrivalMinutes, diagramDate).result();
+        // calculateFor()는 (분기됐으면) [최적경로, 가장 늦게 출발하는 경로] 순으로 준다 -
+        // 이 단일 결과 API는 항상 "몇 시까지 출발하면 되는지"를 답하는 게 목적이라 마지막
+        // (가장 늦게 출발하는 쪽)을 쓴다.
+        List<Best> candidates = calculateFor(SearchPathType.SUBWAY_ONLY, sx, sy, ex, ey, targetArrivalMinutes, diagramDate);
+        return candidates.get(candidates.size() - 1).result();
     }
 
     /**
@@ -154,7 +164,7 @@ public class LastDepartureService {
         // 그대로 다 더하게 된다("검색이 10초 넘게 걸린다"는 피드백의 원인이었다).
         List<SearchPathType> pathTypes = List.of(
                 SearchPathType.SUBWAY_ONLY, SearchPathType.ALL, SearchPathType.BUS_ONLY);
-        List<CompletableFuture<Best>> pathFutures = pathTypes.stream()
+        List<CompletableFuture<List<Best>>> pathFutures = pathTypes.stream()
                 .map(pathType -> CompletableFuture.supplyAsync(
                         () -> calculateFor(pathType, sx, sy, ex, ey, finalTargetArrivalMinutes, finalDiagramDate),
                         routeSearchExecutor))
@@ -166,10 +176,11 @@ public class LastDepartureService {
 
         List<RouteOption> options = new ArrayList<>();
         for (int i = 0; i < pathTypes.size(); i++) {
-            Best best = pathFutures.get(i).join();
-            if (best.result() instanceof LastDepartureResult.Feasible feasible) {
-                options.add(toOption(pathTypes.get(i).label(), feasible, best.fareWon(),
-                        finalTargetArrivalMinutes, finalDiagramDate));
+            for (Best best : pathFutures.get(i).join()) {
+                if (best.result() instanceof LastDepartureResult.Feasible feasible) {
+                    options.add(toOption(pathTypes.get(i).label(), feasible, best.fareWon(),
+                            finalTargetArrivalMinutes, finalDiagramDate));
+                }
             }
         }
         nightBusFuture.join()
@@ -206,8 +217,16 @@ public class LastDepartureService {
         return calculate(sx, sy, ex, ey, targetArrivalTime);
     }
 
-    private Best calculateFor(SearchPathType pathType, double sx, double sy, double ex, double ey,
-                               Integer targetArrivalMinutes, LocalDate date) {
+    /**
+     * @return 보통 원소 1개(가장 늦게 출발해도 되는 경로). 목표 도착시간 모드에서 그 경로가
+     *         "최적경로"(소요시간이 가장 짧은 경로)와 다르고 소요시간 차이가
+     *         {@link #DURATION_SPLIT_RATIO} 이상 나면, [최적경로, 가장 늦게 출발하는 경로]
+     *         순서로 2개를 준다 - 사용자 요청: "다른 최적경로랑 소요시간이 30% 이상 차이나면
+     *         최적경로랑 늦게 출발 경로 다 띄워줘". 소요시간 차이가 크지 않으면 굳이 두 개를
+     *         보여줄 필요가 없다(가장 늦게 출발하는 쪽이 어차피 비슷하게 빠르므로).
+     */
+    private List<Best> calculateFor(SearchPathType pathType, double sx, double sy, double ex, double ey,
+                                     Integer targetArrivalMinutes, LocalDate date) {
         List<RouteLegExtractor.ExtractedRoute> pathCandidates;
         try {
             GoogleRoutesResponse response;
@@ -227,34 +246,43 @@ public class LastDepartureService {
         } catch (RouteSearchUnavailableException e) {
             // 경로가 없는 게 아니라 조회 자체를 못 한 상황이라, "운행 종료"류 문구로 바뀌지 않게
             // 사유를 그대로 위로 올린다(displayReason이 이 문구를 알아보고 그대로 보여준다).
-            return new Best(new LastDepartureResult.Infeasible(ROUTE_SEARCH_UNAVAILABLE_REASON), 0);
+            return List.of(new Best(new LastDepartureResult.Infeasible(ROUTE_SEARCH_UNAVAILABLE_REASON), 0));
         } catch (WalkOnlyRouteException e) {
-            return new Best(new LastDepartureResult.Infeasible(e.getMessage(), e.walkMinutes()), 0);
+            return List.of(new Best(new LastDepartureResult.Infeasible(e.getMessage(), e.walkMinutes()), 0));
         } catch (NoSubwayRouteFoundException e) {
             // 경로탐색이 아예 결과를 못 준 이유는 다양하지만, 실제로 가까운 거리라면 이유를
             // 따지지 말고 도보 시간을 추정해서 보여주는 게 사용자에게 더 유용하다 -
             // "운행 종료" 같은 엉뚱한 안내보다 낫다.
-            return new Best(new LastDepartureResult.Infeasible(
-                    e.getMessage(), estimateWalkMinutesIfClose(sx, sy, ex, ey)), 0);
+            return List.of(new Best(new LastDepartureResult.Infeasible(
+                    e.getMessage(), estimateWalkMinutesIfClose(sx, sy, ex, ey)), 0));
         } catch (RuntimeException e) {
-            return new Best(new LastDepartureResult.Infeasible("경로를 찾는 중 문제가 발생했습니다."), 0);
+            return List.of(new Best(new LastDepartureResult.Infeasible("경로를 찾는 중 문제가 발생했습니다."), 0));
         }
 
-        Best best = bestOf(pathCandidates, targetArrivalMinutes, date);
-        if (targetArrivalMinutes == null || !(best.result() instanceof LastDepartureResult.Feasible targetFeasible)) {
-            return best;
+        List<Best> bests = bestOf(pathCandidates, targetArrivalMinutes, date);
+        Best latest = bests.get(bests.size() - 1);
+        if (targetArrivalMinutes == null || !(latest.result() instanceof LastDepartureResult.Feasible targetFeasible)) {
+            return bests;
         }
 
         // 목표 시각이 밤늦게라 사실상 아무 제약이 안 되면(예: 새벽 2시까지 도착), 역산 결과가
         // 그냥 막차와 똑같이 나온다 - 이 경우 "그 시각까지 도착하려면"이라는 문구가 오해를 살 수
-        // 있어서(실제로는 훨씬 일찍 도착함) 화면에서 "이건 그냥 막차입니다"라고 밝혀준다.
-        if (bestOf(pathCandidates, null, date).result() instanceof LastDepartureResult.Feasible lastTrainFeasible
+        // 있어서(실제로는 훨씬 일찍 도착함) 화면에서 "이건 그냥 막차입니다"라고 밝혀준다. 이
+        // 표시는 "가장 늦게 출발하는 경로"에만 붙인다 - 최적경로(있다면)는 소요시간 기준으로
+        // 고른 별개의 경로라 막차 여부 판정이 그대로 적용되지 않는다.
+        List<Best> lastTrainBests = bestOf(pathCandidates, null, date);
+        Best lastTrain = lastTrainBests.get(lastTrainBests.size() - 1);
+        if (lastTrain.result() instanceof LastDepartureResult.Feasible lastTrainFeasible
                 && toServiceMinutes(targetFeasible) == toServiceMinutes(lastTrainFeasible)) {
-            return new Best(new LastDepartureResult.Feasible(targetFeasible.departureTime(), targetFeasible.nextDay(),
-                    targetFeasible.legs(), targetFeasible.finalWalkMinutes(), true,
-                    targetFeasible.subwayDirections(), targetFeasible.legBoardServiceMinutes()), best.fareWon());
+            Best flaggedLatest = new Best(new LastDepartureResult.Feasible(targetFeasible.departureTime(),
+                    targetFeasible.nextDay(), targetFeasible.legs(), targetFeasible.finalWalkMinutes(), true,
+                    targetFeasible.subwayDirections(), targetFeasible.legBoardServiceMinutes()), latest.fareWon());
+            if (bests.size() == 1) {
+                return List.of(flaggedLatest);
+            }
+            return List.of(bests.get(0), flaggedLatest);
         }
-        return best;
+        return bests;
     }
 
     private List<String> allowedTravelModes(SearchPathType pathType) {
@@ -290,7 +318,9 @@ public class LastDepartureService {
         if (routes.isEmpty()) {
             return Optional.empty();
         }
-        return bestOf(routes, targetArrivalMinutes, date).result() instanceof LastDepartureResult.Feasible feasible
+        List<Best> bests = bestOf(routes, targetArrivalMinutes, date);
+        Best latest = bests.get(bests.size() - 1);
+        return latest.result() instanceof LastDepartureResult.Feasible feasible
                 ? Optional.of(feasible) : Optional.empty();
     }
 
@@ -331,22 +361,30 @@ public class LastDepartureService {
     }
 
     /**
-     * 목표 도착시간이 없으면(막차 모드) 경로 후보마다 역산해보고 그중 가장 늦게 출발해도 되는
-     * 결과를 고른다. Google의 "1순위 추천 경로" 하나만 보면, 그 경로 중간에 배차가 뜸한 구간이
-     * 껴 있을 때 막차가 실제보다 훨씬 이르게 계산되는 문제가 있었다 (이슈 #8 — 가평->신림,
-     * 청량리 환승 수인분당선 연장구간처럼 하루 몇 대 안 다니는 구간을 타는 경로가 1순위로 나온
-     * 경우). 이 안전장치는 그대로 둔다.
+     * 경로 후보마다 역산해보고 그중 가장 늦게 출발해도 되는 결과를 고른다 - 막차 모드든 목표
+     * 도착시간 모드든 이 앱이 답해야 하는 질문이 "몇 시까지 출발하면 되는지"인 이상, 같은
+     * 도착(마감) 조건을 만족하는 후보 중에서는 가장 늦게 출발해도 되는 쪽이 그대로 더 나은
+     * 답이다(환승이 하나 더 있어도, 그 경로의 실제 시간표가 허락하는 만큼 이미 여유
+     * (SAFE_TRANSFER_MARGIN_MINUTES)를 두고 계산한 값이라 놓칠 위험이 크지 않다).
      * <p>
-     * 목표 도착시간이 있으면(arrival 모드)는 Google이 준 순서 그대로 첫 번째로 성립하는 경로를
-     * 쓴다 - "환승·도보·대기시간까지 다 포함한 실제 소요시간" 기준의 최적경로 판단은 Google이
-     * 이미 하고 있고(사용자 요청: "구글맵 기준 최적경로로 안내"), 우리가 그 위에 자체 기준
-     * (예: 소요시간만 비교)을 얹으면 오히려 어긋난다 - 실사용 중 발견: 총 소요시간만 비교하는
-     * 기준으로도 여전히 미묘하게 이상한 경로가 골라지는 경우가 있었다.
+     * 막차 모드: Google의 "1순위 추천 경로" 하나만 보면, 그 경로 중간에 배차가 뜸한 구간이 껴
+     * 있을 때 막차가 실제보다 훨씬 이르게 계산되는 문제가 있었다(이슈 #8 — 가평->신림, 청량리
+     * 환승 수인분당선 연장구간처럼 하루 몇 대 안 다니는 구간을 타는 경로가 1순위로 나온 경우).
+     * <p>
+     * 목표 도착시간 모드: 한때는 "Google이 준 순서 그대로 첫 번째로 성립하는 경로"를 썼다 -
+     * "소요시간만 비교"하는 자체 기준을 얹었다가 이상한 경로가 골라지는 문제가 있어서였다. 그런데
+     * "가장 늦게 출발해도 되는 후보"는 소요시간 비교와는 다른 기준이고, 오히려 이 앱이 화면에서
+     * 이미 약속하는 문구("이 시각까지 출발") 그대로다. 실사용 중 발견(2026-08-30): Google
+     * 1순위 후보가 계산해보면 22:54인데, 뒤쪽 후보 중에는 23:37(구글맵이 보여주는 것과
+     * 거의 같은 시각)짜리가 있는데도 첫 번째만 보고 넘어가고 있었다 - 그래서 다시 "가장 늦은
+     * 후보"로 되돌린다.
      */
-    private Best bestOf(List<RouteLegExtractor.ExtractedRoute> pathCandidates, Integer targetArrivalMinutes,
-                         LocalDate date) {
-        LastDepartureResult.Feasible best = null;
-        int bestFareWon = 0;
+    private List<Best> bestOf(List<RouteLegExtractor.ExtractedRoute> pathCandidates, Integer targetArrivalMinutes,
+                               LocalDate date) {
+        LastDepartureResult.Feasible latest = null;
+        int latestFareWon = 0;
+        LastDepartureResult.Feasible shortest = null;
+        int shortestFareWon = 0;
         String fallbackReason = null;
 
         // 목표 도착시간 모드는 환승마다 여유(SAFE_TRANSFER_MARGIN_MINUTES)를 두고 계산한다 -
@@ -360,22 +398,51 @@ public class LastDepartureService {
             LastDepartureResult result = calculator.calculate(
                     route.legs(), targetArrivalMinutes, route.finalWalkMinutes(), date, transferMargin);
             if (result instanceof LastDepartureResult.Feasible feasible) {
-                boolean replace = best == null
-                        || (targetArrivalMinutes == null && isLater(feasible, best));
-                if (replace) {
-                    best = feasible;
-                    bestFareWon = route.fareWon();
+                if (latest == null || isLater(feasible, latest)) {
+                    latest = feasible;
+                    latestFareWon = route.fareWon();
+                }
+                if (shortest == null || totalMinutesOf(feasible) < totalMinutesOf(shortest)) {
+                    shortest = feasible;
+                    shortestFareWon = route.fareWon();
                 }
             } else if (fallbackReason == null) {
                 fallbackReason = ((LastDepartureResult.Infeasible) result).reason();
             }
         }
 
-        if (best != null) {
-            return new Best(best, bestFareWon);
+        if (latest == null) {
+            return List.of(new Best(new LastDepartureResult.Infeasible(
+                    fallbackReason != null ? fallbackReason : "가능한 경로를 찾지 못했습니다."), 0));
         }
-        return new Best(new LastDepartureResult.Infeasible(
-                fallbackReason != null ? fallbackReason : "가능한 경로를 찾지 못했습니다."), 0);
+        // 막차 모드는 항상 하나만(가장 늦은 막차) - "최적경로도 같이" 개념은 목표 도착시간
+        // 모드에서만 의미가 있다(막차 모드는 그 자체가 이미 "가장 늦게"가 유일한 목적이다).
+        if (targetArrivalMinutes == null || shortest.legs().equals(latest.legs())
+                || !isDurationGapSignificant(shortest, latest)) {
+            return List.of(new Best(latest, latestFareWon));
+        }
+        // 사용자 요청: "다른 최적경로랑 소요시간이 30% 이상 차이나면 최적경로랑 늦게 출발 경로
+        // 다 띄워줘" - 최적경로(소요시간 최단)와 가장 늦게 출발하는 경로가 서로 다른 경로이고
+        // 소요시간 차이가 크면, 어느 쪽이 나은지는 사용자가 고르게 둘 다 보여준다.
+        return List.of(new Best(shortest, shortestFareWon), new Best(latest, latestFareWon));
+    }
+
+    /** 최적경로 대비 소요시간이 {@link #DURATION_SPLIT_RATIO} 이상 더 걸리면 "크게 차이난다"고 본다. */
+    private boolean isDurationGapSignificant(LastDepartureResult.Feasible shortest,
+                                              LastDepartureResult.Feasible latest) {
+        int shortestMinutes = totalMinutesOf(shortest);
+        if (shortestMinutes <= 0) {
+            return false;
+        }
+        int latestMinutes = totalMinutesOf(latest);
+        return (latestMinutes - shortestMinutes) / (double) shortestMinutes >= DURATION_SPLIT_RATIO;
+    }
+
+    private int totalMinutesOf(LastDepartureResult.Feasible feasible) {
+        int legsMinutes = feasible.legs().stream()
+                .mapToInt(leg -> leg.rideMinutes() + leg.transferBufferMinutes())
+                .sum();
+        return legsMinutes + feasible.finalWalkMinutes();
     }
 
     private boolean isLater(LastDepartureResult.Feasible candidate, LastDepartureResult.Feasible current) {

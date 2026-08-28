@@ -273,20 +273,15 @@ class LastDepartureServiceTest {
     }
 
     /**
-     * 위 테스트가 잡아낸 것과 같은 편향이 한 겹 더 안쪽에도 있었다(실사용 중 발견 - 번동->광운대
-     * 검색에서 Google이 버스 1218 직행을 1순위 후보로 주는데도 계속 환승 경로만 떴다). 원인은
-     * 바깥쪽 정렬(recommendationOrder)이 아니라, 같은 SearchPathType 안에서 여러 후보 중 하나를
-     * 고르는 bestOf()의 내부 선택 로직(isLater)이었다 - "더 늦게 출발해도 되는 후보"를 우선하다
-     * 보니, Google이 1순위로 준 직행 후보가 recommendationOrder까지 가보지도 못하고 여기서부터
-     * 져버렸다.
-     * <p>
-     * 처음엔 "총 소요시간이 짧은 후보"로 고쳤는데, 그래도 미묘하게 이상한 경로가 골라지는
-     * 경우가 있었다(사용자 피드백: "구글맵 기준 최적경로로 안내해줘" - 환승·도보·대기시간까지
-     * 포함한 진짜 최적 판단은 Google이 이미 하고 있다). 그래서 목표 도착시간 모드에서는 우리가
-     * 다시 비교하지 않고 Google이 준 순서 그대로 첫 번째로 성립하는 후보를 그냥 쓰도록 바꿨다.
-     * 하나의 GoogleRoutesResponse 안에 Google이 1순위로 준 직행(F)과 2순위인 환승(S1->S2, 마감에
-     * 더 가깝게 출발)을 같이 줘서, bestOf()가 Google 순서 그대로 1순위(직행)를 골라야 함을
-     * 확인한다.
+     * bestOf()의 후보 선택 기준은 이 세션 동안 여러 번 바뀌었다: "더 늦게 출발해도 되는 후보"
+     * (환승 경로가 이상하게 이김) -> "총 소요시간이 짧은 후보"(그래도 미묘하게 이상함) ->
+     * "Google 순서 그대로 1순위"(뒤쪽에 더 늦게 출발 가능한 후보가 있어도 못 봄, 2026-08-30
+     * 실사용 중 발견) -> 다시 "더 늦게 출발해도 되는 후보"(단, 환승마다 안전 여유
+     * (SAFE_TRANSFER_MARGIN_MINUTES)를 두고 계산하므로, 빠듯한 환승은 애초에 후보에서
+     * 걸러진다 - 이 테스트의 환승(S1->S2)이 정확히 그 경우다: 안전 여유 없이는 23:20 출발이
+     * 가능하지만, 7분 여유를 더하면 그 환승을 실제로는 놓친다고 보고 Infeasible 처리된다).
+     * 그 결과 직행(F)만 유일하게 성립하는 후보로 남아 그대로 골라진다 - "Google 순서를
+     * 믿어서"가 아니라 "유일하게 실현 가능해서"다.
      */
     @Test
     void 같은_카테고리_안에서도_google이_1순위로_준_후보를_그대로_고른다() throws Exception {
@@ -301,8 +296,8 @@ class LastDepartureServiceTest {
 
         List<RouteOption> options = service.calculateOptions(0, 0, 0, 0, FIXED_TARGET, LocalDate.now());
 
-        assertEquals(1, options.size()); // Google 1순위(직행)가 모든 SearchPathType에서 그대로 골라져 하나로 합쳐짐
-        assertEquals(LocalTime.of(23, 0), options.get(0).departureTime()); // 직행(F, Google 1순위) - 환승(23:20)보다 일찍 출발
+        assertEquals(1, options.size()); // S1->S2는 안전 여유를 두면 환승을 놓쳐 Infeasible - 직행(F)만 남음
+        assertEquals(LocalTime.of(23, 0), options.get(0).departureTime());
     }
 
     /** Google이 1순위로 주는 직행(F)과 2순위인 환승(S1->S2, 마감에 더 가깝게 출발) 두 대안을 같이 주는 응답. */
@@ -318,6 +313,75 @@ class LastDepartureServiceTest {
                 List.of(new GoogleRoutesResponse.Leg(List.of(slow1, slowWalk, slow2), 0, "0s")));
 
         return new GoogleRoutesResponse(List.of(fastRoute, slowRoute));
+    }
+
+    /**
+     * 사용자 요청(2026-08-30): "다른 최적경로랑 소요시간이 30% 이상 차이나면 최적경로랑 늦게
+     * 출발 경로 다 띄워줘". A(직행, 5분, 22:50 출발)와 B(환승 B1->B2, 20분(=5+15, 환승 도보
+     * 버퍼 포함), 23:10 출발 - A보다 20분 늦게 출발해도 되지만 소요시간이 4배(300% 차이, 30%
+     * 훨씬 초과))를 같이 주면, 최적경로(A)와 가장 늦게 출발하는 경로(B) 둘 다 나와야 한다 -
+     * 안전 여유를 둬도 B의 환승은 여전히 넉넉해서(B1 23:10 vs 마감 23:23) Infeasible이
+     * 안 된다.
+     */
+    @Test
+    void 최적경로와_가장_늦은_출발_경로가_소요시간_30퍼센트_이상_차이나면_둘_다_보여준다() throws Exception {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                "A", List.of(train(LocalTime.of(22, 50), false)),
+                "B1", List.of(train(LocalTime.of(23, 10), false)),
+                "B2", List.of(train(LocalTime.of(23, 40), false))
+        ));
+        GoogleRoutesClient googleClient = googleStub(shortAndLongResponse());
+        LastDepartureService service = new LastDepartureService(googleClient, newExtractor(),
+                LastDepartureCalculator.subwayOnly(lookup), noNightBus());
+
+        List<RouteOption> options = service.calculateOptions(0, 0, 0, 0, FIXED_TARGET, LocalDate.now());
+
+        assertEquals(2, options.size());
+        // recommendationOrder는 소요시간 순 - 최적경로(A, 5분)가 먼저, 늦게 출발하는 경로(B, 15분)가 다음.
+        assertEquals(LocalTime.of(22, 50), options.get(0).departureTime());
+        assertEquals(LocalTime.of(23, 10), options.get(1).departureTime());
+    }
+
+    /**
+     * 반대로 소요시간 차이가 30% 미만이면 가장 늦게 출발하는 경로 하나만 보여준다 - 어차피
+     * 소요시간도 비슷한데 둘 다 보여주면 화면만 복잡해진다. A(5분, 22:50)와 B(6분, 23:00 -
+     * A보다 늦게 출발해도 되지만 소요시간 차이는 20%뿐)를 준다.
+     */
+    @Test
+    void 소요시간_차이가_30퍼센트_미만이면_늦게_출발하는_경로만_보여준다() throws Exception {
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                "A", List.of(train(LocalTime.of(22, 50), false)),
+                "B", List.of(train(LocalTime.of(23, 0), false))
+        ));
+        GoogleRoutesResponse.Step aStep = transitStep(5, "역(A)", "1호선");
+        GoogleRoutesResponse.Route aRoute =
+                new GoogleRoutesResponse.Route(List.of(new GoogleRoutesResponse.Leg(List.of(aStep), 0, "0s")));
+        GoogleRoutesResponse.Step bStep = transitStep(6, "역(B)", "2호선");
+        GoogleRoutesResponse.Route bRoute =
+                new GoogleRoutesResponse.Route(List.of(new GoogleRoutesResponse.Leg(List.of(bStep), 0, "0s")));
+        GoogleRoutesClient googleClient = googleStub(new GoogleRoutesResponse(List.of(aRoute, bRoute)));
+        LastDepartureService service = new LastDepartureService(googleClient, newExtractor(),
+                LastDepartureCalculator.subwayOnly(lookup), noNightBus());
+
+        List<RouteOption> options = service.calculateOptions(0, 0, 0, 0, FIXED_TARGET, LocalDate.now());
+
+        assertEquals(1, options.size());
+        assertEquals(LocalTime.of(23, 0), options.get(0).departureTime());
+    }
+
+    /** A(직행, 5분)와 B(환승 B1->B2, 15분, A보다 늦게 출발 가능) 두 대안을 같이 주는 응답. */
+    private GoogleRoutesResponse shortAndLongResponse() {
+        GoogleRoutesResponse.Step aStep = transitStep(5, "역(A)", "1호선");
+        GoogleRoutesResponse.Route aRoute =
+                new GoogleRoutesResponse.Route(List.of(new GoogleRoutesResponse.Leg(List.of(aStep), 0, "0s")));
+
+        GoogleRoutesResponse.Step b1 = transitStep(5, "역(B1)", "2호선");
+        GoogleRoutesResponse.Step bWalk = walkStep(3);
+        GoogleRoutesResponse.Step b2 = transitStep(10, "역(B2)", "4호선");
+        GoogleRoutesResponse.Route bRoute = new GoogleRoutesResponse.Route(
+                List.of(new GoogleRoutesResponse.Leg(List.of(b1, bWalk, b2), 0, "0s")));
+
+        return new GoogleRoutesResponse(List.of(aRoute, bRoute));
     }
 
     /** 막차 모드(목표 시각 없음)에서는 기존대로 소요시간이 짧은 순이어야 한다. */

@@ -427,27 +427,32 @@ public class RouteLegExtractor {
                 .map(SeoulBusStopCatalog.SeoulBusStop::name)
                 .orElse(departureStop.name());
         String endName = endStopName(arrivalStop);
+        // Google 자체 정적 시간표 기반 예정 출발 시각 - 서울처럼 TAGO 정류장별 시간표가 없는
+        // 지역에서 기점 막차 시각(실제보다 훨씬 이른 값)을 보정하는 추가 후보로 쓴다
+        // (BusDepartureCacheService 참고).
+        String googleDepartureTime = details.stopDetails() == null ? null : details.stopDetails().departureTime();
 
         Optional<String> cityCode = tagoCityCodeResolver.resolve(stopX, stopY);
         if (cityCode.isEmpty()) {
             // TAGO가 커버 안 하는 지역(서울 등) - 경로 자체는 만들되 배차정보(busIds)는 비워둔다.
             // NightBusRouteFinder와 동일한 절충: "탈 수 있다"는 알아도 "몇 시에 오는지"는 모른다.
             return TransitLeg.bus(coordinateStationId(stopX, stopY), rideMinutes, pendingWalkMinutes,
-                    boardingStopName, endName, busNo, List.of(), busNo, distanceMeters, stopX, stopY, null);
+                    boardingStopName, endName, busNo, List.of(), busNo, distanceMeters, stopX, stopY, null,
+                    googleDepartureTime);
         }
 
         Optional<String> routeId = resolveBusRouteId(busNo, cityCode.get());
         if (routeId.isEmpty()) {
             return TransitLeg.bus(coordinateStationId(stopX, stopY), rideMinutes, pendingWalkMinutes,
                     boardingStopName, endName, busNo, List.of(), busNo, distanceMeters, stopX, stopY,
-                    cityCode.get());
+                    cityCode.get(), googleDepartureTime);
         }
 
         String stationId = resolveNearestStopId(routeId.get(), cityCode.get(), stopX, stopY)
                 .orElseGet(() -> coordinateStationId(stopX, stopY));
         return TransitLeg.bus(stationId, rideMinutes, pendingWalkMinutes,
                 boardingStopName, endName, busNo, List.of(routeId.get()), busNo, distanceMeters, stopX, stopY,
-                cityCode.get());
+                cityCode.get(), googleDepartureTime);
     }
 
     /** 하차 정류장 표시명 - boardingStopName과 같은 이유로 좌표 매칭이 되면 그 이름을 우선한다. */
