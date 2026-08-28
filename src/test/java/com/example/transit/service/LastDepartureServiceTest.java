@@ -38,6 +38,10 @@ class LastDepartureServiceTest {
 
     private static final LocalTime FIXED_TARGET = LocalTime.of(23, 59);
     private final ObjectMapper mapper = new ObjectMapper();
+    /** 실제 시드 파일(40MB)을 매 테스트마다 새로 파싱하지 않도록 클래스 전체가 하나만 공유한다 -
+     * 이 파일의 테스트들은 headsign을 안 쓰므로(방향 판별은 항상 early return) 이 시드까지
+     * 내려가는 경우가 없어 실제 내용은 문제되지 않는다. */
+    private static final SeoulSubwayTimetableSeedCatalog SEED_CATALOG = new SeoulSubwayTimetableSeedCatalog();
 
     @Test
     void 목표시각이_사실상_제약이_안되면_막차와_같은_결과에_플래그를_붙인다() throws Exception {
@@ -71,6 +75,97 @@ class LastDepartureServiceTest {
         LastDepartureResult.Feasible feasible = assertInstanceOf(LastDepartureResult.Feasible.class, result);
         assertEquals(LocalTime.of(22, 0), feasible.departureTime());
         assertFalse(feasible.isLastTrainDeparture());
+    }
+
+    /**
+     * 사용자 피드백(2026-08-30): "다른 날짜 보기"로 미래 날짜를 골라도, 그 목표 시각이 지금(오후 등)
+     * 시계보다 이르다는 이유만으로 "이미 지난 시각"으로 잘못 거절되고 있었다 - 실제로는 며칠
+     * 뒤의 그 시각이라 전혀 지나지 않았는데도. "지금"보다 1분 이른 시각을 목표로 삼아 재현한다
+     * (새벽 6시 이전 컷오프 특례로 우연히 통과하는 걸 피하려고 "지금 - 1분"을 그대로 쓴다 -
+     * 테스트가 새벽 6시 정각 부근에 도는 극단적인 경우는 감수한다).
+     */
+    @Test
+    void 미래_날짜를_고르면_현재_시각보다_이른_목표시각도_거절하지_않는다() throws Exception {
+        LocalTime targetBeforeNow = LocalTime.now().minusMinutes(1);
+        LocalDate tomorrow = LocalDate.now().plusDays(1);
+        LastTrainLookup lookup = fakeLookup(Map.of(
+                "300", List.of(train(targetBeforeNow.minusMinutes(10), false))
+        ));
+        LastDepartureService service = newService(5, lookup); // 5분 소요 -> 마감 안에 듦
+
+        LastDepartureResult result = service.calculate(0, 0, 0, 0, targetBeforeNow, tomorrow);
+
+        assertInstanceOf(LastDepartureResult.Feasible.class, result);
+    }
+
+    /**
+     * 사용자 피드백(2026-08-30): Google Routes 조회에 시각을 아예 안 넘겨서 항상 "지금" 기준으로
+     * 계산되고 있었다 - 다른 날짜/목표시각을 물어도 완전히 다른(엉뚱한) 경로가 나오는 원인이었다.
+     * 목표 도착시간 모드는 arrivalTime을, 막차 모드는 departureTime을 넘겨야 한다.
+     */
+    @Test
+    void 목표_도착시간_모드는_google에_arrivalTime을_넘기고_막차_모드는_departureTime을_넘긴다() throws Exception {
+        String[] captured = new String[2]; // [0]=departureTime, [1]=arrivalTime
+        GoogleRoutesClient googleClient = new GoogleRoutesClient("http://dummy", "dummy") {
+            @Override
+            public GoogleRoutesResponse computeTransitRoutes(double sx, double sy, double ex, double ey,
+                                                               List<String> allowedTravelModes,
+                                                               String departureTime, String arrivalTime) {
+                captured[0] = departureTime;
+                captured[1] = arrivalTime;
+                return singleLegResponse(5);
+            }
+        };
+        LastTrainLookup lookup = fakeLookup(Map.of("300", List.of(train(LocalTime.of(23, 30), false))));
+        LastDepartureService service = new LastDepartureService(googleClient, newExtractor(),
+                LastDepartureCalculator.subwayOnly(lookup), noNightBus());
+
+        service.calculate(0, 0, 0, 0, FIXED_TARGET);
+        assertNull(captured[0], "목표 도착시간 모드는 departureTime을 보내면 안 됨");
+        assertNotNull(captured[1], "목표 도착시간 모드는 arrivalTime을 보내야 함");
+
+        service.calculate(0, 0, 0, 0);
+        assertNotNull(captured[0], "막차 모드는 departureTime을 보내야 함");
+        assertNull(captured[1], "막차 모드는 arrivalTime을 보내면 안 됨");
+    }
+
+    /**
+     * 사용자 피드백(2026-08-30): "8/30 오전 1시" 같은 미래 날짜+새벽 시각 조합에서, 실제로 그
+     * 순간을 지배하는 시간표는 하루 전날(8/29) 밤의 연장인데도 리터럴 날짜(8/30, 일요일)로
+     * 조회되고 있었다 - 실제로는 토요일 심야 시간표를 봐야 하는데 일요일 시간표로 잘못
+     * 조회되는 문제였다. 지하철 시간표 조회(LastTrainLookup)에 넘기는 date는 하루 전이어야
+     * 하지만, Google에 보내는 arrivalTime은 사용자가 고른 리터럴 시각(8/30 01:00) 그대로여야
+     * 한다 - 이 둘이 섞이면 안 된다.
+     */
+    @Test
+    void 미래_날짜_새벽_목표는_전날_시간표를_조회하되_google에는_리터럴_시각을_넘긴다() throws Exception {
+        LocalDate[] capturedScheduleDate = new LocalDate[1];
+        LastTrainLookup lookup = (stationId, wayCode, date, stationName, laneName) -> {
+            capturedScheduleDate[0] = date;
+            return List.of(train(LocalTime.of(0, 30), true)); // 다음날 새벽 0:30차
+        };
+        String[] capturedArrivalTime = new String[1];
+        GoogleRoutesClient googleClient = new GoogleRoutesClient("http://dummy", "dummy") {
+            @Override
+            public GoogleRoutesResponse computeTransitRoutes(double sx, double sy, double ex, double ey,
+                                                               List<String> allowedTravelModes,
+                                                               String departureTime, String arrivalTime) {
+                capturedArrivalTime[0] = arrivalTime;
+                return singleLegResponse(5);
+            }
+        };
+        LastDepartureService service = new LastDepartureService(googleClient, newExtractor(),
+                LastDepartureCalculator.subwayOnly(lookup), noNightBus());
+
+        LocalDate literalDate = LocalDate.now().plusDays(3);
+        LocalDate expectedScheduleDate = literalDate.minusDays(1); // 그 새벽을 실제로 지배하는 다이어그램
+
+        LastDepartureResult result = service.calculate(0, 0, 0, 0, LocalTime.of(1, 0), literalDate);
+
+        assertInstanceOf(LastDepartureResult.Feasible.class, result);
+        assertEquals(expectedScheduleDate, capturedScheduleDate[0]);
+        assertTrue(capturedArrivalTime[0].startsWith(literalDate + "T01:00"),
+                "Google엔 사용자가 고른 리터럴 날짜·시각을 그대로 보내야 함: " + capturedArrivalTime[0]);
     }
 
     @Test
@@ -301,7 +396,7 @@ class LastDepartureServiceTest {
         TagoBusRouteDetailApiClient busClient = new TagoBusRouteDetailApiClient("http://dummy", "dummy");
         TagoCityCodeResolver cityCodeResolver = new TagoCityCodeResolver(null);
         return new RouteLegExtractor(subwayClient, busClient, cityCodeResolver,
-                new SeoulBusStopCatalog(new SeoulBusStopApiClient("http://dummy", "")));
+                new SeoulBusStopCatalog(new SeoulBusStopApiClient("http://dummy", "")), SEED_CATALOG);
     }
 
     /** 테스트에서 쓰는 역명은 전부 "역이름(stationId)" 형태로 지어서, 이름만 보고 원하는 stationId를 돌려준다. */
@@ -320,7 +415,8 @@ class LastDepartureServiceTest {
         GoogleRoutesClient googleClient = new GoogleRoutesClient("http://dummy", "dummy") {
             @Override
             public GoogleRoutesResponse computeTransitRoutes(double sx, double sy, double ex, double ey,
-                                                               List<String> allowedTravelModes) {
+                                                               List<String> allowedTravelModes,
+                                                               String departureTime, String arrivalTime) {
                 return allowedTravelModes != null && allowedTravelModes.contains("SUBWAY")
                         ? singleLegResponse(5, "역(300)")
                         : singleLegResponse(50, "역(400)");
@@ -378,7 +474,8 @@ class LastDepartureServiceTest {
         return new GoogleRoutesClient("http://dummy", "dummy") {
             @Override
             public GoogleRoutesResponse computeTransitRoutes(double sx, double sy, double ex, double ey,
-                                                               List<String> allowedTravelModes) {
+                                                               List<String> allowedTravelModes,
+                                                               String departureTime, String arrivalTime) {
                 return response;
             }
         };

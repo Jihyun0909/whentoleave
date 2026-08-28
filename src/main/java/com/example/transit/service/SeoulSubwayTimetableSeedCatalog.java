@@ -16,8 +16,10 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * 서울교통공사가 공개한 "역코드로 지하철 열차 시간표 검색" 전수 데이터(data.seoul.go.kr, 서울
@@ -74,6 +76,20 @@ public class SeoulSubwayTimetableSeedCatalog {
             return List.of();
         }
         return byKey.getOrDefault(key(stationName, lineNo, wayCode, dayType), List.of());
+    }
+
+    /**
+     * 방향 판별용 - 이 역/호선/방향의 열차들이 실제로 향하는 종착역 이름 집합(중복 제거).
+     * {@link RouteLegExtractor}가 TAGO 시간표로 이 집합을 못 구하는 역(gap station)에서
+     * Google의 headsign(방면 텍스트)과 비교할 대상이 필요할 때 쓴다. 노선 토폴로지(어느 역이
+     * 어느 방향으로 어떤 종착역을 갖는지)는 요일별로 거의 안 바뀌는 정적 정보라 평일 기준
+     * 데이터로 답한다(RouteLegExtractor의 TAGO 기반 termini 조회와 동일한 방침).
+     */
+    public Set<String> terminiOf(String stationName, String laneName, int wayCode) {
+        return find(stationName, laneName, wayCode, DayType.WEEKDAY).stream()
+                .map(Entry::endStationName)
+                .filter(name -> name != null && !name.isBlank())
+                .collect(Collectors.toSet());
     }
 
     private Integer lineNumberOf(String laneName) {

@@ -25,6 +25,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RouteLegExtractorTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
+    /** 실제 시드 파일(40MB)을 매 테스트마다 새로 파싱하지 않도록 클래스 전체가 하나만 공유한다 -
+     * 아래 테스트들은 전부 TAGO 스텁이 이미 데이터를 주거나(방향 판별 성립) headsign이 없어서
+     * (early return) 이 시드까지 내려가는 경우가 없으므로 실제 내용은 문제되지 않는다. */
+    private static final SeoulSubwayTimetableSeedCatalog SEED_CATALOG = new SeoulSubwayTimetableSeedCatalog();
 
     /**
      * 수유(4호선, id=414) -> 환승 -> 동대문역사문화공원(2호선, id=205) -> 왕십리.
@@ -174,6 +178,31 @@ class RouteLegExtractorTest {
         assertEquals(2, extractor.extract(response).get(0).wayCode());
     }
 
+    /**
+     * 실사용 중 발견한 버그의 회귀 테스트(2026-08-27, 수유->왕십리 검색). TAGO가 아예 시간표를
+     * 안 주는 역(동대문역사문화공원 등 - SubwayScheduleCacheService의 gap station 목록 참고)은
+     * termini가 항상 빈 Set이라, "U 방향과 안 맞음"을 "그러니까 D(하행)"으로 잘못 단정지었다 -
+     * 실제로는 "정보가 없어서 못 정한다"인데 "하행이 맞다"로 취급한 것. 그 결과 을지로입구행
+     * (내선/하행, 왕십리와는 반대 방향)이 왕십리 방향인 것처럼 안내됐다. TAGO가 비어 있으면
+     * 서울교통공사 전수 시간표 시드({@link SeoulSubwayTimetableSeedCatalog})로 재시도하도록
+     * 고쳤다 - 이 시드는 동대문역사문화공원 2호선 실제 데이터로 성수행(상행/외선, 왕십리 방향)과
+     * 을지로입구행(하행/내선)을 구분할 수 있다.
+     */
+    @Test
+    void TAGO_시간표가_없는_역도_시드_데이터로_방향을_판별한다() {
+        RouteLegExtractor extractor = extractor(
+                Map.of("동대문역사문화공원", new StationFixture("MTRS12205", "2호선")));
+        // terminiByStationIdAndDirection을 안 줘서(빈 맵) TAGO는 항상 빈 응답 -> gap station 재현
+
+        GoogleRoutesResponse towardWangsimni = response(route(
+                subwayStepWithHeadsign(5, "동대문역사문화공원", "2호선", "성수행")));
+        GoogleRoutesResponse towardEuljiro = response(route(
+                subwayStepWithHeadsign(5, "동대문역사문화공원", "2호선", "을지로입구행")));
+
+        assertEquals(1, extractor.extract(towardWangsimni).get(0).wayCode());
+        assertEquals(2, extractor.extract(towardEuljiro).get(0).wayCode());
+    }
+
     @Test
     void 경로가_없으면_예외를_던진다() {
         RouteLegExtractor extractor = extractor(Map.of());
@@ -214,7 +243,7 @@ class RouteLegExtractorTest {
                 new TagoSubwayApiClient("http://dummy", "dummy"),
                 new TagoBusRouteDetailApiClient("http://dummy", "dummy"),
                 new TagoCityCodeResolver(null),
-                new SeoulBusStopCatalog(stopClient));
+                new SeoulBusStopCatalog(stopClient), SEED_CATALOG);
         GoogleRoutesResponse response = response(route(busStep(10, "장위3동주민센터", "146")));
 
         List<RouteLegExtractor.ExtractedRoute> candidates = extractor.extractAll(response, true);
@@ -245,7 +274,7 @@ class RouteLegExtractorTest {
                 new TagoSubwayApiClient("http://dummy", "dummy"),
                 new TagoBusRouteDetailApiClient("http://dummy", "dummy"),
                 new TagoCityCodeResolver(null),
-                new SeoulBusStopCatalog(stopClient));
+                new SeoulBusStopCatalog(stopClient), SEED_CATALOG);
         GoogleRoutesResponse response = response(route(
                 transitStep(10, "출발정류장", "장위3동주민센터", "146", "BUS")));
 
@@ -261,7 +290,7 @@ class RouteLegExtractorTest {
                 new TagoSubwayApiClient("http://dummy", "dummy"),
                 new TagoBusRouteDetailApiClient("http://dummy", "dummy"),
                 new TagoCityCodeResolver(null),
-                new SeoulBusStopCatalog(new SeoulBusStopApiClient("http://dummy", "")));
+                new SeoulBusStopCatalog(new SeoulBusStopApiClient("http://dummy", "")), SEED_CATALOG);
         GoogleRoutesResponse response = response(route(busStep(10, "정류장", "146")));
 
         List<RouteLegExtractor.ExtractedRoute> candidates = extractor.extractAll(response, true);
@@ -402,7 +431,7 @@ class RouteLegExtractorTest {
         };
         TagoBusRouteDetailApiClient busClient = new TagoBusRouteDetailApiClient("http://dummy", "dummy");
         return new RouteLegExtractor(subwayClient, busClient, new TagoCityCodeResolver(null),
-                new SeoulBusStopCatalog(new SeoulBusStopApiClient("http://dummy", "")));
+                new SeoulBusStopCatalog(new SeoulBusStopApiClient("http://dummy", "")), SEED_CATALOG);
     }
 
     private GoogleRoutesResponse response(GoogleRoutesResponse.Route... routes) {

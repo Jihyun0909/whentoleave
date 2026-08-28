@@ -63,16 +63,22 @@ public class GoogleRoutesClient {
      * @param sx 출발지 경도, @param sy 출발지 위도, @param ex 도착지 경도, @param ey 도착지 위도
      *           (ODsay/기존 코드베이스 컨벤션과 동일하게 x=경도/longitude, y=위도/latitude).
      * @param allowedTravelModes 예: List.of("SUBWAY"), List.of("BUS"). null/빈 리스트면 제한 없음(지하철+버스 전체).
+     * @param departureTime RFC3339. null이 아니면 이 시각 기준으로 계산(막차 모드).
+     * @param arrivalTime   RFC3339. null이 아니면 이 시각까지 도착하는 경로로 계산(목표 도착시간 모드).
+     *                      departureTime과 동시에 null이 아니면 안 된다(둘 중 정확히 하나만 값이 있어야 함
+     *                      - Google API 자체 제약, {@link GoogleRoutesRequest} 참고).
      */
     public GoogleRoutesResponse computeTransitRoutes(double sx, double sy, double ex, double ey,
-                                                       List<String> allowedTravelModes) {
-        String key = cacheKey(sx, sy, ex, ey, allowedTravelModes);
+                                                       List<String> allowedTravelModes,
+                                                       String departureTime, String arrivalTime) {
+        String key = cacheKey(sx, sy, ex, ey, allowedTravelModes, departureTime, arrivalTime);
         CacheEntry cached = responseCache.get(key);
         if (cached != null && cached.expiresAt().isAfter(Instant.now())) {
             return cached.body();
         }
 
-        GoogleRoutesRequest requestBody = GoogleRoutesRequest.transit(sx, sy, ex, ey, allowedTravelModes);
+        GoogleRoutesRequest requestBody = GoogleRoutesRequest.transit(
+                sx, sy, ex, ey, allowedTravelModes, departureTime, arrivalTime);
         GoogleRoutesResponse response = restClient.post()
                 .uri(baseUrl)
                 .header("X-Goog-Api-Key", apiKey)
@@ -100,9 +106,17 @@ public class GoogleRoutesClient {
         }
     }
 
-    private String cacheKey(double sx, double sy, double ex, double ey, List<String> allowedTravelModes) {
+    /**
+     * departureTime/arrivalTime도 키에 넣는다 - 안 넣으면 "오늘 막차"와 "내일 막차"처럼 좌표는
+     * 같고 기준 시각만 다른 조회가 서로의 캐시를 잘못 재사용하게 된다(실사용 중 발견: Google
+     * 조회가 항상 "지금" 기준이라 다른 날짜/목표시각을 물어도 완전히 다른 경로가 나오는 문제의
+     * 원인이었다 - 이 필드들을 아예 안 보내고 있었다).
+     */
+    private String cacheKey(double sx, double sy, double ex, double ey, List<String> allowedTravelModes,
+                             String departureTime, String arrivalTime) {
         String modes = allowedTravelModes == null ? "" : String.join("+", allowedTravelModes);
-        return String.format(Locale.ROOT, "%.6f,%.6f,%.6f,%.6f|%s", sx, sy, ex, ey, modes);
+        return String.format(Locale.ROOT, "%.6f,%.6f,%.6f,%.6f|%s|%s|%s",
+                sx, sy, ex, ey, modes, departureTime, arrivalTime);
     }
 
     private record CacheEntry(GoogleRoutesResponse body, Instant expiresAt) {
