@@ -2,8 +2,6 @@ package com.example.transit.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -31,7 +29,6 @@ public class AuditLog {
     @Column(name = "actor_user_id")
     private Long actorUserId;
 
-    @Enumerated(EnumType.STRING)
     @Column(name = "event", nullable = false, length = 30)
     private AuditEvent event;
 

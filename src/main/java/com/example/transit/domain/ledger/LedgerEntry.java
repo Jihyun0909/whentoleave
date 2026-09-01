@@ -2,8 +2,6 @@ package com.example.transit.domain.ledger;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -33,7 +31,6 @@ public class LedgerEntry {
     @Column(name = "account_id", nullable = false)
     private Long accountId;
 
-    @Enumerated(EnumType.STRING)
     @Column(name = "direction", nullable = false, length = 6)
     private EntryDirection direction;
 

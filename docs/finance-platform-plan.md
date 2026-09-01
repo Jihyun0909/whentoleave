@@ -148,22 +148,29 @@ audit_log         (id, actor_user_id?, event, ref_type, ref_id, detail_json, cre
   CREDIT `COMMISSION_INCOME`(시스템) commission. 결제의 현금 흐름은 외부 PG로 처리했다고 가정해
   원장 밖. 제휴사 `CASH` 계정은 정산이 아니라 **첫 매출(결제) 시점**에 provisioning한다
   (배치는 "생성 후 같은 트랜잭션 재조회"가 곤란 - 아래).
-- **Spring Batch 6 / Boot 4는 인메모리 JobRepository가 기본**: `BATCH_*` 테이블 없음,
-  `spring.batch.jdbc.*` / `spring.batch.job.enabled` 속성도 없어짐. 실행 이력·재시작은
-  도메인 레벨로 대체 - `Settlement` 유니크 `(partner, period)` + `settled_at` 마킹.
-- **멱등성은 `payment.settled_at`으로**: `calculate`가 미정산 결제만 조회하므로, 재실행하면
-  이미 정산된 건은 자동으로 빠진다. "이미 DONE이면 스킵" 같은 별도 플래그 안 씀.
-- **정산은 누적**: 열린 기간을 조기 정산한 뒤 결제가 더 들어와 재실행해도, 같은 `Settlement`
-  행에 `addSettledBatch`로 더해진다. 실사용은 마감된 과거 날짜만 정산해 사실상 1회.
+- **JobRepository는 JDBC(영속)**: Spring Batch 6 / Boot 4 기본은 인메모리(resourceless)라
+  `BATCH_*` 테이블도, 실행 이력도 없다. `@EnableBatchProcessing + @EnableJdbcJobRepository`
+  (`BatchJdbcConfig`)로 JDBC JobRepository를 쓰고, `BatchSchemaInitializer`가 `BATCH_*` 테이블을
+  없을 때 만든다(H2/Postgres). 이제 JobExecution·skip/write 카운트가 남고 재시작이 가능하다.
+- **멱등성은 `payment.settled_at`으로**: `calculate`가 미정산 결제만 조회하므로, 마감된 기간을
+  재실행하면 미정산 0건이라 아무것도 안 한다. `Settlement`는 유니크 없이 append-only 로그 -
+  배치 실행마다 한 행이고, 뒤늦게 결제가 들어와 재실행하면 그 몫만큼 새 행이 하나 더 생긴다
+  (그 제휴사·그 날 총합 = 행들의 합). `SettlementLauncher`는 미래 날짜를 거부한다.
 - **부분 실패 처리**: chunk 크기 1 = 제휴사 하나가 트랜잭션 하나. `SettlementException`(비활성
   제휴사·수수료율 이상) → 그 청크만 롤백(정산행·분개·`settled_at`이 하나도 안 남음) →
-  `SettlementSkipListener`가 `REQUIRES_NEW`로 `FAILED` 기록 + `SETTLEMENT_FAILED` 감사 →
-  다음 제휴사 진행. 잡 자체는 `COMPLETED`. 이미 `DONE`인 회차는 `FAILED`로 뒤집지 않는다.
+  `SettlementSkipListener`가 `REQUIRES_NEW`로 `FAILED` 행 + `SETTLEMENT_FAILED` 감사 →
+  다음 제휴사 진행. 잡 자체는 `COMPLETED`. 행이 실행 단위라 이전 실행의 `DONE` 행은 안 건드린다.
+- **`partnerId` 잡 파라미터(선택)**: 지정하면 그 제휴사만 재정산한다. 관리자 API·테스트에서 사용.
+- **enum은 전부 `@Converter`(varchar) 저장**: `@Enumerated`가 만드는 `check` 제약이
+  `ddl-auto=update`로 갱신되지 않아 enum에 값을 추가하면 INSERT가 깨진다. 공통 베이스
+  `EnumStringConverter` + enum별 `@Converter(autoApply=true)` 하위 클래스. 이미 만들어진 DB의
+  옛 check 제약은 `LegacyConstraintCleanup`이 기동 시 `DROP ... IF EXISTS`로 떨어낸다(Postgres, 멱등).
 - **계정 최초 생성**: `ledger_account` 유니크 위반을 무조건 삼키던 걸, 삼킨 뒤 재확인해서
-  진짜 없으면(스키마 오류 등) 다시 던지도록 고침. `AccountKind`/`AccountOwnerType`은
-  `@Enumerated` 대신 `@Converter`로 저장 - `@Enumerated`가 만드는 `check` 제약이
-  `ddl-auto=update`로 갱신되지 않아, enum에 값을 추가하면 INSERT가 깨지기 때문.
-- **엔드포인트**: `POST /api/v1/admin/settlements/run`, `GET /api/v1/admin/settlements`,
+  진짜 없으면(스키마 오류 등) 다시 던지도록 고침. 제휴사 `CASH` 계정은 정산이 아니라
+  **첫 매출(결제) 시점**에 provisioning한다(배치는 "생성 후 같은 트랜잭션 재조회"가 곤란).
+- **정산 분개**: DEBIT `FARE_CLEARING`(시스템, 정산 자금원) / CREDIT 제휴사 `CASH` payout /
+  CREDIT `COMMISSION_INCOME`(시스템) commission. 결제의 현금 흐름은 외부 PG로 처리했다고 가정해 원장 밖.
+- **엔드포인트**: `POST /api/v1/admin/settlements/run`(선택 `partnerId`), `GET /api/v1/admin/settlements`,
   `GET /api/v1/admin/audit-logs`, `GET /api/v1/partner/settlements`(본인 것만),
   `GET|POST /api/v1/admin/partners[/{id}/{activate,deactivate}]`.
 

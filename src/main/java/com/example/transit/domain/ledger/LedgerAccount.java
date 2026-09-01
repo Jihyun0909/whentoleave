@@ -38,7 +38,7 @@ public class LedgerAccount {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // @Enumerated 대신 autoApply 컨버터로 저장한다(AccountKindConverter 주석: enum check 제약 회피).
+    // enum은 autoApply 컨버터(com.example.transit.domain.EnumStringConverter)로 varchar 저장한다.
     @Column(name = "owner_type", nullable = false, length = 10)
     private AccountOwnerType ownerType;
 

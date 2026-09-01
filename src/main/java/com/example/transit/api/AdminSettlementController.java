@@ -29,13 +29,14 @@ public class AdminSettlementController {
         this.settlements = settlements;
     }
 
-    /** 정산 배치를 지금 실행한다. 본문 생략 시 어제 날짜로. */
+    /** 정산 배치를 지금 실행한다. 본문 생략 시 어제 날짜, 전체 제휴사. */
     @PostMapping("/run")
     public SettlementRunResponse run(@RequestBody(required = false) SettlementRunRequest request) {
         LocalDate date = request != null && request.settlementDate() != null
                 ? request.settlementDate()
                 : LocalDate.now().minusDays(1);
-        return SettlementRunResponse.from(settlementLauncher.run(date));
+        Long partnerId = request != null ? request.partnerId() : null;
+        return SettlementRunResponse.from(settlementLauncher.run(date, partnerId));
     }
 
     @GetMapping

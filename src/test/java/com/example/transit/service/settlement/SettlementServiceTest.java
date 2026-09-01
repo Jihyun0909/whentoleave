@@ -55,9 +55,7 @@ class SettlementServiceTest {
         assertThrows(LedgerPostingException.class,
                 () -> tx.executeWithoutResult(status -> settlementService.commit(badDraft)));
 
-        assertNull(settlements.findByPartnerIdAndPeriodStartAndPeriodEnd(p.getId(), d, d).orElse(null),
+        assertTrue(settlements.findByPartnerIdAndPeriodStartAndPeriodEndOrderByIdDesc(p.getId(), d, d).isEmpty(),
                 "분개 실패 시 settlement 저장도 롤백되어야 한다");
-        assertTrue(settlements.findByPartnerIdOrderByIdDesc(p.getId(),
-                org.springframework.data.domain.PageRequest.of(0, 5)).isEmpty());
     }
 }

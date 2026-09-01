@@ -22,9 +22,10 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: true
-  # Spring Batch 6 / Boot 4는 기본이 인메모리(resourceless) JobRepository라 BATCH_* 테이블이
-  # 없다. 기동 시 Job 자동 실행도 spring.batch.job.name이 없으면 안 한다(정산은 스케줄러/관리자
-  # API로만 트리거). 실행 이력·재시작은 도메인 레벨(Settlement 유니크 + DONE 스킵)로 대체한다.
+  batch:
+    job:
+      # 기동 시 Job 자동 실행 안 함 (정산은 스케줄러/관리자 API로만 트리거).
+      enabled: false
   web:
     resources:
       chain:

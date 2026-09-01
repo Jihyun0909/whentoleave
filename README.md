@@ -55,6 +55,9 @@ com.example.transit
   (Spring Security의 `Authentication`도 마찬가지 — 컨트롤러가 `AuthenticatedUser`로 풀어서 넘긴다.)
 - API 응답에는 Entity를 직접 노출하지 않고 DTO로 감싼다.
 - 인증 기능이 필요해지면 세션 기반이 아니라 JWT로 간다 (앱 클라이언트 재사용을 위해).
+- 문자열로 저장하는 enum은 `@Enumerated` 대신 `@Converter`(공통 베이스 `EnumStringConverter`)로
+  매핑한다 — `@Enumerated`가 만드는 `check` 제약이 `ddl-auto=update`로 갱신되지 않아, enum에
+  값을 추가하면 기존 DB에서 INSERT가 깨지기 때문. (옛 제약은 `LegacyConstraintCleanup`이 정리)
 
 ## 인증 (JWT)
 
@@ -122,9 +125,10 @@ com.example.transit
 - **정산 분개**: DEBIT `FARE_CLEARING`(자금원) / CREDIT 제휴사 `CASH`(지급 몫) /
   CREDIT `COMMISSION_INCOME`(수수료 수익). 차변 = 대변.
 - **멱등성**: `payment.settled_at` 마킹 — 재실행하면 이미 정산된 건은 조회에서 빠진다.
-  `Settlement`는 `(partner, period)` 유니크이고 재실행 시 누적 갱신된다.
-- **Spring Batch 6 / Boot 4 참고**: JobRepository가 인메모리 기본이라 `BATCH_*` 테이블이 없다.
-  실행 이력·재시작은 위 도메인 레벨 멱등성으로 대체한다.
+  `Settlement`는 append-only 로그(실행마다 한 행). 미래 날짜는 거부, `partnerId` 지정 시 단건 재정산.
+- **JobRepository는 JDBC(영속)**: Spring Batch 6 / Boot 4 기본은 인메모리라 실행 이력이 없다.
+  `@EnableBatchProcessing + @EnableJdbcJobRepository`로 JDBC를 쓰고 `BatchSchemaInitializer`가
+  `BATCH_*` 테이블을 생성한다 → JobExecution·skip/write 카운트가 남고 재시작 가능.
 
 | 엔드포인트 | 권한 | 설명 |
 |---|---|---|

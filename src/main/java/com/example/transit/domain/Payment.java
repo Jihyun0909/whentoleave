@@ -2,8 +2,6 @@ package com.example.transit.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -49,7 +47,6 @@ public class Payment {
     @Column(name = "point_earned", nullable = false)
     private long pointEarned;
 
-    @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 10)
     private PaymentStatus status;
 

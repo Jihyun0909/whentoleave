@@ -2,8 +2,6 @@ package com.example.transit.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -49,7 +47,6 @@ public class BusStopDeparture {
     @Column(name = "station_id", nullable = false, length = 20)
     private String stationId;
 
-    @Enumerated(EnumType.STRING)
     @Column(name = "day_type", nullable = false, length = 10)
     private DayType dayType;
 

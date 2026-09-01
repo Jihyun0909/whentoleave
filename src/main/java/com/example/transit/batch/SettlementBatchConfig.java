@@ -36,6 +36,8 @@ public class SettlementBatchConfig {
 
     public static final String JOB_NAME = "partnerSettlementJob";
     public static final String PARAM_SETTLEMENT_DATE = "settlementDate";
+    /** 선택: 지정하면 그 제휴사 하나만 정산한다(없으면 미정산 결제가 있는 전체). */
+    public static final String PARAM_PARTNER_ID = "partnerId";
 
     @Bean
     public Job partnerSettlementJob(JobRepository jobRepository, Step settlePartnersStep) {
@@ -63,16 +65,22 @@ public class SettlementBatchConfig {
                 .build();
     }
 
-    /** 정산 대상 기간에 미정산 결제가 있는 제휴사 id들을 읽는다(건수가 적어 리스트로 한 번에). */
+    /**
+     * 정산 대상 제휴사 id들을 읽는다(건수가 적어 리스트로 한 번에). {@code partnerId} 잡 파라미터가
+     * 있으면 그 하나만, 없으면 해당 기간에 미정산 결제가 있는 전체.
+     */
     @Bean
     @StepScope
     public ItemReader<Long> settlementPartnerReader(
             @Value("#{jobParameters['" + PARAM_SETTLEMENT_DATE + "']}") LocalDate settlementDate,
+            @Value("#{jobParameters['" + PARAM_PARTNER_ID + "']}") Long partnerId,
             PaymentRepository payments) {
+        if (partnerId != null) {
+            return new ListItemReader<>(List.of(partnerId));
+        }
         LocalDateTime from = settlementDate.atStartOfDay();
         LocalDateTime to = settlementDate.plusDays(1).atStartOfDay();
-        List<Long> partnerIds = payments.findPartnerIdsWithUnsettledPayments(PaymentStatus.PAID, from, to);
-        return new ListItemReader<>(partnerIds);
+        return new ListItemReader<>(payments.findPartnerIdsWithUnsettledPayments(PaymentStatus.PAID, from, to));
     }
 
     @Bean

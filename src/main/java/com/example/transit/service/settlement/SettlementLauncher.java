@@ -27,10 +27,23 @@ public class SettlementLauncher {
     }
 
     public SettlementRunResult run(LocalDate settlementDate) {
-        var params = new JobParametersBuilder()
+        return run(settlementDate, null);
+    }
+
+    /**
+     * @param partnerId 지정하면 그 제휴사만 정산한다(재정산 등). null이면 전체.
+     */
+    public SettlementRunResult run(LocalDate settlementDate, Long partnerId) {
+        if (settlementDate.isAfter(LocalDate.now())) {
+            throw new IllegalArgumentException("미래 날짜는 정산할 수 없습니다: " + settlementDate);
+        }
+        var builder = new JobParametersBuilder()
                 .addLocalDate(SettlementBatchConfig.PARAM_SETTLEMENT_DATE, settlementDate)
-                .addLong("run.id", System.currentTimeMillis())
-                .toJobParameters();
+                .addLong("run.id", System.currentTimeMillis());
+        if (partnerId != null) {
+            builder.addLong(SettlementBatchConfig.PARAM_PARTNER_ID, partnerId);
+        }
+        var params = builder.toJobParameters();
         try {
             JobExecution execution = jobOperator.start(partnerSettlementJob, params);
             long skipped = execution.getStepExecutions().stream()

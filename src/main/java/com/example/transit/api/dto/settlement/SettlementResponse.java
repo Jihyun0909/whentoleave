@@ -18,11 +18,11 @@ public record SettlementResponse(
         SettlementStatus status,
         String failureReason,
         Long batchJobExecutionId,
-        LocalDateTime updatedAt
+        LocalDateTime createdAt
 ) {
     public static SettlementResponse from(Settlement s) {
         return new SettlementResponse(s.getId(), s.getPartnerId(), s.getPeriodStart(), s.getPeriodEnd(),
                 s.getGrossAmount(), s.getCommissionAmount(), s.getPayoutAmount(), s.getPaymentCount(),
-                s.getStatus(), s.getFailureReason(), s.getBatchJobExecutionId(), s.getUpdatedAt());
+                s.getStatus(), s.getFailureReason(), s.getBatchJobExecutionId(), s.getCreatedAt());
     }
 }

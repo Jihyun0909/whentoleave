@@ -88,14 +88,12 @@ public class SettlementService {
 
     /**
      * 정산 확정. 배치 청크 트랜잭션 안에서 돈다(여기서 예외가 나면 이 제휴사 청크가 통째로 롤백된다).
+     * 이 배치 실행의 정산 결과로 새 {@link Settlement} 행을 하나 만든다.
      */
     public void commit(SettlementDraft draft) {
-        Settlement settlement = settlements
-                .findByPartnerIdAndPeriodStartAndPeriodEnd(draft.partnerId(), draft.periodStart(), draft.periodEnd())
-                .orElseGet(() -> new Settlement(draft.partnerId(), draft.periodStart(), draft.periodEnd()));
-        settlement.addSettledBatch(draft.grossAmount(), draft.commissionAmount(), draft.payoutAmount(),
-                draft.paymentCount(), draft.batchJobExecutionId());
-        settlements.save(settlement);
+        Settlement settlement = settlements.save(Settlement.done(
+                draft.partnerId(), draft.periodStart(), draft.periodEnd(), draft.batchJobExecutionId(),
+                draft.grossAmount(), draft.commissionAmount(), draft.payoutAmount(), draft.paymentCount()));
 
         LedgerAccount fareClearing = ledgerAccounts.getForUpdate(
                 AccountOwnerType.SYSTEM, LedgerAccount.SYSTEM_OWNER_ID, AccountKind.FARE_CLEARING);
@@ -104,9 +102,9 @@ public class SettlementService {
         LedgerAccount commissionIncome = ledgerAccounts.getForUpdate(
                 AccountOwnerType.SYSTEM, LedgerAccount.SYSTEM_OWNER_ID, AccountKind.COMMISSION_INCOME);
 
-        // idempotency는 "이번에 정산되는 결제 집합"으로 잡는다(각 결제는 정확히 한 번만 정산되므로
-        // 결제 id 범위가 이 배치를 유일하게 식별한다). 한 회차를 여러 번 돌려 서로 다른 결제를
-        // 정산해도 각각 다른 키가 되고, 같은 배치를 재시도하면 같은 키라 post가 중복 없이 무시한다.
+        // idempotency는 "이번에 정산되는 결제 집합"으로 잡는다. 각 결제는 정확히 한 번만 정산되므로
+        // (settled_at) 결제 id 범위가 이 분개를 유일하게 식별한다. 청크가 재시도돼도 같은 키라
+        // 이중 분개가 안 된다.
         String idempotencyKey = "SETTLEMENT:partner:" + draft.partnerId() + ":pmts:"
                 + draft.paymentIds().get(0) + "-" + draft.paymentIds().get(draft.paymentIds().size() - 1);
         ledger.post(LedgerTransactionType.SETTLEMENT, idempotencyKey,
@@ -123,23 +121,13 @@ public class SettlementService {
 
     /**
      * 실패 기록. 배치 스킵 처리에서 부르며, 롤백된 청크와 무관하게 남아야 하므로 별도 트랜잭션.
+     * 이 실행에 대한 {@code FAILED} 행을 하나 남긴다 - 이전 실행의 {@code DONE} 행(있다면)은
+     * 그대로 둔다(행이 실행 단위라 서로 안 건드린다).
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordFailure(long partnerId, LocalDate periodStart, LocalDate periodEnd,
                               String reason, Long batchJobExecutionId) {
-        Settlement existing = settlements
-                .findByPartnerIdAndPeriodStartAndPeriodEnd(partnerId, periodStart, periodEnd)
-                .orElse(null);
-
-        // 이미 성공한 회차(DONE)를 FAILED로 뒤집지 않는다. 그 뒤에 들어온 결제의 정산 실패는
-        // 감사 로그로만 남기고, 해당 결제들은 미정산으로 남아 다음 성공 실행에서 처리된다.
-        if (existing == null || !existing.isDone()) {
-            Settlement settlement = existing != null ? existing
-                    : new Settlement(partnerId, periodStart, periodEnd);
-            settlement.markFailed(reason, batchJobExecutionId);
-            settlements.save(settlement);
-        }
-
+        settlements.save(Settlement.failed(partnerId, periodStart, periodEnd, batchJobExecutionId, reason));
         audit.record(AuditEvent.SETTLEMENT_FAILED, null, "partner", partnerId,
                 periodStart + " 정산 실패: " + reason);
     }
