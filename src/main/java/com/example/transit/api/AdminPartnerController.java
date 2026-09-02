@@ -3,7 +3,6 @@ package com.example.transit.api;
 import com.example.transit.api.dto.ride.PartnerResponse;
 import com.example.transit.domain.Partner;
 import com.example.transit.repository.PartnerRepository;
-import com.example.transit.service.ride.RideException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -43,7 +42,7 @@ public class AdminPartnerController {
 
     private Partner setActive(long id, boolean active) {
         Partner partner = partners.findById(id)
-                .orElseThrow(() -> new RideException(RideException.Reason.PARTNER_NOT_AVAILABLE, "제휴사를 찾을 수 없습니다"));
+                .orElseThrow(() -> new NotFoundException("제휴사", id));
         if (active) {
             partner.activate();
         } else {

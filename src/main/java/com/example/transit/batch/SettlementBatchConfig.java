@@ -11,7 +11,6 @@ import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.Step;
 import org.springframework.batch.core.step.builder.StepBuilder;
-import org.springframework.batch.infrastructure.item.ItemProcessor;
 import org.springframework.batch.infrastructure.item.ItemWriter;
 import org.springframework.batch.infrastructure.item.support.ListItemReader;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,7 +47,7 @@ public class SettlementBatchConfig {
     @Bean
     public Step settlePartnersStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
                                    ListItemReader<Long> settlementPartnerReader,
-                                   ItemProcessor<Long, SettlementDraft> settlementProcessor,
+                                   SettlementItemProcessor settlementProcessor,
                                    ItemWriter<SettlementDraft> settlementWriter,
                                    SettlementSkipListener skipListener) {
         return new StepBuilder("settlePartnersStep", jobRepository)
@@ -80,15 +79,6 @@ public class SettlementBatchConfig {
         LocalDateTime from = settlementDate.atStartOfDay();
         LocalDateTime to = settlementDate.plusDays(1).atStartOfDay();
         return new ListItemReader<>(payments.findPartnerIdsWithUnsettledPayments(PaymentStatus.PAID, from, to));
-    }
-
-    @Bean
-    @StepScope
-    public ItemProcessor<Long, SettlementDraft> settlementProcessor(
-            @Value("#{jobParameters['" + PARAM_SETTLEMENT_DATE + "']}") LocalDate settlementDate,
-            @Value("#{stepExecution.jobExecutionId}") Long jobExecutionId,
-            SettlementService settlementService) {
-        return partnerId -> settlementService.calculate(partnerId, settlementDate, settlementDate, jobExecutionId);
     }
 
     @Bean
