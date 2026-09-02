@@ -4,6 +4,7 @@ import com.example.transit.api.dto.ErrorResponse;
 import com.example.transit.service.auth.AuthException;
 import com.example.transit.service.point.InsufficientPointException;
 import com.example.transit.service.ride.RideException;
+import com.example.transit.service.settlement.InvalidSettlementRequestException;
 import com.example.transit.service.support.RetryExhaustedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,6 +59,11 @@ public class ApiExceptionHandler {
     public ResponseEntity<ErrorResponse> onInsufficientPoint(InsufficientPointException e) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
                 .body(new ErrorResponse("INSUFFICIENT_POINT", e.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidSettlementRequestException.class)
+    public ResponseEntity<ErrorResponse> onInvalidSettlementRequest(InvalidSettlementRequestException e) {
+        return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_SETTLEMENT_REQUEST", e.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

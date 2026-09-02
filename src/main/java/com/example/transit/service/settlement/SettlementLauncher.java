@@ -35,7 +35,7 @@ public class SettlementLauncher {
      */
     public SettlementRunResult run(LocalDate settlementDate, Long partnerId) {
         if (settlementDate.isAfter(LocalDate.now())) {
-            throw new IllegalArgumentException("미래 날짜는 정산할 수 없습니다: " + settlementDate);
+            throw new InvalidSettlementRequestException("미래 날짜는 정산할 수 없습니다: " + settlementDate);
         }
         var builder = new JobParametersBuilder()
                 .addLocalDate(SettlementBatchConfig.PARAM_SETTLEMENT_DATE, settlementDate)

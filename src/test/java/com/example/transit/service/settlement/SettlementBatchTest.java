@@ -195,11 +195,8 @@ class SettlementBatchTest {
 
     @Test
     void 미래_날짜는_거부된다() {
-        try {
-            launcher.run(LocalDate.now().plusDays(1));
-            org.junit.jupiter.api.Assertions.fail("미래 날짜는 예외여야 한다");
-        } catch (IllegalArgumentException expected) {
-            assertTrue(expected.getMessage().contains("미래"));
-        }
+        var e = org.junit.jupiter.api.Assertions.assertThrows(InvalidSettlementRequestException.class,
+                () -> launcher.run(LocalDate.now().plusDays(1)));
+        assertTrue(e.getMessage().contains("미래"));
     }
 }
