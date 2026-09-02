@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -72,5 +73,11 @@ public class ApiExceptionHandler {
                 .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
                 .collect(Collectors.joining(", "));
         return ResponseEntity.badRequest().body(new ErrorResponse("VALIDATION_FAILED", detail));
+    }
+
+    /** 파싱 불가한 본문(깨진 JSON, 타입 불일치 등)도 {@link ErrorResponse} 형태로 통일한다. */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> onUnreadableBody(HttpMessageNotReadableException e) {
+        return ResponseEntity.badRequest().body(new ErrorResponse("MALFORMED_REQUEST", "요청 본문을 읽을 수 없습니다"));
     }
 }

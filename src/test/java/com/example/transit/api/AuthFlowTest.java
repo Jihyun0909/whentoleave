@@ -112,6 +112,15 @@ class AuthFlowTest {
     }
 
     @Test
+    void 깨진_JSON_본문도_code_message_형태로_400() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{bad json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
+    }
+
+    @Test
     void 비밀번호가_틀리면_401() throws Exception {
         String email = uniqueEmail();
         signupAndLogin(email);

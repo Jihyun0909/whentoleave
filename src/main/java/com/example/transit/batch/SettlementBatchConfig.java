@@ -12,7 +12,6 @@ import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.Step;
 import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.infrastructure.item.ItemProcessor;
-import org.springframework.batch.infrastructure.item.ItemReader;
 import org.springframework.batch.infrastructure.item.ItemWriter;
 import org.springframework.batch.infrastructure.item.support.ListItemReader;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,7 +47,7 @@ public class SettlementBatchConfig {
 
     @Bean
     public Step settlePartnersStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
-                                   ItemReader<Long> settlementPartnerReader,
+                                   ListItemReader<Long> settlementPartnerReader,
                                    ItemProcessor<Long, SettlementDraft> settlementProcessor,
                                    ItemWriter<SettlementDraft> settlementWriter,
                                    SettlementSkipListener skipListener) {
@@ -71,7 +70,7 @@ public class SettlementBatchConfig {
      */
     @Bean
     @StepScope
-    public ItemReader<Long> settlementPartnerReader(
+    public ListItemReader<Long> settlementPartnerReader(
             @Value("#{jobParameters['" + PARAM_SETTLEMENT_DATE + "']}") LocalDate settlementDate,
             @Value("#{jobParameters['" + PARAM_PARTNER_ID + "']}") Long partnerId,
             PaymentRepository payments) {
