@@ -8,18 +8,52 @@
 spring:
   application:
     name: transit
+  # 테스트는 Redis를 안 띄운다. Refresh Token은 인메모리 저장소로 바꿔 끼우고(app.refresh-token.store),
+  # Redis 자동설정 자체를 꺼서 연결 시도가 없게 한다.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
+      - org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
   datasource:
     # MODE=PostgreSQL: 운영 DB와 방언 차이를 줄인다. 이 프로젝트는 native query 없이
     # JPA만 써서 H2로도 충분하다 (native query가 생기면 Testcontainers로 옮겨야 한다).
-    url: jdbc:h2:mem:transit;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    # LOCK_TIMEOUT=15000: 포인트 동시성 테스트에서 SELECT ... FOR UPDATE 대기가 H2 기본
+    # 1초를 넘겨 CannotAcquireLockException이 나는 걸 막는다(운영 Postgres는 무한 대기라
+    # 이건 H2 특성 보정이다).
+    url: jdbc:h2:mem:transit;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;LOCK_TIMEOUT=15000
     driver-class-name: org.h2.Driver
     username: sa
     password: ""
+    hikari:
+      # 포인트 동시성 테스트가 스레드 30개로 도는데, 비관적 락 대기 + 감사 로그의
+      # REQUIRES_NEW(2번째 커넥션)까지 겹치면 기본 풀(10)로는 커넥션 고갈로 교착한다.
+      maximum-pool-size: 40
   jpa:
     open-in-view: false
     hibernate:
       ddl-auto: create-drop
     show-sql: false
+  batch:
+    job:
+      enabled: false
+
+app:
+  jwt:
+    # 테스트 전용 시크릿(32바이트 이상). 운영 키와 무관하다.
+    secret: test-only-jwt-secret-0123456789-abcdefghij
+    access-token-ttl: 15m
+    refresh-token-ttl: 7d
+    issuer: whentoleave
+  refresh-token:
+    store: memory
+  settlement:
+    # 테스트는 스케줄러 안 돈다 (배치는 JobLauncherTestUtils로 직접 실행).
+    scheduler-enabled: false
+  staff:
+    admin-email: admin@test.local
+    admin-password: admin-test-password
+    partner-admin-email: partner-admin@test.local
+    partner-admin-password: partner-test-password
 
 # 실제 호출은 테스트에서 전부 페이크로 막지만, 값이 비어 있으면 설정 주입이 실패하므로 더미를 둔다.
 google-routes:

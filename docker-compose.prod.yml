@@ -7,6 +7,13 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/transit
       DB_USERNAME: transit
       DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOST: redis
+      JWT_SECRET: ${JWT_SECRET}
+      REFRESH_TOKEN_STORE: redis
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      PARTNER_ADMIN_EMAIL: ${PARTNER_ADMIN_EMAIL}
+      PARTNER_ADMIN_PASSWORD: ${PARTNER_ADMIN_PASSWORD}
       GOOGLE_ROUTES_API_KEY: ${GOOGLE_ROUTES_API_KEY}
       VWORLD_API_KEY: ${VWORLD_API_KEY}
       SEOUL_SUBWAY_API_KEY: ${SEOUL_SUBWAY_API_KEY}
@@ -15,6 +22,7 @@ services:
       INCHEON_BUS_API_KEY: ${INCHEON_BUS_API_KEY}
     depends_on:
       - postgres
+      - redis
     expose:
       - "8080"
 
@@ -28,6 +36,14 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: whentoleave-redis
+    restart: unless-stopped
+    # Refresh Token만 담는다. 유실돼도 사용자가 다시 로그인하면 되는 수준이라
+    # AOF/RDB 영속화는 켜지 않는다(재시작 시 전체 세션 만료와 동일한 효과).
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
 
   caddy:
     image: caddy:2-alpine

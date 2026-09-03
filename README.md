@@ -43,14 +43,102 @@ com.example.transit
  ├─ web/          # Thymeleaf 컨트롤러 (화면 담당, 얇게 유지)
  ├─ api/          # @RestController, /api/v1/** JSON 응답
  ├─ service/      # 순수 비즈니스 로직 (HTTP 개념을 몰라야 함)
- ├─ domain/       # JPA Entity
+ ├─ security/     # JWT 필터·Refresh Token 저장소 (Spring Security 연동)
+ ├─ batch/        # Spring Batch Job/Step (제휴사 정산)
+ ├─ config/       # SecurityConfig·스케줄러·시드 등 프레임워크 설정
+ ├─ domain/       # JPA Entity (ledger/ 서브패키지: 복식부기 원장)
  └─ repository/   # Spring Data JPA Repository
 ```
 
 **원칙**
 - `service` 패키지 안에는 `HttpServletRequest`, `Model` 등 HTTP 관련 타입이 절대 들어가지 않는다.
+  (Spring Security의 `Authentication`도 마찬가지 — 컨트롤러가 `AuthenticatedUser`로 풀어서 넘긴다.)
 - API 응답에는 Entity를 직접 노출하지 않고 DTO로 감싼다.
 - 인증 기능이 필요해지면 세션 기반이 아니라 JWT로 간다 (앱 클라이언트 재사용을 위해).
+- 문자열로 저장하는 enum은 `@Enumerated` 대신 `@Converter`(공통 베이스 `EnumStringConverter`)로
+  매핑한다 — `@Enumerated`가 만드는 `check` 제약이 `ddl-auto=update`로 갱신되지 않아, enum에
+  값을 추가하면 기존 DB에서 INSERT가 깨지기 때문. (옛 제약은 `LegacyConstraintCleanup`이 정리)
+
+## 인증 (JWT)
+
+금융 백엔드 확장(포인트·정산)의 토대. 전체 설계는 [docs/finance-platform-plan.md](docs/finance-platform-plan.md).
+
+- **Stateless JWT**: `Authorization: Bearer <access token>`만 쓴다. 세션·CSRF 토큰·폼 로그인은 끔.
+- **토큰 수명**: Access 15분, Refresh 7일 (`app.jwt.*`).
+- **Refresh Token 회전 + 탈취 대비**: Refresh Token은 그 해시를 서버(Redis)에 저장하고, 재발급 때마다
+  회전한다. 이미 회전·폐기된 Refresh Token이 다시 들어오면 탈취로 보고 그 사용자의 **모든** Refresh
+  Token을 폐기한다. 저장소는 `RefreshTokenStore` 인터페이스라, 운영은 Redis / 테스트·로컬은 인메모리
+  구현으로 바꿔 낀다 (기존 `LastTrainLookup` 페이크 패턴과 동일 — 테스트가 외부 인프라를 안 탄다).
+- **권한**: `ROLE_USER`(B2C) / `ROLE_PARTNER_ADMIN`(B2B) / `ROLE_ADMIN`. `app_user` 단일 테이블 +
+  `role` 컬럼으로만 가른다 (실제 제휴 심사·사업자 등록은 스코프 밖 — 전부 "가상").
+- **경로조회는 무관**: `/`, `/api/v1/last-departure`, `/api/v1/stations**`는 로그인 없이 그대로 열려 있다.
+
+| 엔드포인트 | 설명 |
+|---|---|
+| `POST /api/v1/auth/signup` | B2C 회원가입 |
+| `POST /api/v1/auth/login` | Access/Refresh 발급 |
+| `POST /api/v1/auth/refresh` | Refresh 회전 → 새 쌍 발급 |
+| `POST /api/v1/auth/logout` | 해당 Refresh Token 폐기 |
+| `GET /api/v1/me` | 현재 토큰 주체 확인 (인증 필요) |
+
+**로컬 실행**: `run-dev.bat`이 `REFRESH_TOKEN_STORE=memory`와 개발용 `JWT_SECRET`을 넣어줘서 Redis 없이
+바로 뜬다. Redis 경로로 확인하려면 `docker compose up -d redis` 후 그 두 환경변수를 지운다.
+
+## 선불 포인트 페이백 + 복식부기 원장 (B2C)
+
+가상 택시 이용을 시뮬레이션하고(요청 → 시작 → 완료), 완료 시 결제·포인트 정산이 한 트랜잭션에서 일어난다.
+
+- **복식부기**: 모든 포인트 이동은 균형 잡힌 분개(차변 합 == 대변 합)로만 기록한다. 잔액은
+  사용자별 `POINT` 계정(대변 정상)과 시스템 `POINT_CONTRA` 계정(차변 정상) 두 개로 닫히고,
+  `ledger_transaction`/`ledger_entry`는 불변(`@Immutable`, delete 미노출) — 정정은 역분개로만.
+  적립: `DEBIT POINT_CONTRA / CREDIT 사용자 POINT`. 차감: 그 반대.
+- **동시성 제어 (2층)**:
+  - 사용자별 `POINT` 계정 — `findForUpdate`(`SELECT ... FOR UPDATE`) 비관적 락으로 직렬화
+    → 초과 인출·분개 유실 방지. (`PointServiceConcurrencyTest`: 30스레드 동시 차감 검증)
+  - 전 사용자 공유 `POINT_CONTRA` 계정 — `@Version` 낙관적 락 + 트랜잭션 재시도
+    (`RetryingTransactionRunner`, decorrelated jitter). 비관적으로 잡지 않아 느린 트랜잭션이
+    전체를 막지 않는다. (`PointCrossUserConcurrencyTest`: 다수 사용자 동시 적립/차감 + 불변식 검증)
+  - 락 방식은 `PointLockStrategy` 인터페이스로 추상화(`app.point.lock-strategy=db`(기본)|`redisson`).
+- **멱등성**: 적립·차감 분개는 `ledger_transaction.idempotency_key`(예 `PAYBACK:ride:42`) 유니크로
+  재시도 이중 반영 차단.
+- **감사 로그**: 잔액 부족·중복 분개·불균형 시도를 `audit_log`(불변)에 남긴다.
+
+| 엔드포인트 | 설명 |
+|---|---|
+| `GET /api/v1/partners` | 이용 가능한 (가상) 제휴사 목록 |
+| `POST /api/v1/rides` | 이용 요청 (partnerId, origin, destination, fareAmount) |
+| `POST /api/v1/rides/{id}/start` · `/complete` · `/cancel` | 상태 전이. `complete` 시 결제 + 5% 페이백 |
+| `GET /api/v1/rides` · `/{id}` | 내 이용 내역 |
+| `GET /api/v1/points` · `/history` | 내 포인트 잔액 · 적립/차감 이력 |
+
+## 제휴사 수수료 정산 (B2B) + Spring Batch
+
+제휴사별 하루치 거래의 수수료를 일괄 정산한다. 매일 새벽 크론으로 어제 거래를 정산하고,
+운영자가 수동 실행할 수도 있다.
+
+- **Spring Batch chunk job**: reader(미정산 결제 보유 제휴사) → processor(제휴사별 합계·수수료 계산)
+  → writer(`settlement` 저장 + 정산 분개 + `payment.settled_at` 마킹). chunk 크기 1 =
+  제휴사 하나가 트랜잭션 하나.
+- **부분 실패 + `@Transactional` 롤백**: 한 제휴사가 실패해도(`SettlementException` - 비활성 등)
+  그 청크만 롤백되어 정산행·분개·마킹이 하나도 안 남고, `SettlementSkipListener`가 별도
+  트랜잭션으로 `FAILED`를 기록한 뒤 다음 제휴사로 넘어간다. 잡 자체는 `COMPLETED`.
+- **정산 분개**: DEBIT `FARE_CLEARING`(자금원) / CREDIT 제휴사 `CASH`(지급 몫) /
+  CREDIT `COMMISSION_INCOME`(수수료 수익). 차변 = 대변.
+- **멱등성**: `payment.settled_at` 마킹 — 재실행하면 이미 정산된 건은 조회에서 빠진다.
+  `Settlement`는 append-only 로그(실행마다 한 행). 미래 날짜는 거부, `partnerId` 지정 시 단건 재정산.
+- **JobRepository는 JDBC(영속)**: Spring Batch 6 / Boot 4 기본은 인메모리라 실행 이력이 없다.
+  `@EnableBatchProcessing + @EnableJdbcJobRepository`로 JDBC를 쓰고 `BatchSchemaInitializer`가
+  `BATCH_*` 테이블을 생성한다 → JobExecution·skip/write 카운트가 남고 재시작 가능.
+
+| 엔드포인트 | 권한 | 설명 |
+|---|---|---|
+| `POST /api/v1/admin/settlements/run` | ADMIN | 정산 배치 실행 (기본: 어제) |
+| `GET /api/v1/admin/settlements` | ADMIN | 전체 정산 내역 |
+| `GET /api/v1/admin/audit-logs` | ADMIN | 감사 로그 |
+| `GET /api/v1/admin/partners`, `POST .../{id}/{activate,deactivate}` | ADMIN | 제휴사 관리 |
+| `GET /api/v1/partner/settlements` | PARTNER_ADMIN | 본인 제휴사 정산 내역만 |
+
+운영자·제휴사 관리자 계정은 `StaffSeedInitializer`가 기동 시 시드한다(자격증명은 환경변수, 기본값은 데모용).
 
 ## 외부 API 연동 (ODsay)
 
